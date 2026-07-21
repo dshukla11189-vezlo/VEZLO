@@ -356,6 +356,7 @@ export default function AdminDashboard() {
   const [expandedDates, setExpandedDates] = useState({});        // Date → QC/Retail
   const [expandedVerticals, setExpandedVerticals] = useState({}); // Date_Vertical → Customers
   const [expandedCustomers, setExpandedCustomers] = useState({}); // Date_Vertical_Customer → Items
+  const [pnlOverviewViewMode, setPnlOverviewViewMode] = useState('all'); // 'all' | 'qc' | 'retail'
 
   const toggleDateExpand = (date) => {
     setExpandedDates(prev => ({
@@ -1830,6 +1831,29 @@ export default function AdminDashboard() {
                   <span>Daily P&L Breakdown</span>
                   <span className="text-[10px] font-normal text-gray-500">Date → QC/Retail → Customer → Products</span>
                 </CardTitle>
+                <div className="flex gap-1 mt-1">
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'qc', label: 'QC' },
+                    { key: 'retail', label: 'Retail' },
+                  ].map(tab => (
+                    <Button
+                      key={tab.key}
+                      variant={pnlOverviewViewMode === tab.key ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPnlOverviewViewMode(tab.key);
+                        setExpandedDates({});
+                        setExpandedVerticals({});
+                        setExpandedCustomers({});
+                      }}
+                      className={`text-xs h-6 px-2 ${pnlOverviewViewMode === tab.key ? 'bg-[#14532D]' : ''}`}
+                    >
+                      {tab.label}
+                    </Button>
+                  ))}
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
@@ -1914,6 +1938,331 @@ export default function AdminDashboard() {
                             return acc;
                           }, {});
                           
+                          // Three-way view mode rendering
+                          if (pnlOverviewViewMode === 'qc') {
+                            // QC-ONLY PATH
+                            if (qcItems.length === 0) return null;
+                            const qcProfitPerUnit = qcQty > 0 ? (qcGross / qcQty) : 0;
+                            return (
+                              <React.Fragment key={`qc-${dayIdx}`}>
+                                {/* L1 QC date row */}
+                                <tr 
+                                  className="border-b hover:bg-blue-50 cursor-pointer bg-white"
+                                  onClick={() => toggleDateExpand(day.date)}
+                                >
+                                  <td className="p-2 text-center text-gray-500">{dayIdx + 1}</td>
+                                  <td className="p-2 text-center">
+                                    {expandedDates[day.date] ? <ChevronDown size={14} className="text-blue-500" /> : <ChevronRight size={14} className="text-blue-500" />}
+                                  </td>
+                                  <td className="p-2 font-semibold text-blue-800">
+                                    <span className="inline-flex items-center gap-2">
+                                      <Zap size={12} className="text-blue-600" />
+                                      {formatDate(day.date)}
+                                      <span className="text-[10px] text-blue-500">({Object.keys(qcByCustomer).length} customers)</span>
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-right text-blue-700 font-medium">₹{qcSales.toLocaleString()}</td>
+                                  <td className="p-2 text-right text-blue-600">{qcQty.toLocaleString()}</td>
+                                  <td className="p-2 text-right text-gray-400">-</td>
+                                  <td className="p-2 text-right text-orange-600">₹{qcPurchase.toLocaleString()}</td>
+                                  <td className="p-2 text-right text-gray-400">-</td>
+                                  <td className="p-2 text-right text-red-600">₹{qcWastage.toLocaleString()}</td>
+                                  <td className="p-2 text-right text-gray-400">—</td>
+                                  <td className="p-2 text-right text-gray-400">—</td>
+                                  <td className={`p-2 text-right font-semibold ${qcGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                    {qcGross >= 0 ? '' : '-'}₹{Math.abs(qcGross).toLocaleString()}
+                                  </td>
+                                  <td className="p-2 text-right">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${qcMargin >= 0 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                                      {qcMargin.toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-right font-medium text-blue-700">
+                                    {qcQty > 0 ? `₹${qcProfitPerUnit.toFixed(1)}` : '-'}
+                                  </td>
+                                </tr>
+                                {/* L3 QC customers when date is expanded */}
+                                {expandedDates[day.date] && Object.entries(qcByCustomer).map(([customer, items]) => {
+                                  const custSales = items.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                                  const custQty = items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                                  const custPurchase = items.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                                  const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
+                                  const custGross = custSales - custPurchase - custWastage;
+                                  const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
+                                  const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
+                                  const custKey = `${day.date}_QC_${customer}`;
+                                  const sortedItems = [...items].sort((a, b) => (b.gross_margin || 0) - (a.gross_margin || 0));
+                                  
+                                  return (
+                                    <React.Fragment key={custKey}>
+                                      <tr 
+                                        className="border-b bg-blue-100/50 hover:bg-blue-100 cursor-pointer"
+                                        onClick={() => toggleCustomerExpand(custKey)}
+                                      >
+                                        <td className="p-2 text-center"></td>
+                                        <td className="p-2 text-center pl-6">
+                                          {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-blue-400" /> : <ChevronRight size={10} className="text-blue-400" />}
+                                        </td>
+                                        <td className="p-2 pl-6">
+                                          <span className="text-sm font-medium text-blue-700">{customer}</span>
+                                          <span className="ml-2 text-xs text-gray-400">({items.length} items)</span>
+                                        </td>
+                                        <td className="p-2 text-right text-blue-600 text-sm">₹{custSales.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                        <td className="p-2 text-right text-orange-500 text-sm">₹{custPurchase.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                        <td className="p-2 text-right text-red-500 text-sm">₹{custWastage.toLocaleString()}</td>
+                                        <td className="p-2 text-right text-gray-400 text-sm">—</td>
+                                        <td className="p-2 text-right text-gray-400 text-sm">—</td>
+                                        <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                          {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
+                                        </td>
+                                        <td className="p-2 text-right">
+                                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${custMargin >= 20 ? 'bg-green-100 text-green-700' : custMargin >= 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                            {custMargin.toFixed(1)}%
+                                          </span>
+                                        </td>
+                                        <td className="p-2 text-right text-sm font-medium text-blue-700">
+                                          ₹{custProfitPerUnit.toFixed(1)}
+                                        </td>
+                                      </tr>
+                                      {/* Level 4: Product/Item Details */}
+                                      {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
+                                        const itemGross = item.gross_profit || 0;
+                                        const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
+                                        const itemGM = item.gross_margin || 0;
+                                        const itemSPKg = item.selling_price_per_kg || (item.supplied_kg > 0 ? item.revenue / item.supplied_kg : 0);
+                                        const itemPPKg = item.purchase_price_per_kg || (item.supplied_kg > 0 ? item.cogs / item.supplied_kg : 0);
+                                        
+                                        return (
+                                          <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
+                                            <td className="p-2 pl-10"></td>
+                                            <td className="p-2 pl-10"></td>
+                                            <td className="p-2 pl-10">
+                                              <span className="text-sm text-gray-800 font-medium">{item.product}</span>
+                                              <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
+                                            </td>
+                                            <td className="p-2 text-right text-green-600 text-sm">₹{item.revenue.toLocaleString()}</td>
+                                            <td className="p-2 text-right text-gray-600 text-sm">{item.supplied_qty}</td>
+                                            <td className="p-2 text-right text-green-700 text-sm font-medium">₹{itemSPKg.toFixed(1)}</td>
+                                            <td className="p-2 text-right text-orange-500 text-sm">₹{item.cogs.toLocaleString()}</td>
+                                            <td className="p-2 text-right text-orange-700 text-sm font-medium">₹{itemPPKg.toFixed(1)}</td>
+                                            <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
+                                            <td className="p-2 text-right text-gray-400 text-sm">—</td>
+                                            <td className="p-2 text-right text-gray-400 text-sm">—</td>
+                                            <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                              ₹{itemGross.toLocaleString()}
+                                            </td>
+                                            <td className="p-2 text-right">
+                                              <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${itemGM >= 20 ? 'bg-green-100 text-green-800' : itemGM >= 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                                {itemGM}%
+                                              </span>
+                                            </td>
+                                            <td className={`p-2 text-right text-sm font-bold ${itemProfitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                              ₹{itemProfitPerUnit.toFixed(1)}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </React.Fragment>
+                                  );
+                                })}
+                              </React.Fragment>
+                            );
+                          }
+                          
+                          if (pnlOverviewViewMode === 'retail') {
+                            // RETAIL-ONLY PATH
+                            if (retailItems.length === 0 && (!day.unsold_wastage || day.unsold_wastage.length === 0)) return null;
+                            const retailProfitPerUnit = retailQty > 0 ? (retailGross / retailQty) : 0;
+                            return (
+                              <React.Fragment key={`retail-${dayIdx}`}>
+                                {/* L1 Retail date row */}
+                                <tr 
+                                  className="border-b hover:bg-emerald-50 cursor-pointer bg-white"
+                                  onClick={() => toggleDateExpand(day.date)}
+                                >
+                                  <td className="p-2 text-center text-gray-500">{dayIdx + 1}</td>
+                                  <td className="p-2 text-center">
+                                    {expandedDates[day.date] ? <ChevronDown size={14} className="text-emerald-500" /> : <ChevronRight size={14} className="text-emerald-500" />}
+                                  </td>
+                                  <td className="p-2 font-semibold text-emerald-800">
+                                    <span className="inline-flex items-center gap-2">
+                                      <ShoppingCart size={12} className="text-emerald-600" />
+                                      {formatDate(day.date)}
+                                      <span className="text-[10px] text-emerald-500">({Object.keys(retailByCustomer).length} customers)</span>
+                                      {retailRejectionMRP > 0 && (
+                                        <span className="text-[9px] text-red-500">(Net of ₹{retailRejectionMRP.toLocaleString()} rejection)</span>
+                                      )}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-right text-emerald-700 font-medium">₹{Math.round(retailNetSales).toLocaleString()}</td>
+                                  <td className="p-2 text-right text-emerald-600">{retailQty.toLocaleString()}</td>
+                                  <td className="p-2 text-right text-gray-400">-</td>
+                                  <td className="p-2 text-right text-orange-600">₹{Math.round(retailNetCogs).toLocaleString()}</td>
+                                  <td className="p-2 text-right text-gray-400">-</td>
+                                  <td className="p-2 text-right text-red-600">₹{retailWastage.toLocaleString()}</td>
+                                  <td className="p-2 text-right text-red-500">{retailRejectionCOGS > 0 ? `₹${retailRejectionCOGS.toLocaleString()}` : '-'}</td>
+                                  <td className="p-2 text-right text-amber-600">{retailCommission > 0 ? `-₹${retailCommission.toLocaleString()}` : '-'}</td>
+                                  <td className={`p-2 text-right font-semibold ${retailGross >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                    {retailGross >= 0 ? '' : '-'}₹{Math.abs(retailGross).toLocaleString()}
+                                  </td>
+                                  <td className="p-2 text-right">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${retailMargin >= 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                      {retailMargin.toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className="p-2 text-right font-medium text-emerald-700">
+                                    {retailQty > 0 ? `₹${retailProfitPerUnit.toFixed(1)}` : '-'}
+                                  </td>
+                                </tr>
+                                {/* L3 Retail customers when date is expanded */}
+                                {expandedDates[day.date] && (
+                                  <>
+                                    {Object.entries(retailByCustomer).map(([customer, items]) => {
+                                      const custSales = items.reduce((sum, i) => sum + (i.revenue || 0), 0);
+                                      const custQty = items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                                      const custPurchase = items.reduce((sum, i) => sum + (i.cogs || 0), 0);
+                                      const custWastage = items.reduce((sum, i) => sum + (i.wastage_value || 0), 0);
+                                      const custCommission = items.reduce((sum, i) => sum + (i.commission || 0), 0);
+                                      const custRetailerId = customerToRetailerId[customer] || '';
+                                      const rejectionKey = `${day.date}_${custRetailerId}`;
+                                      const custRejectionData = rejectionByDateRetailer[rejectionKey] || { cogs: 0, value: 0, qty: 0 };
+                                      const custRejection = Math.round(custRejectionData.cogs || 0);
+                                      const custGross = Math.round(custSales - custPurchase - custWastage - custRejection - custCommission);
+                                      const custMargin = custSales > 0 ? (custGross / custSales * 100) : 0;
+                                      const custProfitPerUnit = custQty > 0 ? (custGross / custQty) : 0;
+                                      const custKey = `${day.date}_Retail_${customer}`;
+                                      const sortedItems = [...items].sort((a, b) => (b.gross_margin || 0) - (a.gross_margin || 0));
+                                      
+                                      return (
+                                        <React.Fragment key={custKey}>
+                                          <tr 
+                                            className="border-b bg-emerald-100/50 hover:bg-emerald-100 cursor-pointer"
+                                            onClick={() => toggleCustomerExpand(custKey)}
+                                          >
+                                            <td className="p-2 text-center"></td>
+                                            <td className="p-2 text-center pl-6">
+                                              {expandedCustomers[custKey] ? <ChevronDown size={10} className="text-emerald-400" /> : <ChevronRight size={10} className="text-emerald-400" />}
+                                            </td>
+                                            <td className="p-2 pl-6">
+                                              <span className="text-sm font-medium text-emerald-700">{customer}</span>
+                                              <span className="ml-2 text-xs text-gray-400">({items.length} items)</span>
+                                            </td>
+                                            <td className="p-2 text-right text-emerald-600 text-sm">₹{Math.round(custSales).toLocaleString()}</td>
+                                            <td className="p-2 text-right text-gray-600 text-sm">{custQty.toLocaleString()}</td>
+                                            <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                            <td className="p-2 text-right text-orange-500 text-sm">₹{Math.round(custPurchase).toLocaleString()}</td>
+                                            <td className="p-2 text-right text-gray-400 text-sm">-</td>
+                                            <td className="p-2 text-right text-red-500 text-sm">₹{Math.round(custWastage).toLocaleString()}</td>
+                                            <td className="p-2 text-right text-red-500 text-sm">{custRejection > 0 ? `-₹${custRejection.toLocaleString()}` : '-'}</td>
+                                            <td className="p-2 text-right text-amber-500 text-sm">{custCommission > 0 ? `-₹${Math.round(custCommission).toLocaleString()}` : '-'}</td>
+                                            <td className={`p-2 text-right text-sm font-semibold ${custGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                              {custGross >= 0 ? '' : '-'}₹{Math.abs(custGross).toLocaleString()}
+                                            </td>
+                                            <td className="p-2 text-right">
+                                              <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${custMargin >= 20 ? 'bg-green-100 text-green-700' : custMargin >= 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                                {custMargin.toFixed(1)}%
+                                              </span>
+                                            </td>
+                                            <td className="p-2 text-right text-sm font-medium text-emerald-700">
+                                              ₹{custProfitPerUnit.toFixed(1)}
+                                            </td>
+                                          </tr>
+                                          {/* Level 4: Product/Item Details with net-of-rejection annotations */}
+                                          {expandedCustomers[custKey] && sortedItems.map((item, iidx) => {
+                                            const itemRejectionCogs  = item.rejection_cogs || 0;
+                                            const itemRejectionValue = item.rejection_value || 0;
+                                            const itemRejectionQty   = item.rejection_qty || 0;
+                                            const itemGross          = item.gross_profit || 0;
+                                            const itemNetRevenue     = (item.revenue || 0) - itemRejectionValue;
+                                            const itemNetCogs        = (item.cogs || 0) - itemRejectionCogs;
+                                            const itemNetQty         = (item.supplied_qty || 0) - itemRejectionQty;
+                                            const itemCommission = item.commission || 0;
+                                            const itemProfitPerUnit = item.supplied_qty > 0 ? (itemGross / item.supplied_qty) : 0;
+                                            const itemGM = itemNetRevenue > 0 ? (itemGross / itemNetRevenue * 100) : (item.gross_margin || 0);
+                                            const itemSPKg = item.selling_price_per_kg || (item.supplied_kg > 0 ? itemNetRevenue / item.supplied_kg : 0);
+                                            const itemPPKg = item.purchase_price_per_kg || (item.supplied_kg > 0 ? itemNetCogs / item.supplied_kg : 0);
+                                            
+                                            return (
+                                              <tr key={iidx} className="border-b bg-white hover:bg-gray-50">
+                                                <td className="p-2 pl-10"></td>
+                                                <td className="p-2 pl-10"></td>
+                                                <td className="p-2 pl-10">
+                                                  <span className="text-sm text-gray-800 font-medium">{item.product}</span>
+                                                  <span className="ml-1.5 text-xs text-gray-400">{item.unit}</span>
+                                                </td>
+                                                <td className="p-2 text-right text-green-600 text-sm">
+                                                  ₹{itemNetRevenue.toLocaleString()}
+                                                  {itemRejectionValue > 0 && (
+                                                    <span className="ml-1 text-xs text-gray-400">(-₹{itemRejectionValue.toLocaleString()})</span>
+                                                  )}
+                                                </td>
+                                                <td className="p-2 text-right text-gray-600 text-sm">
+                                                  {itemNetQty}
+                                                  {itemRejectionQty > 0 && (
+                                                    <span className="ml-1 text-xs text-gray-400">(-{itemRejectionQty})</span>
+                                                  )}
+                                                </td>
+                                                <td className="p-2 text-right text-green-700 text-sm font-medium">₹{itemSPKg.toFixed(1)}</td>
+                                                <td className="p-2 text-right text-orange-500 text-sm">₹{itemNetCogs.toLocaleString()}</td>
+                                                <td className="p-2 text-right text-orange-700 text-sm font-medium">₹{itemPPKg.toFixed(1)}</td>
+                                                <td className="p-2 text-right text-red-500 text-sm">₹{item.wastage_value.toLocaleString()}</td>
+                                                <td className="p-2 text-right text-red-500 text-sm">{itemRejectionCogs > 0 ? `-₹${Math.round(itemRejectionCogs).toLocaleString()}` : '-'}</td>
+                                                <td className="p-2 text-right text-amber-500 text-sm">{itemCommission > 0 ? `-₹${Math.round(itemCommission).toLocaleString()}` : '-'}</td>
+                                                <td className={`p-2 text-right text-sm font-semibold ${itemGross >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                  ₹{Math.round(itemGross).toLocaleString()}
+                                                </td>
+                                                <td className="p-2 text-right">
+                                                  <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${itemGM >= 20 ? 'bg-green-100 text-green-800' : itemGM >= 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
+                                                    {itemGM.toFixed(1)}%
+                                                  </span>
+                                                </td>
+                                                <td className={`p-2 text-right text-sm font-bold ${itemProfitPerUnit >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                                  ₹{itemProfitPerUnit.toFixed(1)}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                    {/* Cumulative Unsold Wastage */}
+                                    {day.unsold_wastage && day.unsold_wastage.length > 0 && (
+                                      <>
+                                        <tr className="bg-amber-50 border-t border-amber-200">
+                                          <td className="p-2 pl-6 font-medium text-amber-800 text-xs" colSpan={8}>
+                                            Cumulative Unsold Wastage (Products with no sales)
+                                          </td>
+                                          <td className="p-2 text-right text-amber-700 font-medium text-xs">
+                                            ₹{day.unsold_wastage_total?.toLocaleString()}
+                                          </td>
+                                          <td colSpan={5}></td>
+                                        </tr>
+                                        {day.unsold_wastage.map((item, widx) => (
+                                          <tr key={`uw-${widx}`} className="bg-amber-50/50 border-t border-amber-100">
+                                            <td className="p-2 pl-10 text-xs text-amber-700" colSpan={7}>
+                                              {item.product}
+                                            </td>
+                                            <td className="p-2 text-right text-xs text-amber-600">
+                                              {item.qty} Kg @ ₹{item.avg_price}/Kg
+                                            </td>
+                                            <td className="p-2 text-right text-xs text-amber-700 font-medium">
+                                              ₹{item.value?.toLocaleString()}
+                                            </td>
+                                            <td colSpan={5}></td>
+                                          </tr>
+                                        ))}
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </React.Fragment>
+                            );
+                          }
+                          
+                          // ALL PATH (pnlOverviewViewMode === 'all') - default, existing flow
                           return (
                             <React.Fragment key={dayIdx}>
                               {/* Level 1: Date Row */}
@@ -2297,40 +2646,70 @@ export default function AdminDashboard() {
                       )}
                     </tbody>
                     {dailyPnl.length > 0 && (() => {
-                      // Calculate totals from line items for consistency
-                      const totalPurchaseFromItems = dailyPnl.reduce((sum, day) => {
-                        const lineItems = day.line_items || [];
-                        return sum + lineItems.reduce((s, i) => s + (i.cogs || 0), 0);
-                      }, 0);
-                      const totalWastageFromItems = dailyPnl.reduce((sum, day) => {
-                        const lineItems = day.line_items || [];
-                        const unsoldWastage = day.unsold_wastage_total || 0;
-                        return sum + lineItems.reduce((s, i) => s + (i.wastage_value || 0), 0) + unsoldWastage;
-                      }, 0);
-                      const totalRejection = dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0);
-                      const totalCommission = dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0);
-                      const totalGross = (summary.total_sales || 0) - totalPurchaseFromItems - totalWastageFromItems - totalRejection - totalCommission;
-                      const totalMargin = summary.total_sales > 0 ? (totalGross / summary.total_sales * 100) : 0;
+                      // Calculate totals based on view mode (tab)
+                      let totalSales = 0, totalQty = 0, totalPurchase = 0, totalWastage = 0, totalRejection = 0, totalCommission = 0;
+                      
+                      if (pnlOverviewViewMode === 'qc') {
+                        // QC-only totals
+                        dailyPnl.forEach(day => {
+                          const qcItems = (day.line_items || []).filter(i => i.customer_type === 'QC');
+                          totalSales += qcItems.reduce((s, i) => s + (i.revenue || 0), 0);
+                          totalQty += qcItems.reduce((s, i) => s + (i.supplied_qty || 0), 0);
+                          totalPurchase += qcItems.reduce((s, i) => s + (i.cogs || 0), 0);
+                          totalWastage += qcItems.reduce((s, i) => s + (i.wastage_value || 0), 0);
+                          // QC has no rejection or commission
+                        });
+                      } else if (pnlOverviewViewMode === 'retail') {
+                        // Retail-only totals (use net values)
+                        dailyPnl.forEach(day => {
+                          const retailItems = (day.line_items || []).filter(i => i.customer_type !== 'QC');
+                          const unsoldWastage = day.unsold_wastage_total || 0;
+                          totalSales += day.retail_net_sales || retailItems.reduce((s, i) => s + (i.revenue || 0), 0);
+                          totalQty += retailItems.reduce((s, i) => s + (i.supplied_qty || 0), 0);
+                          totalPurchase += day.retail_net_cogs || retailItems.reduce((s, i) => s + (i.cogs || 0), 0);
+                          totalWastage += retailItems.reduce((s, i) => s + (i.wastage_value || 0), 0) + unsoldWastage;
+                          totalRejection += day.retail_rejection_cogs || 0;
+                          totalCommission += day.retail_commission || 0;
+                        });
+                      } else {
+                        // All (existing logic)
+                        totalSales = summary.total_sales || 0;
+                        totalQty = summary.total_sales_qty || 0;
+                        totalPurchase = dailyPnl.reduce((sum, day) => {
+                          const lineItems = day.line_items || [];
+                          return sum + lineItems.reduce((s, i) => s + (i.cogs || 0), 0);
+                        }, 0);
+                        totalWastage = dailyPnl.reduce((sum, day) => {
+                          const lineItems = day.line_items || [];
+                          const unsoldWastage = day.unsold_wastage_total || 0;
+                          return sum + lineItems.reduce((s, i) => s + (i.wastage_value || 0), 0) + unsoldWastage;
+                        }, 0);
+                        totalRejection = dailyPnl.reduce((sum, d) => sum + (d.retail_rejection || 0), 0);
+                        totalCommission = dailyPnl.reduce((sum, d) => sum + (d.retail_commission || 0), 0);
+                      }
+                      
+                      const totalGross = totalSales - totalPurchase - totalWastage - totalRejection - totalCommission;
+                      const totalMargin = totalSales > 0 ? (totalGross / totalSales * 100) : 0;
                       
                       return (
                         <tfoot className="bg-gray-100 font-semibold">
                           <tr>
                             <td className="p-2"></td>
                             <td className="p-2">TOTAL</td>
-                            <td className="p-2 text-right text-green-700">₹{summary.total_sales?.toLocaleString()}</td>
-                            <td className="p-2 text-right text-gray-700">{summary.total_sales_qty?.toLocaleString()}</td>
+                            <td className="p-2 text-right text-green-700">₹{Math.round(totalSales).toLocaleString()}</td>
+                            <td className="p-2 text-right text-gray-700">{Math.round(totalQty).toLocaleString()}</td>
                             <td className="p-2 text-right text-gray-400">-</td>
-                            <td className="p-2 text-right text-orange-700">₹{totalPurchaseFromItems.toLocaleString()}</td>
+                            <td className="p-2 text-right text-orange-700">₹{Math.round(totalPurchase).toLocaleString()}</td>
                             <td className="p-2 text-right text-gray-400">-</td>
-                            <td className="p-2 text-right text-red-700">₹{totalWastageFromItems.toLocaleString()}</td>
+                            <td className="p-2 text-right text-red-700">₹{Math.round(totalWastage).toLocaleString()}</td>
                             <td className="p-2 text-right text-red-500">
-                              {totalRejection > 0 ? `-₹${totalRejection.toLocaleString()}` : '-'}
+                              {pnlOverviewViewMode === 'qc' ? '—' : (totalRejection > 0 ? `-₹${Math.round(totalRejection).toLocaleString()}` : '-')}
                             </td>
                             <td className="p-2 text-right text-amber-600">
-                              {totalCommission > 0 ? `-₹${totalCommission.toLocaleString()}` : '-'}
+                              {pnlOverviewViewMode === 'qc' ? '—' : (totalCommission > 0 ? `-₹${Math.round(totalCommission).toLocaleString()}` : '-')}
                             </td>
                             <td className={`p-2 text-right ${totalGross >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                              ₹{totalGross.toLocaleString()}
+                              ₹{Math.round(totalGross).toLocaleString()}
                             </td>
                             <td className="p-2 text-right">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -2340,7 +2719,7 @@ export default function AdminDashboard() {
                               }`}>{totalMargin.toFixed(1)}%</span>
                             </td>
                             <td className="p-2 text-right text-green-800">
-                              {summary.total_sales_qty > 0 ? `₹${(totalGross / summary.total_sales_qty).toFixed(1)}` : '-'}
+                              {totalQty > 0 ? `₹${(totalGross / totalQty).toFixed(1)}` : '-'}
                             </td>
                           </tr>
                         </tfoot>

@@ -574,6 +574,11 @@ export default function RetailerOrders() {
   const [rejLossDrilldownRetailer, setRejLossDrilldownRetailer] = useState(null); // { retailer_id, retailer_name }
   const [rejLossDrilldownProduct, setRejLossDrilldownProduct] = useState(null);   // { product_id, product_name }
   const [rejLossOpenedWithShortcut, setRejLossOpenedWithShortcut] = useState(false); // true when opened with a specific retailer selected
+  
+  // U1 - Today's/Tomorrow's Orders breakdown modal
+  const [ordersBreakdownModalOpen, setOrdersBreakdownModalOpen] = useState(false);
+  const [ordersBreakdownMode, setOrdersBreakdownMode] = useState('today'); // 'today' | 'tomorrow'
+  
   const [allDispatchesForRejection, setAllDispatchesForRejection] = useState([]); // All dispatches for rejection % calc
   const [loadingRejectionDispatches, setLoadingRejectionDispatches] = useState(false);
   const [selectedProductForAnalysis, setSelectedProductForAnalysis] = useState(''); // Selected product for drilldown
@@ -3411,6 +3416,30 @@ export default function RetailerOrders() {
       return { ...row, supplied_qty: sq, rejection_pct: pct };
     }).sort((a, b) => b.rejection_pct - a.rejection_pct);
   }, [rejLossModalOpen, rejLossDrilldownRetailer, rejLossDrilldownProduct, rejections, allDispatchesForRejection, rejectionLossDateFrom, rejectionLossDateTo]);
+
+  // U1 - Today's/Tomorrow's Orders breakdown by retailer
+  const ordersBreakdownRows = useMemo(() => {
+    if (!ordersBreakdownModalOpen) return [];   // perf gate
+    const targetDate = ordersBreakdownMode === 'today' ? getISTDate() : getISTDateWithOffset(1);
+    const ordersByRetailer = {};
+    (indents || []).forEach(indent => {
+      if ((indent.indent_date || '').split('T')[0] !== targetDate) return;
+      const rid = indent.retailer_id;
+      if (!rid) return;
+      if (!ordersByRetailer[rid]) ordersByRetailer[rid] = 0;
+      ordersByRetailer[rid] += (indent.items || []).reduce(
+        (sum, item) => sum + (item.quantity || item.indent_qty || 0),
+        0
+      );
+    });
+    // Filter to active retailers only (status !== 'churned')
+    const activeList = (retailers || []).filter(r => r.status !== 'churned');
+    return activeList.map(r => ({
+      retailer_id: r.id,
+      retailer_name: r.company_name || r.name || 'Unknown',
+      order_qty: ordersByRetailer[r.id] || 0,
+    })).sort((a, b) => b.order_qty - a.order_qty);   // DESC by qty; zero-qty rows naturally sink
+  }, [ordersBreakdownModalOpen, ordersBreakdownMode, indents, retailers]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -8652,7 +8681,7 @@ export default function RetailerOrders() {
     <Layout title="Retailer Orders">
       <div data-testid="retailer-orders-page">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 min-w-0 overflow-hidden">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
             <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
@@ -8663,7 +8692,7 @@ export default function RetailerOrders() {
             <select
               value={selectedRetailer}
               onChange={(e) => setSelectedRetailer(e.target.value)}
-              className="h-9 px-3 rounded-md border border-gray-200 text-sm"
+              className="h-9 px-3 rounded-md border border-gray-200 text-sm max-w-[200px] sm:max-w-[280px] truncate"
             >
               <option value="">All Retailers</option>
               {retailers.map(r => (
@@ -8689,6 +8718,16 @@ export default function RetailerOrders() {
                 <span className="text-xs text-gray-600">Dispatch:</span>
                 <span className="text-xs font-semibold">{dashboardStats.todayDispatchesCount || 0} <span className="text-green-600">({dashboardStats.todayDispatchesQty || 0} qty)</span></span>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setOrdersBreakdownMode('today'); setOrdersBreakdownModalOpen(true); }}
+                className="h-6 text-[10px] mt-2 w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                data-testid="view-today-orders-btn"
+              >
+                <Eye size={12} className="mr-1" />
+                View
+              </Button>
             </div>
           </div>
           <div className="bg-white rounded-lg border p-3">
@@ -8705,6 +8744,16 @@ export default function RetailerOrders() {
                 <span className="text-xs text-gray-600">Dispatch:</span>
                 <span className="text-xs font-semibold">{dashboardStats.tomorrowDispatchesCount || 0} <span className="text-green-600">({dashboardStats.tomorrowDispatchesQty || 0} qty)</span></span>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setOrdersBreakdownMode('tomorrow'); setOrdersBreakdownModalOpen(true); }}
+                className="h-6 text-[10px] mt-2 w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                data-testid="view-tomorrow-orders-btn"
+              >
+                <Eye size={12} className="mr-1" />
+                View
+              </Button>
             </div>
           </div>
           <div className="bg-white rounded-lg border p-3">
@@ -8730,7 +8779,7 @@ export default function RetailerOrders() {
         {/* Rejection Loss Block */}
         <div key={`rejection-loss-${rejectionLossDateFrom}-${rejectionLossDateTo}`} className="bg-red-50 rounded-lg border border-red-200 p-4 mb-4">
           {/* Header Row */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <div className="p-2 bg-red-100 rounded-lg">
                 <AlertTriangle size={18} className="text-red-600" />
@@ -16566,6 +16615,46 @@ export default function RetailerOrders() {
                     </table>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== U1 ORDERS BREAKDOWN MODAL ==================== */}
+        {ordersBreakdownModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {ordersBreakdownMode === 'today' ? "Today's" : "Tomorrow's"} Orders — Retailer List
+                </h3>
+                <button onClick={() => setOrdersBreakdownModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="overflow-auto flex-1 p-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-2 text-xs text-gray-500">S No</th>
+                      <th className="text-left py-2 px-2 text-xs text-gray-500">Retailer Name</th>
+                      <th className="text-right py-2 px-2 text-xs text-gray-500">Order Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ordersBreakdownRows.length === 0 ? (
+                      <tr><td colSpan={3} className="p-4 text-center text-gray-500 text-xs">No active retailers.</td></tr>
+                    ) : ordersBreakdownRows.map((row, idx) => (
+                      <tr key={row.retailer_id} className="border-b last:border-0">
+                        <td className="py-2 px-2 text-xs">{idx + 1}</td>
+                        <td className="py-2 px-2 text-xs">{row.retailer_name}</td>
+                        <td className="py-2 px-2 text-xs text-right">
+                          {row.order_qty > 0 ? row.order_qty : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

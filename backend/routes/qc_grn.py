@@ -31,6 +31,24 @@ from routes.combo_utils import (
 
 router = APIRouter(tags=["qc_grn"])
 
+
+def _derive_grn_date(items: list, fallback: str) -> str:
+    """
+    A GRN's business date is the supply/dispatch date of its goods, not the
+    upload timestamp. Derive the top-level grn_date from the EARLIEST item
+    dispatch_date so list/filter, display, dedup and loss calc all agree on
+    the same date. Falls back to the provided value (e.g. save timestamp)
+    when items carry no usable dispatch_date.
+    """
+    item_dates = []
+    for it in items or []:
+        d = it.get("dispatch_date") if isinstance(it, dict) else None
+        if d:
+            item_dates.append(str(d)[:10])  # normalize to YYYY-MM-DD
+    if item_dates:
+        return f"{min(item_dates)}T00:00:00"
+    return fallback
+
 # SECTION: QC GRN ROUTES (Lines ~999-1450)
 # ============================================================================
 @router.get("/qc-grns")
@@ -50,8 +68,16 @@ async def get_qc_grns(
             date_filter["$gte"] = from_date
         if to_date:
             date_filter["$lte"] = to_date + "T23:59:59"
-        query["grn_date"] = date_filter
-    
+        # A GRN's meaningful date is the SUPPLY date carried by each item
+        # (item.dispatch_date), which is what the UI groups/filters/dedupes on.
+        # The top-level grn_date is just the upload timestamp, so filtering on it
+        # alone hides GRNs uploaded/re-uploaded on a day other than the supply date.
+        # Match on either the item dispatch_date (primary) or grn_date (legacy fallback).
+        query["$or"] = [
+            {"items": {"$elemMatch": {"dispatch_date": date_filter}}},
+            {"grn_date": date_filter},
+        ]
+
     grns = await db.qc_grns.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     for g in grns:
         if isinstance(g.get('grn_date'), str):
@@ -72,6 +98,9 @@ async def create_qc_grn(input: QCGRNCreate, current_user: dict = Depends(get_cur
     doc = grn.model_dump()
     doc['grn_date'] = doc['grn_date'].isoformat()
     doc['created_at'] = doc['created_at'].isoformat()
+    # Anchor grn_date to the actual supply date of the goods (earliest item
+    # dispatch_date) so the record is retrievable by the date the user thinks in.
+    doc['grn_date'] = _derive_grn_date(doc.get('items', []), doc['grn_date'])
     await db.qc_grns.insert_one(doc)
     
     return {"id": grn.id, "message": "GRN created successfully"}
@@ -90,7 +119,9 @@ async def update_qc_grn(grn_id: str, input: QCGRNCreate, current_user: dict = De
     # Prepare update data
     update_data = input.model_dump()
     update_data['grn_date'] = update_data['grn_date'].isoformat() if hasattr(update_data['grn_date'], 'isoformat') else update_data['grn_date']
-    
+    # Keep grn_date anchored to the supply date, not the edit timestamp.
+    update_data['grn_date'] = _derive_grn_date(update_data.get('items', []), update_data['grn_date'])
+
     # Recalculate totals from items
     items = update_data.get('items', [])
     update_data['total_supplied'] = sum(item.get('supplied_qty', 0) for item in items)

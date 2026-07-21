@@ -7257,8 +7257,8 @@ def generate_auto_indents_wrapper():
 @router.post("/admin/generate-auto-indents")
 async def trigger_auto_indent_generation(current_user: dict = Depends(get_current_user)):
     """Manually trigger auto-indent generation for testing"""
-    if current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Only admin can trigger auto-indent generation")
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin or staff can trigger auto-indent generation")
     
     result = await generate_auto_indents_for_tomorrow()
     return result
@@ -7270,8 +7270,8 @@ async def generate_single_auto_indent(
     current_user: dict = Depends(get_current_user)
 ):
     """Generate auto-indent for a single retailer based on sales history OR retail plan"""
-    if current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Only admin can generate auto indents")
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Only admin or staff can generate auto indents")
     
     retailer_id = request.get("retailer_id")
     target_date_str = request.get("target_date")

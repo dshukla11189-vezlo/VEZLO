@@ -2694,6 +2694,7 @@ export default function AdminDashboard() {
                       return (
                         <tfoot className="bg-gray-100 font-semibold">
                           <tr>
+                            <td className="p-2 text-center"></td>
                             <td className="p-2"></td>
                             <td className="p-2">TOTAL</td>
                             <td className="p-2 text-right text-green-700">₹{Math.round(totalSales).toLocaleString()}</td>

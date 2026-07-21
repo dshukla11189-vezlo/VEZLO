@@ -3327,9 +3327,9 @@ export default function RetailerOrders() {
       if (selectedRetailer && rej.retailer_id !== selectedRetailer) return;
       const rid = rej.retailer_id || 'unknown';
       if (!rejectedByRetailer[rid]) {
-        // Find retailer name from retailers array
+        // Find retailer and use company_name (shop name) instead of name (owner name)
         const retailerObj = (retailers || []).find(r => r.id === rid);
-        const rName = retailerObj?.name || rej.retailer_name || 'Unknown';
+        const rName = retailerObj?.company_name || retailerObj?.name || rej.retailer_name || 'Unknown';
         rejectedByRetailer[rid] = { retailer_id: rid, retailer_name: rName, rejection_qty: 0, rejection_value: 0, rejection_cogs: 0 };
       }
       rejectedByRetailer[rid].rejection_qty   += (rej.quantity || 0);

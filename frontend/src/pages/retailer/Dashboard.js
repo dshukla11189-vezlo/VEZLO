@@ -176,6 +176,11 @@ export default function RetailerDashboard() {
   const [rejectionDrilldownProduct, setRejectionDrilldownProduct] = useState(null); // null = L1 (list), object = L2 (date-wise)
   const [rejectionDetailsSearch, setRejectionDetailsSearch] = useState('');
   
+  // W2/W3 - Net Sales and Rejection % modal states
+  const [netSalesModalOpen, setNetSalesModalOpen] = useState(false);
+  const [netSalesDrilldownDate, setNetSalesDrilldownDate] = useState(null);
+  const [rejPctModalOpen, setRejPctModalOpen] = useState(false);
+  
   const [rejectionDateFrom, setRejectionDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 84); // 12 weeks default
@@ -973,53 +978,79 @@ export default function RetailerDashboard() {
 
   // V1 — 15-day rolling Net Sales & Rejection % for retailer portal
   const netSalesAndRejection15d = useMemo(() => {
-    const today = getLocalDateString();
-    const fifteenDaysAgo = getISTDateWithOffset(-14);
-
-    const recentDispatches = (dispatches || []).filter(d => {
+    // Distinct dispatch dates (delivered days), DESC, top 15
+    const dispatchDateSet = new Set();
+    (dispatches || []).forEach(d => {
       const dd = (d.dispatch_date || '').split('T')[0];
-      return dd >= fifteenDaysAgo && dd <= today;
+      if (dd) dispatchDateSet.add(dd);
     });
-    const recentRejections = (rejections || []).filter(r => {
-      const rd = (r.rejection_date || '').split('T')[0];
-      return rd >= fifteenDaysAgo && rd <= today;
-    });
+    const top15 = Array.from(dispatchDateSet).sort((a, b) => b.localeCompare(a)).slice(0, 15);
+    const top15Set = new Set(top15);
+    const deliveredDaysCount = top15.length;
 
-    const grossByDay = {};
-    recentDispatches.forEach(d => {
+    // Per-day aggregation across top15
+    const dayData = {};
+    top15.forEach(dd => { dayData[dd] = { grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0, products: {} }; });
+
+    (dispatches || []).forEach(d => {
       const dd = (d.dispatch_date || '').split('T')[0];
-      if (!dd) return;
+      if (!dayData[dd]) return;
       const mrp = (d.total_mrp_value && d.total_mrp_value > 0)
         ? d.total_mrp_value
         : (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
-      grossByDay[dd] = (grossByDay[dd] || 0) + mrp;
-    });
-    const rejByDay = {};
-    recentRejections.forEach(r => {
-      const rd = (r.rejection_date || '').split('T')[0];
-      if (!rd) return;
-      rejByDay[rd] = (rejByDay[rd] || 0) + (r.rejection_value || 0);
+      dayData[dd].grossValue += mrp;
+      (d.items || []).forEach(i => {
+        const qty = i.supplied_qty || 0;
+        dayData[dd].grossQty += qty;
+        const pid = i.product_id || 'unknown';
+        if (!dayData[dd].products[pid]) dayData[dd].products[pid] = { name: i.product_name || 'Unknown', grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0 };
+        dayData[dd].products[pid].grossValue += (qty * (i.mrp || 0));
+        dayData[dd].products[pid].grossQty += qty;
+      });
     });
 
-    let totalNetSales = 0;
-    let deliveredDaysCount = 0;
-    Object.keys(grossByDay).forEach(day => {
-      if (grossByDay[day] > 0) {
-        totalNetSales += grossByDay[day] - (rejByDay[day] || 0);
-        deliveredDaysCount++;
-      }
+    (rejections || []).forEach(r => {
+      const rd = (r.rejection_date || '').split('T')[0];
+      if (!dayData[rd]) return;
+      dayData[rd].rejValue += (r.rejection_value || 0);
+      dayData[rd].rejQty += (r.quantity || 0);
+      const pid = r.product_id || 'unknown';
+      if (!dayData[rd].products[pid]) dayData[rd].products[pid] = { name: r.product_name || 'Unknown', grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0 };
+      dayData[rd].products[pid].rejValue += (r.rejection_value || 0);
+      dayData[rd].products[pid].rejQty += (r.quantity || 0);
     });
+
+    // Avg Net Sales across all 15 delivered days
+    let totalNetSales = 0;
+    top15.forEach(dd => { totalNetSales += dayData[dd].grossValue - dayData[dd].rejValue; });
     const avgNetSales = deliveredDaysCount > 0 ? totalNetSales / deliveredDaysCount : 0;
 
-    let totalRejQty = 0;
-    let totalSuppliedQty = 0;
-    recentDispatches.forEach(d => {
-      (d.items || []).forEach(i => { totalSuppliedQty += (i.supplied_qty || 0); });
-    });
-    recentRejections.forEach(r => { totalRejQty += (r.quantity || 0); });
-    const rejectionPct = totalSuppliedQty > 0 ? (totalRejQty / totalSuppliedQty) * 100 : null;
+    // Rejection %: 8 OLDEST of the 15 delivered days (drop 7 most recent)
+    const oldest8 = top15.slice(Math.max(0, top15.length - 8));
+    let rej8Qty = 0, sup8Qty = 0;
+    oldest8.forEach(dd => { sup8Qty += dayData[dd].grossQty; rej8Qty += dayData[dd].rejQty; });
+    const rejectionPct = sup8Qty > 0 ? (rej8Qty / sup8Qty) * 100 : null;
+    const rejection8Days = oldest8.length;
 
-    return { avgNetSales, deliveredDaysCount, rejectionPct, totalSuppliedQty };
+    // Modal-ready arrays
+    const netSalesRows = top15.map(dd => {
+      const day = dayData[dd];
+      return {
+        date: dd,
+        grossValue: day.grossValue, grossQty: day.grossQty,
+        rejValue: day.rejValue, rejQty: day.rejQty,
+        netSales: day.grossValue - day.rejValue,
+        netQty: day.grossQty - day.rejQty,
+        products: day.products,
+      };
+    });
+    const rejectionPctRows = oldest8.sort((a, b) => b.localeCompare(a)).map(dd => {
+      const day = dayData[dd];
+      const pct = day.grossQty > 0 ? (day.rejQty / day.grossQty) * 100 : null;
+      return { date: dd, rejectionPct: pct };
+    });
+
+    return { avgNetSales, deliveredDaysCount, rejectionPct, rejection8Days, netSalesRows, rejectionPctRows };
   }, [dispatches, rejections]);
 
   // ==================== INDENT HANDLERS ====================
@@ -3135,13 +3166,29 @@ export default function RetailerDashboard() {
                 {netSalesAndRejection15d.deliveredDaysCount > 0 && (
                   <p className="text-[10px] text-gray-500 mt-1">per delivered day ({netSalesAndRejection15d.deliveredDaysCount} days)</p>
                 )}
+                <button
+                  onClick={() => setNetSalesModalOpen(true)}
+                  className="mt-2 text-[10px] text-blue-600 underline hover:text-blue-800 font-medium"
+                >
+                  View
+                </button>
               </div>
               <div className="bg-gradient-to-br from-orange-50 to-white rounded-lg border border-orange-200 p-3">
                 <p className="text-xs text-orange-600 font-semibold uppercase tracking-wide mb-1">Rejection % (15d)</p>
                 <p className="text-xl font-bold text-orange-800">
                   {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
                 </p>
-                <p className="text-[10px] text-gray-500 mt-1">last 15 days</p>
+                <p className="text-[10px] text-gray-500 mt-1">
+                  {netSalesAndRejection15d.rejection8Days > 0
+                    ? `based on ${netSalesAndRejection15d.rejection8Days} oldest delivered days`
+                    : 'last 15 days'}
+                </p>
+                <button
+                  onClick={() => setRejPctModalOpen(true)}
+                  className="mt-2 text-[10px] text-orange-600 underline hover:text-orange-800 font-medium"
+                >
+                  View
+                </button>
               </div>
             </div>
 
@@ -8172,6 +8219,119 @@ export default function RetailerDashboard() {
                     </table>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* W2 — Net Sales Modal (2-level: dates → products) */}
+        {netSalesModalOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-blue-50">
+                <div className="flex items-center gap-2">
+                  {netSalesDrilldownDate && (
+                    <button onClick={() => setNetSalesDrilldownDate(null)} className="text-sm text-blue-600 hover:text-blue-800">← Back</button>
+                  )}
+                  <h3 className="text-lg font-semibold text-blue-700">
+                    {netSalesDrilldownDate
+                      ? `Products on ${netSalesDrilldownDate}`
+                      : `Avg Net Sales — Last ${netSalesAndRejection15d.deliveredDaysCount} Delivered Days`}
+                  </h3>
+                </div>
+                <button onClick={() => { setNetSalesModalOpen(false); setNetSalesDrilldownDate(null); }} className="text-gray-500 hover:text-gray-700 text-xl font-bold">×</button>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1">
+                {!netSalesDrilldownDate ? (
+                  <table className="w-full text-sm">
+                    <thead className="bg-blue-50 sticky top-0"><tr>
+                      <th className="p-2 text-left">S No</th>
+                      <th className="p-2 text-left">Date</th>
+                      <th className="p-2 text-right">Gross Value / Qty</th>
+                      <th className="p-2 text-right">Rejection Value / Qty</th>
+                      <th className="p-2 text-right">Net Sales / Qty</th>
+                    </tr></thead>
+                    <tbody>
+                      {netSalesAndRejection15d.netSalesRows.map((row, idx) => (
+                        <tr key={row.date} onClick={() => setNetSalesDrilldownDate(row.date)} className="border-b hover:bg-blue-50 cursor-pointer">
+                          <td className="p-2">{idx + 1}</td>
+                          <td className="p-2 font-medium">{row.date}</td>
+                          <td className="p-2 text-right">{formatCurrency(row.grossValue)} / {row.grossQty}</td>
+                          <td className="p-2 text-right text-red-600">{formatCurrency(row.rejValue)} / {row.rejQty}</td>
+                          <td className="p-2 text-right font-bold text-blue-700">{formatCurrency(row.netSales)} / {row.netQty}</td>
+                        </tr>
+                      ))}
+                      {netSalesAndRejection15d.netSalesRows.length === 0 && (<tr><td colSpan={5} className="p-4 text-center text-gray-400">No delivered days found.</td></tr>)}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-blue-50 sticky top-0"><tr>
+                      <th className="p-2 text-left">S No</th>
+                      <th className="p-2 text-left">Product</th>
+                      <th className="p-2 text-right">Gross Value / Qty</th>
+                      <th className="p-2 text-right">Rejection Value / Qty</th>
+                      <th className="p-2 text-right">Net Sales / Qty</th>
+                    </tr></thead>
+                    <tbody>
+                      {(() => {
+                        const dayRow = netSalesAndRejection15d.netSalesRows.find(r => r.date === netSalesDrilldownDate);
+                        if (!dayRow) return <tr><td colSpan={5} className="p-4 text-center text-gray-400">No data.</td></tr>;
+                        const rows = Object.entries(dayRow.products).map(([pid, p]) => ({
+                          pid, name: p.name,
+                          grossValue: p.grossValue, grossQty: p.grossQty,
+                          rejValue: p.rejValue, rejQty: p.rejQty,
+                          netSales: p.grossValue - p.rejValue, netQty: p.grossQty - p.rejQty,
+                        })).sort((a, b) => b.netSales - a.netSales);
+                        return rows.map((p, idx) => (
+                          <tr key={p.pid} className="border-b hover:bg-gray-50">
+                            <td className="p-2">{idx + 1}</td>
+                            <td className="p-2 font-medium">{p.name}</td>
+                            <td className="p-2 text-right">{formatCurrency(p.grossValue)} / {p.grossQty}</td>
+                            <td className="p-2 text-right text-red-600">{formatCurrency(p.rejValue)} / {p.rejQty}</td>
+                            <td className="p-2 text-right font-bold text-blue-700">{formatCurrency(p.netSales)} / {p.netQty}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* W3 — Rejection % Modal (1-level: dates only) */}
+        {rejPctModalOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-orange-50">
+                <h3 className="text-lg font-semibold text-orange-700">
+                  Rejection % — {netSalesAndRejection15d.rejection8Days} Oldest Delivered Days
+                </h3>
+                <button onClick={() => setRejPctModalOpen(false)} className="text-gray-500 hover:text-gray-700 text-xl font-bold">×</button>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1">
+                <p className="text-xs text-gray-500 mb-3">
+                  8 oldest delivered days from the 15-day window. The 7 most recent days are excluded because rejection reporting for them is still incoming. Per-product detail is available in the Net Sales view.
+                </p>
+                <table className="w-full text-sm">
+                  <thead className="bg-orange-50 sticky top-0"><tr>
+                    <th className="p-2 text-left">S No</th>
+                    <th className="p-2 text-left">Date</th>
+                    <th className="p-2 text-right">Rejection %</th>
+                  </tr></thead>
+                  <tbody>
+                    {netSalesAndRejection15d.rejectionPctRows.map((row, idx) => (
+                      <tr key={row.date} className="border-b hover:bg-gray-50">
+                        <td className="p-2">{idx + 1}</td>
+                        <td className="p-2 font-medium">{row.date}</td>
+                        <td className="p-2 text-right font-bold text-orange-700">{row.rejectionPct !== null ? `${row.rejectionPct.toFixed(1)}%` : '—'}</td>
+                      </tr>
+                    ))}
+                    {netSalesAndRejection15d.rejectionPctRows.length === 0 && (<tr><td colSpan={3} className="p-4 text-center text-gray-400">No data for the oldest delivered days.</td></tr>)}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

@@ -6890,9 +6890,9 @@ async def generate_auto_indents_for_tomorrow():
     
     Logic:
     1. Calculate tomorrow's day of week (e.g., Monday)
-    2. For each retailer, find invoice quantities on the same weekday in the last 7 weeks
+    2. For each retailer, find invoice quantities on the same weekday in the last 4 weeks
     3. Group products by product_id + actual weight (from packaging database)
-    4. Calculate average based on count of days with data and increase by 10%
+    4. Calculate average based on count of days with data and increase by 30% (ceil)
     5. Create auto-generated indent
     
     Note: Invoice quantity = Dispatch - Rejections (the net final number)
@@ -6950,9 +6950,9 @@ async def generate_auto_indents_for_tomorrow():
                     logger.info(f"No invoice history for {retailer_name}, skipping")
                     continue
                 
-                # Filter invoices for the same weekday in the last 7 weeks
+                # Filter invoices for the same weekday in the last 4 weeks
                 same_weekday_invoices = []
-                cutoff_date = tomorrow.date() - timedelta(days=49)  # 7 weeks
+                cutoff_date = tomorrow.date() - timedelta(days=28)  # 4 weeks
                 
                 for inv in invoices:
                     try:
@@ -6969,7 +6969,7 @@ async def generate_auto_indents_for_tomorrow():
                         continue
                 
                 if not same_weekday_invoices:
-                    logger.info(f"No {weekday_names[tomorrow_weekday]} invoices for {retailer_name} in last 7 weeks, skipping")
+                    logger.info(f"No {weekday_names[tomorrow_weekday]} invoices for {retailer_name} in last 4 weeks, skipping")
                     continue
                 
                 logger.info(f"Analyzing {len(same_weekday_invoices)} {weekday_names[tomorrow_weekday]}s invoices for {retailer_name}")
@@ -7340,7 +7340,7 @@ async def generate_single_auto_indent(
             "retailer_id": retailer_id
         }).to_list(500)
         
-        # Filter invoices for the same weekday in the last 7 weeks
+        # Filter invoices for the same weekday in the last 4 weeks
         same_weekday_invoices = []
         for inv in invoices:
             try:
@@ -7351,8 +7351,8 @@ async def generate_single_auto_indent(
                     inv_date = inv_date_str.date() if hasattr(inv_date_str, 'date') else None
                 
                 if inv_date and inv_date.weekday() == target_weekday and inv_date < target_date:
-                    # Only consider last 7 weeks
-                    if inv_date >= target_date - timedelta(days=49):
+                    # Only consider last 4 weeks
+                    if inv_date >= target_date - timedelta(days=28):
                         same_weekday_invoices.append(inv)
             except Exception as e:
                 logger.warning(f"Error parsing invoice date: {e}")

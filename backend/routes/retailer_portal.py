@@ -18,6 +18,7 @@ import csv
 import os
 import random
 import string
+import math
 from collections import defaultdict
 
 from dependencies import (
@@ -7139,9 +7140,9 @@ async def generate_auto_indents_for_tomorrow():
                 for key, data in product_weight_totals.items():
                     days_count = len(data["dates"])
                     avg_qty = data["total_qty"] / days_count
-                    base_qty = round(avg_qty)  # Removed 10% buffer
+                    base_qty = math.ceil(avg_qty * 1.30)   # 30% safety buffer, round up
                     
-                    # Subtract closing inventory if available
+                    # Subtract closing inventory if available (kept for future rollback, but NOT used)
                     product_id = data["product_id"]
                     variant_id = data["latest_variant_id"] or ""
                     closing_key = f"{product_id}_{variant_id}"
@@ -7154,8 +7155,8 @@ async def generate_auto_indents_for_tomorrow():
                                 closing_qty = cq
                                 break
                     
-                    # Calculate final quantity needed: average - closing
-                    recommended_qty = max(0, base_qty - closing_qty)
+                    # Calculate final quantity needed: avg * 1.30 ceiling, no closing subtraction
+                    recommended_qty = base_qty
                     
                     if recommended_qty > 0:
                         product = product_map.get(data["product_id"], {})
@@ -7517,14 +7518,14 @@ async def generate_single_auto_indent(
         
         has_closing_data = len(closing_map) > 0
         
-        # Create indent items: average - closing (NO 10% buffer)
+        # Create indent items: avg * 1.30 ceiling (NO closing subtraction)
         indent_items = []
         for key, data in product_weight_totals.items():
             days_count = len(data["dates"])
             avg_qty = data["total_qty"] / days_count
-            base_qty = round(avg_qty)  # Removed 10% buffer
+            base_qty = math.ceil(avg_qty * 1.30)   # 30% safety buffer, round up
             
-            # Subtract closing inventory if available
+            # Subtract closing inventory if available (kept for future rollback, but NOT used)
             product_id = data["product_id"]
             variant_id = data["latest_variant_id"] or ""
             closing_key = f"{product_id}_{variant_id}"
@@ -7537,8 +7538,8 @@ async def generate_single_auto_indent(
                         closing_qty = cq
                         break
             
-            # Calculate final quantity needed: average - closing
-            recommended_qty = max(0, base_qty - closing_qty)
+            # Calculate final quantity needed: avg * 1.30 ceiling, no closing subtraction
+            recommended_qty = base_qty
             
             if recommended_qty > 0:
                 final_variant_id = data["latest_variant_id"] or ""

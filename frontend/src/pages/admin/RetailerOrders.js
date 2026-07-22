@@ -8637,7 +8637,10 @@ export default function RetailerOrders() {
   // Active retailers (exclude churned) for dropdowns that create new entities
   // Churned retailers should not appear in create/select dropdowns but should remain visible in historical data displays
   const activeRetailers = useMemo(() => 
-    retailers.filter(r => (r.status || 'active') !== 'churned'),
+    retailers
+      .filter(r => (r.status || 'active') !== 'churned')
+      .slice()
+      .sort((a, b) => ((a.company_name || a.name) || '').localeCompare((b.company_name || b.name) || '')),
     [retailers]
   );
 
@@ -8794,7 +8797,7 @@ export default function RetailerOrders() {
               className="h-9 px-3 rounded-md border border-gray-200 text-sm max-w-[200px] sm:max-w-[280px] truncate"
             >
               <option value="">All Retailers</option>
-              {retailers.map(r => (
+              {activeRetailers.map(r => (
                 <option key={r.id} value={r.id}>{r.company_name || r.name} ({r.commission_percentage || 0}%)</option>
               ))}
             </select>
@@ -11040,7 +11043,7 @@ export default function RetailerOrders() {
                         >
                           All Retailers
                         </div>
-                        {retailers
+                        {activeRetailers
                           .filter(r => {
                             const name = (r.company_name || r.name || '').toLowerCase();
                             return name.includes(indentRetailerSearch.toLowerCase());
@@ -11564,7 +11567,7 @@ export default function RetailerOrders() {
                         >
                           All Retailers
                         </div>
-                        {retailers
+                        {activeRetailers
                           .filter(r => {
                             const name = (r.company_name || r.name || '').toLowerCase();
                             return name.includes(dispatchRetailerSearch.toLowerCase());
@@ -12132,7 +12135,7 @@ export default function RetailerOrders() {
                       >
                         All Retailers
                       </div>
-                      {retailers
+                      {activeRetailers
                         .filter(r => {
                           const name = (r.company_name || r.name || '').toLowerCase();
                           return name.includes(invoiceRetailerSearch.toLowerCase());
@@ -12843,7 +12846,7 @@ export default function RetailerOrders() {
                   className="h-8 px-2 rounded border text-xs"
                 >
                   <option value="">All Retailers</option>
-                  {retailers.map(r => (
+                  {activeRetailers.map(r => (
                     <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                   ))}
                 </select>
@@ -13661,7 +13664,7 @@ export default function RetailerOrders() {
                         >
                           All Retailers
                         </div>
-                        {retailers
+                        {activeRetailers
                           .filter(r => {
                             const name = (r.company_name || r.name || '').toLowerCase();
                             return name.includes(creditNoteRetailerSearch.toLowerCase());

@@ -684,7 +684,7 @@ export default function RetailerOrders() {
   const [autoIndentRetailerId, setAutoIndentRetailerId] = useState('');
   const [autoIndentLoading, setAutoIndentLoading] = useState(false);
   const [autoIndentBasis, setAutoIndentBasis] = useState('sales'); // 'sales' or 'plan'
-  const [autoIndentBufferPct, setAutoIndentBufferPct] = useState(30); // Safety buffer percentage for sales-based indent
+  const [autoIndentBufferPct, setAutoIndentBufferPct] = useState(0); // Default 0 — user opts into any increase
 
   // Daily Requirement state
   const [dailyReqDate, setDailyReqDate] = useState(getISTDate());
@@ -4174,7 +4174,7 @@ export default function RetailerOrders() {
         setShowAutoIndentModal(false);
         setAutoIndentRetailerId('');
         setAutoIndentBasis('sales');
-        setAutoIndentBufferPct(30); // Reset to default
+        setAutoIndentBufferPct(0); // Reset to default (0)
         loadIndents();
       } else {
         toast.error(response.data.message || 'Failed to create auto indent');
@@ -4182,6 +4182,44 @@ export default function RetailerOrders() {
     } catch (error) {
       console.error('Auto indent creation error:', error);
       toast.error(error.response?.data?.detail || 'Failed to create auto indent. Check if retailer has required data.');
+    } finally {
+      setAutoIndentLoading(false);
+    }
+  };
+
+  // Generate auto-indent for ALL active retailers for the selected date,
+  // using the currently selected basis + "Increase Qty by (%)".
+  const handleAutoIndentForAllRetailers = async () => {
+    if (!activeRetailers || activeRetailers.length === 0) {
+      toast.error('No active retailers found');
+      return;
+    }
+    setAutoIndentLoading(true);
+    let created = 0;
+    const skipped = [];
+    const failed = [];
+    try {
+      for (const r of activeRetailers) {
+        const rName = r.company_name || r.name || 'Unknown';
+        try {
+          const response = await api.post('/api/admin/generate-auto-indent', {
+            retailer_id: r.id,
+            target_date: autoIndentDate,
+            basis: autoIndentBasis,
+            buffer_pct: autoIndentBufferPct
+          });
+          if (response.data.success) created += 1;
+          else skipped.push(rName); // already exists for that date / no history
+        } catch (err) {
+          failed.push(rName);
+        }
+      }
+      toast.success(`Auto indent for ${autoIndentDate}: ${created} created, ${skipped.length} skipped, ${failed.length} failed`);
+      setShowAutoIndentModal(false);
+      setAutoIndentRetailerId('');
+      setAutoIndentBasis('sales');
+      setAutoIndentBufferPct(0);
+      loadIndents();
     } finally {
       setAutoIndentLoading(false);
     }
@@ -19096,6 +19134,29 @@ export default function RetailerOrders() {
                 </button>
               </div>
               <div className="p-4 space-y-4">
+                {/* Bulk action: generate for every active retailer for the selected date */}
+                <Button
+                  type="button"
+                  onClick={handleAutoIndentForAllRetailers}
+                  disabled={autoIndentLoading}
+                  className="w-full bg-purple-600 hover:bg-purple-700"
+                >
+                  {autoIndentLoading ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Generating for all retailers...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      <Zap size={14} /> Generate for all retailers
+                    </span>
+                  )}
+                </Button>
+                <p className="text-xs text-gray-500 -mt-2">
+                  Generates an indent for <strong>every active retailer</strong> for the selected Indent Date, using the Order Basis and "Increase Qty by (%)" chosen below. Retailers that already have an indent for that date are skipped. The single "Generate Indent" button below still creates one indent for the chosen retailer only.
+                </p>
+                <div className="border-b border-gray-200" />
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Select Retailer *

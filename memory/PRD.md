@@ -2,6 +2,24 @@
 
 ## Changelog (July 2026)
 
+### July 23, 2026 - Part BB: COGS Multiplier Colors + Auto Indent Defaults ✅
+- **BB1**: COGS tab SP/CP Multiplier column is now color-coded
+  - Green (`text-green-600`) when multiplier ≥ 2.5
+  - Red (`text-red-600`) when multiplier < 2.5
+  - Grey "—" when null (unchanged)
+
+- **BB2**: Auto Indent "Increase Qty by (%)" default changed from 30 to 0
+  - Initial state: `useState(0)` instead of `useState(30)`
+  - Reset after successful creation: `setAutoIndentBufferPct(0)`
+  - User must opt-in to any buffer increase
+
+- **BB3**: Added "Generate for all retailers" button in Auto Indent modal
+  - Purple button at top of modal with Zap icon
+  - Loops through all active retailers, calling `/api/admin/generate-auto-indent` for each
+  - Uses selected Indent Date, Order Basis, and "Increase Qty by (%)"
+  - Shows toast: "{created} created, {skipped} skipped, {failed} failed"
+  - Retailers with existing indents for that date are skipped (no duplicates)
+
 ### July 23, 2026 - Part AA-revised: COGS Tab Invoice-Based Retail + SP Averaging ✅
 - **AA-backend**: Added `retail_invoice_date` field to COGS snapshot API (`/app/backend/routes/cogs_snapshot.py`)
   - Reads from `retailer_invoices` collection keyed by `invoice_date` (not dispatch_date)

@@ -3903,7 +3903,7 @@ export default function AdminDashboard() {
                               <td className="p-2 text-center text-gray-500">{product.unit || 'Kg'}</td>
                               <td className="p-2 text-right">
                                 {product.sp_cp_multiplier != null
-                                  ? <span className="font-medium">{product.sp_cp_multiplier.toFixed(2)}</span>
+                                  ? <span className={`font-medium ${product.sp_cp_multiplier >= 2.5 ? 'text-green-600' : 'text-red-600'}`}>{product.sp_cp_multiplier.toFixed(2)}</span>
                                   : <span className="text-gray-300">—</span>}
                               </td>
                               <td className="p-2 text-center text-gray-400 text-[10px]">

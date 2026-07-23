@@ -6883,22 +6883,29 @@ def merge_close_weight_variants(product_weight_totals: dict, max_gap_gm: int = 3
     return merged_result
 
 
-async def generate_auto_indents_for_tomorrow():
+async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
     """
     Auto-generate retailer indents for the next day based on invoice history.
     Runs at 11 PM daily.
+    
+    Args:
+        buffer_pct: Safety buffer percentage to apply (default 30%). 
+                   E.g., 30 means avg * 1.30
     
     Logic:
     1. Calculate tomorrow's day of week (e.g., Monday)
     2. For each retailer, find invoice quantities on the same weekday in the last 4 weeks
     3. Group products by product_id + actual weight (from packaging database)
-    4. Calculate average based on count of days with data and increase by 30% (ceil)
+    4. Calculate average based on count of days with data and increase by buffer_pct% (ceil)
     5. Create auto-generated indent
     
     Note: Invoice quantity = Dispatch - Rejections (the net final number)
     """
     try:
-        logger.info("Starting auto-indent generation for tomorrow (using invoice data)...")
+        # Convert buffer_pct to multiplier (30% -> 1.30)
+        buffer_multiplier = 1 + (buffer_pct / 100)
+        
+        logger.info(f"Starting auto-indent generation for tomorrow (buffer: {buffer_pct}%)...")
         
         # Get tomorrow's date
         now = datetime.now(timezone.utc)
@@ -7140,7 +7147,7 @@ async def generate_auto_indents_for_tomorrow():
                 for key, data in product_weight_totals.items():
                     days_count = len(data["dates"])
                     avg_qty = data["total_qty"] / days_count
-                    base_qty = math.ceil(avg_qty * 1.30)   # 30% safety buffer, round up
+                    base_qty = math.ceil(avg_qty * buffer_multiplier)   # Apply buffer_pct safety buffer, round up
                     
                     # Subtract closing inventory if available (kept for future rollback, but NOT used)
                     product_id = data["product_id"]
@@ -7155,7 +7162,7 @@ async def generate_auto_indents_for_tomorrow():
                                 closing_qty = cq
                                 break
                     
-                    # Calculate final quantity needed: avg * 1.30 ceiling, no closing subtraction
+                    # Calculate final quantity needed: avg * buffer_multiplier ceiling, no closing subtraction
                     recommended_qty = base_qty
                     
                     if recommended_qty > 0:
@@ -7277,6 +7284,10 @@ async def generate_single_auto_indent(
     retailer_id = request.get("retailer_id")
     target_date_str = request.get("target_date")
     basis = request.get("basis", "sales")  # 'sales' or 'plan'
+    buffer_pct = float(request.get("buffer_pct", 30))  # Safety buffer percentage, default 30%
+    
+    # Convert buffer_pct to multiplier (30% -> 1.30)
+    buffer_multiplier = 1 + (buffer_pct / 100)
     
     if not retailer_id:
         raise HTTPException(status_code=400, detail="retailer_id is required")
@@ -7518,12 +7529,12 @@ async def generate_single_auto_indent(
         
         has_closing_data = len(closing_map) > 0
         
-        # Create indent items: avg * 1.30 ceiling (NO closing subtraction)
+        # Create indent items: avg * buffer_multiplier ceiling (NO closing subtraction)
         indent_items = []
         for key, data in product_weight_totals.items():
             days_count = len(data["dates"])
             avg_qty = data["total_qty"] / days_count
-            base_qty = math.ceil(avg_qty * 1.30)   # 30% safety buffer, round up
+            base_qty = math.ceil(avg_qty * buffer_multiplier)   # Apply buffer_pct safety buffer, round up
             
             # Subtract closing inventory if available (kept for future rollback, but NOT used)
             product_id = data["product_id"]
@@ -7538,7 +7549,7 @@ async def generate_single_auto_indent(
                         closing_qty = cq
                         break
             
-            # Calculate final quantity needed: avg * 1.30 ceiling, no closing subtraction
+            # Calculate final quantity needed: avg * buffer_multiplier ceiling, no closing subtraction
             recommended_qty = base_qty
             
             if recommended_qty > 0:

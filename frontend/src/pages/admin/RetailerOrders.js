@@ -684,6 +684,7 @@ export default function RetailerOrders() {
   const [autoIndentRetailerId, setAutoIndentRetailerId] = useState('');
   const [autoIndentLoading, setAutoIndentLoading] = useState(false);
   const [autoIndentBasis, setAutoIndentBasis] = useState('sales'); // 'sales' or 'plan'
+  const [autoIndentBufferPct, setAutoIndentBufferPct] = useState(30); // Safety buffer percentage for sales-based indent
 
   // Daily Requirement state
   const [dailyReqDate, setDailyReqDate] = useState(getISTDate());
@@ -4164,7 +4165,8 @@ export default function RetailerOrders() {
       const response = await api.post('/api/admin/generate-auto-indent', {
         retailer_id: autoIndentRetailerId,
         target_date: autoIndentDate,
-        basis: autoIndentBasis // 'sales' or 'plan'
+        basis: autoIndentBasis, // 'sales' or 'plan'
+        buffer_pct: autoIndentBufferPct // Safety buffer percentage for sales-based indent
       });
       
       if (response.data.success) {
@@ -4172,6 +4174,7 @@ export default function RetailerOrders() {
         setShowAutoIndentModal(false);
         setAutoIndentRetailerId('');
         setAutoIndentBasis('sales');
+        setAutoIndentBufferPct(30); // Reset to default
         loadIndents();
       } else {
         toast.error(response.data.message || 'Failed to create auto indent');
@@ -19146,7 +19149,7 @@ export default function RetailerOrders() {
                       />
                       <div>
                         <div className="font-medium text-sm">Historical Sales</div>
-                        <div className="text-xs text-gray-500">7 weekday avg + 10%</div>
+                        <div className="text-xs text-gray-500">4 weekday avg + {autoIndentBufferPct}%</div>
                       </div>
                     </label>
                     <label className={`flex-1 flex items-center gap-2 p-3 rounded-lg border-2 cursor-pointer transition-all ${
@@ -19170,13 +19173,34 @@ export default function RetailerOrders() {
                   </div>
                 </div>
                 
+                {/* Buffer percentage input - only shown for sales-based indent */}
+                {autoIndentBasis === 'sales' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Increase Qty by (%)
+                    </label>
+                    <Input
+                      type="number"
+                      value={autoIndentBufferPct}
+                      onChange={(e) => setAutoIndentBufferPct(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                      className="w-32"
+                      min={0}
+                      max={100}
+                      step={5}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Safety buffer added to average sales (0-100%)
+                    </p>
+                  </div>
+                )}
+                
                 <div className={`text-sm p-3 rounded-lg ${
                   autoIndentBasis === 'sales' 
                     ? 'bg-purple-50 text-purple-700' 
                     : 'bg-green-50 text-green-700'
                 }`}>
                   {autoIndentBasis === 'sales' ? (
-                    <>This will create an indent based on the retailer's <strong>average sales from the last 7 identical weekdays + 10% buffer</strong>.</>
+                    <>This will create an indent based on the retailer's <strong>average sales from the last 4 identical weekdays + {autoIndentBufferPct}% buffer</strong>.</>
                   ) : (
                     <>This will create an indent based on the <strong>subscribed Retail Plan quantities minus yesterday's closing inventory</strong>. Closing inventory is required.</>
                   )}

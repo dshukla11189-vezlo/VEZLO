@@ -2,6 +2,22 @@
 
 ## Changelog (July 2026)
 
+### July 23, 2026 - Part Y4: Configurable Safety Buffer for Auto Indent ✅
+- **FEATURE**: Made the sales-based auto-indent safety buffer user-configurable via UI
+  - **Backend Changes** (`/app/backend/routes/retailer_portal.py`):
+    - `generate_auto_indents_for_tomorrow()`: Now accepts `buffer_pct` parameter (default 30%)
+    - `generate_single_auto_indent()`: Accepts `buffer_pct` from request payload, converts to multiplier
+    - Replaced hardcoded `1.30` multiplier with dynamic `buffer_multiplier = 1 + (buffer_pct / 100)`
+  - **Frontend Changes** (`/app/frontend/src/pages/admin/RetailerOrders.js`):
+    - Added `autoIndentBufferPct` state (default: 30)
+    - Added "Increase Qty by (%)" number input field in Auto Indent modal (visible only when `autoIndentBasis === 'sales'`)
+    - Input is bounded 0-100% with step of 5
+    - Updated radio button description: "4 weekday avg + {buffer}%"
+    - Updated detailed description: "last 4 identical weekdays + {buffer}% buffer"
+    - Payload now includes `buffer_pct: autoIndentBufferPct`
+    - State resets to 30% after successful indent creation
+  - **Verified**: Backend correctly applies different buffer values (45% → total_qty:241, 10% → total_qty:226)
+
 ### July 14, 2026 - Part H3, H4, I Implementation ✅
 - **Part H3: P&L Allocation Refactor** - Variable Expense three-way split allocation
   - **New split_type handling**: 'all_equal' (equal among all active retailers), 'selected' (equal among selected retailers), 'proportional' (legacy - based on sales share)

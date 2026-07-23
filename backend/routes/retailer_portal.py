@@ -6931,6 +6931,26 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
             if name and weight:
                 packaging_weight_map[name] = weight
         
+        # Y5: Pre-load ALL rejections within the historical window for all retailers
+        # This handles 100% upfront retailers where billable_qty is None
+        tomorrow_dt = datetime.combine(tomorrow.date(), datetime.min.time()).replace(tzinfo=timezone.utc)
+        rejection_window_start = tomorrow_dt - timedelta(days=28)
+        rejection_query = {
+            "rejection_date": {"$gte": rejection_window_start.isoformat()[:10], "$lt": tomorrow_str}
+        }
+        rejections_in_window = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(length=None)
+        
+        rejection_map = {}  # (retailer_id, product_id, variant_id_or_name, date_YYYYMMDD) -> qty
+        for rej in rejections_in_window:
+            rid = rej.get("retailer_id")
+            pid = rej.get("product_id")
+            vid = rej.get("variant_id") or rej.get("variant_name") or ""
+            rdate = str(rej.get("rejection_date", ""))[:10]
+            key = (rid, pid, vid, rdate)
+            rejection_map[key] = rejection_map.get(key, 0) + (rej.get("quantity", 0) or 0)
+        
+        logger.info(f"Loaded {len(rejection_map)} rejection keys from retailer_rejections for 100% upfront handling")
+        
         auto_indents_created = 0
         
         for retailer in retailers:
@@ -7004,8 +7024,23 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
                         product_name = item.get("product_name", "")
                         variant_id = item.get("variant_id") or ""
                         variant_name = item.get("variant_name") or ""
-                        # Invoice quantity = net of rejections (billable_qty preferred, fallback to quantity - rejected_qty)
-                        invoice_qty = item.get("billable_qty", max(0, item.get("quantity", 0) - item.get("rejected_qty", 0)))
+                        # Y5: Invoice quantity = net of rejections
+                        # billable_qty is preferred (non-100% upfront retailers already synced)
+                        # For 100% upfront retailers, subtract rejections from retailer_rejections directly
+                        raw_qty = item.get("quantity", 0) or 0
+                        billable = item.get("billable_qty")
+                        if billable is not None:
+                            invoice_qty = billable
+                        else:
+                            # 100% upfront retailer (or any unsynced case): subtract rejections from retailer_rejections directly
+                            rej_key = (
+                                inv.get("retailer_id"),
+                                item.get("product_id"),
+                                item.get("variant_id") or item.get("variant_name") or "",
+                                str(inv.get("invoice_date", ""))[:10],
+                            )
+                            rej_qty = rejection_map.get(rej_key, 0)
+                            invoice_qty = max(0, raw_qty - rej_qty)
                         
                         if product_id and invoice_qty > 0:
                             # Get actual weight - first try packaging database, then extract from name
@@ -7390,6 +7425,25 @@ async def generate_single_auto_indent(
             if name and weight:
                 packaging_weight_map[name] = weight
         
+        # Y5: Pre-load rejections for this retailer within the historical window
+        # This handles 100% upfront retailers where billable_qty is None
+        target_date_dt = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        rejection_window_start = target_date_dt - timedelta(days=28)
+        rejection_query = {
+            "rejection_date": {"$gte": rejection_window_start.isoformat()[:10], "$lt": target_date_dt.isoformat()[:10]},
+            "retailer_id": retailer_id
+        }
+        rejections_in_window = await db.retailer_rejections.find(rejection_query, {"_id": 0}).to_list(length=None)
+        
+        rejection_map = {}  # (retailer_id, product_id, variant_id_or_name, date_YYYYMMDD) -> qty
+        for rej in rejections_in_window:
+            rid = rej.get("retailer_id")
+            pid = rej.get("product_id")
+            vid = rej.get("variant_id") or rej.get("variant_name") or ""
+            rdate = str(rej.get("rejection_date", ""))[:10]
+            key = (rid, pid, vid, rdate)
+            rejection_map[key] = rejection_map.get(key, 0) + (rej.get("quantity", 0) or 0)
+        
         # Get the target weekday (0=Monday, 6=Sunday)
         target_weekday = target_date.weekday()
         weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
@@ -7458,8 +7512,23 @@ async def generate_single_auto_indent(
                 product_name = item.get("product_name", "")
                 variant_id = item.get("variant_id") or ""
                 variant_name = item.get("variant_name") or ""
-                # Invoice quantity = net of rejections (billable_qty preferred, fallback to quantity - rejected_qty)
-                invoice_qty = item.get("billable_qty", max(0, item.get("quantity", 0) - item.get("rejected_qty", 0)))
+                # Y5: Invoice quantity = net of rejections
+                # billable_qty is preferred (non-100% upfront retailers already synced)
+                # For 100% upfront retailers, subtract rejections from retailer_rejections directly
+                raw_qty = item.get("quantity", 0) or 0
+                billable = item.get("billable_qty")
+                if billable is not None:
+                    invoice_qty = billable
+                else:
+                    # 100% upfront retailer (or any unsynced case): subtract rejections from retailer_rejections directly
+                    rej_key = (
+                        inv.get("retailer_id"),
+                        item.get("product_id"),
+                        item.get("variant_id") or item.get("variant_name") or "",
+                        str(inv.get("invoice_date", ""))[:10],
+                    )
+                    rej_qty = rejection_map.get(rej_key, 0)
+                    invoice_qty = max(0, raw_qty - rej_qty)
                 
                 if product_id and invoice_qty > 0:
                     # Get actual weight - first try packaging database, then extract from name

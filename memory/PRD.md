@@ -2,6 +2,15 @@
 
 ## Changelog (July 2026)
 
+### July 23, 2026 - Part Y5: Auto Indent Rejection Fix for 100% Upfront Retailers ✅
+- **Root Cause**: `sync_invoice_rejection_amount` skips 100% upfront retailers (rejections flow via Credit Notes), leaving `billable_qty=None` and `rejected_qty=0` on invoices. The Y3 fallback used raw quantity, inflating auto-indent for 17 of 18 retailers.
+- **Fix**: Added rejection_map lookup from `retailer_rejections` collection
+  - Pre-loads rejections within 28-day window keyed by `(retailer_id, product_id, variant_id/name, date)`
+  - When `billable_qty` is None, subtracts rejection quantity from raw quantity
+  - Applied to both bulk (`generate_auto_indents_for_tomorrow`) and single (`generate_single_auto_indent`) endpoints
+- **Impact**: 1,246 rejections in last 28 days now properly subtracted for 100% upfront retailers
+- **Files Modified**: `/app/backend/routes/retailer_portal.py`
+
 ### July 23, 2026 - Part BB: COGS Multiplier Colors + Auto Indent Defaults ✅
 - **BB1**: COGS tab SP/CP Multiplier column is now color-coded
   - Green (`text-green-600`) when multiplier ≥ 2.5

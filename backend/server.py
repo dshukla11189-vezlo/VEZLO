@@ -79,7 +79,7 @@ from starlette.responses import RedirectResponse
 from apscheduler.triggers.cron import CronTrigger
 
 # Import modular routers
-from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router
+from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router, admin_router
 from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date, save_daily_cogs
 from routes.background_jobs import router as background_jobs_router
 from routes.cogs_snapshot import router as cogs_snapshot_router
@@ -777,6 +777,7 @@ app.include_router(backup_data_router, prefix="/api")
 app.include_router(gmail_integration_router, prefix="/api")
 app.include_router(dashboard_analytics_router, prefix="/api")
 app.include_router(retailer_portal_router, prefix="/api")
+app.include_router(admin_router)  # Admin utility routes (has /api prefix built-in)
 app.include_router(daily_cogs_router)  # Daily COGS tracking
 app.include_router(background_jobs_router, prefix="/api")  # Background job management
 app.include_router(cogs_snapshot_router)  # COGS snapshot API

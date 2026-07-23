@@ -132,6 +132,42 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["role"] = input.role
     if input.company_name is not None:
         update_data["company_name"] = input.company_name
+        
+        # Z2: When renaming a retailer, propagate the name change to all historical records
+        # This prevents creating a "fork" where old records have old name and new records have new name
+        if existing.get('role') == 'retailer':
+            old_company_name = existing.get('company_name') or existing.get('name', '')
+            new_company_name = input.company_name
+            
+            if old_company_name and new_company_name and old_company_name != new_company_name:
+                logger.info(f"Retailer rename: {old_company_name} -> {new_company_name}. Propagating to historical records...")
+                
+                # Collections that store retailer_name
+                collections_to_update = [
+                    "retailer_dispatches",
+                    "retailer_invoices",
+                    "retailer_rejections",
+                    "retailer_indents",
+                    "retailer_payments",
+                    "retailer_credit_notes",
+                    "retailer_daily_requirements",
+                    "retailer_daily_sales",
+                    "retailer_grn"
+                ]
+                
+                total_updated = 0
+                for coll_name in collections_to_update:
+                    coll = db[coll_name]
+                    result = await coll.update_many(
+                        {"retailer_id": user_id},
+                        {"$set": {"retailer_name": new_company_name}}
+                    )
+                    if result.modified_count > 0:
+                        total_updated += result.modified_count
+                        logger.info(f"  Updated {result.modified_count} records in {coll_name}")
+                
+                if total_updated > 0:
+                    logger.info(f"Total {total_updated} records updated with new retailer name")
     if input.contact is not None:
         # Normalize contact number
         contact = input.contact.replace(" ", "").replace("-", "").replace("+91", "")

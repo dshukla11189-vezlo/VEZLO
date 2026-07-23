@@ -2,6 +2,31 @@
 
 ## Changelog (July 2026)
 
+### July 23, 2026 - Part Z: Fix Retailer ID Collisions + Auto-Indent Guards ✅
+- **Z1: One-Time Data Migration** (`/app/backend/routes/admin.py`):
+  - New endpoint: `POST /api/admin/fix-retailer-id-collisions`
+  - Scans `retailer_dispatches` and `retailer_invoices` for retailer_id collisions (multiple names sharing same ID)
+  - Supports `dry_run` (default true) to preview remaps before execution
+  - For each collision: keeps the name with most records on existing ID, generates new UUID for others
+  - Updates across all collections: dispatches, invoices, rejections, indents, payments, credit_notes, closing_inventory, etc.
+  - Creates user master record if not exists for each new retailer
+  - **Found 5 collisions** affecting 6 retailer names (Savtamali, G D Enterprises, Park Way Mart, Tamanna Mart, Jai Bhawani Traders Mundhwa, Narang Super Mart)
+  - Safe to run multiple times (idempotent)
+
+- **Z2: Prevent Recurrence** (`/app/backend/routes/users.py`):
+  - When `company_name` is updated for a retailer, the change now propagates to all historical records
+  - Updated collections: dispatches, invoices, rejections, indents, payments, credit_notes, daily_requirements, daily_sales, grn
+  - Ensures renaming never creates a "fork" where old records have old name and new records have new name
+  - Logged with INFO level: "Retailer rename: {old} -> {new}. Propagating to historical records..."
+
+- **Z3: Outlier & Minimum-Sample Guard** (`/app/backend/routes/retailer_portal.py`):
+  - Both `generate_auto_indents_for_tomorrow()` and `generate_single_auto_indent()` now use robust averaging:
+    - **Single sample (1 data point)**: No buffer applied, flagged as `low_confidence`
+    - **Outlier detection**: Values >3x median are capped to 3x median (only when 3+ samples)
+  - Response includes `low_confidence_warning` with list of products that had only 1 data point
+  - Response includes `outliers_capped` with details of any capped values
+  - **Verified**: Indent creation returns warnings like "19 products have only 1 data point (no buffer applied)"
+
 ### July 23, 2026 - Part Y4: Configurable Safety Buffer for Auto Indent ✅
 - **FEATURE**: Made the sales-based auto-indent safety buffer user-configurable via UI
   - **Backend Changes** (`/app/backend/routes/retailer_portal.py`):

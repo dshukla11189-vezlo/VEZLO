@@ -7038,6 +7038,7 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
                                     "weight_bucket": weight_bucket if actual_weight_gm > 0 else 0,
                                     "total_qty": 0,
                                     "dates": set(),
+                                    "qty_per_date": {},  # Z3: Track per-date quantities for outlier detection
                                     "latest_invoice_date": inv_date,
                                     "latest_variant_name": variant_name,
                                     "latest_variant_id": variant_id
@@ -7045,6 +7046,10 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
                             
                             product_weight_totals[key]["total_qty"] += invoice_qty
                             product_weight_totals[key]["dates"].add(inv_date_str)
+                            # Z3: Track per-date quantities
+                            if inv_date_str not in product_weight_totals[key]["qty_per_date"]:
+                                product_weight_totals[key]["qty_per_date"][inv_date_str] = 0
+                            product_weight_totals[key]["qty_per_date"][inv_date_str] += invoice_qty
                             
                             # Track the most recent variant name for display
                             if inv_date > product_weight_totals[key]["latest_invoice_date"]:
@@ -7142,12 +7147,64 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
                 has_closing_data = len(closing_map) > 0
                 
                 # Calculate average (NO 10% buffer anymore)
+                # Z3: Helper function for outlier detection and minimum-sample guard
+                def calculate_robust_average(qty_per_date: dict, product_name: str):
+                    """
+                    Calculate average with outlier detection and minimum-sample guard.
+                    
+                    Returns: (avg_qty, confidence, capped_outliers)
+                    - avg_qty: The calculated average (after outlier removal)
+                    - confidence: 'high' (2+ samples), 'low' (1 sample - no buffer applied)
+                    - capped_outliers: List of dates where values were capped
+                    """
+                    values = list(qty_per_date.values())
+                    dates = list(qty_per_date.keys())
+                    
+                    if len(values) == 0:
+                        return 0, 'none', []
+                    
+                    if len(values) == 1:
+                        # Z3: Single sample - flag as low confidence, don't apply buffer
+                        return values[0], 'low', []
+                    
+                    # Z3: Outlier detection using 3x median rule
+                    sorted_values = sorted(values)
+                    median = sorted_values[len(sorted_values) // 2]
+                    
+                    # Cap values more than 3x the median
+                    capped_values = []
+                    capped_outliers = []
+                    cap_threshold = median * 3
+                    
+                    for i, val in enumerate(values):
+                        if val > cap_threshold and len(values) > 2:
+                            # Cap to 3x median
+                            capped_values.append(cap_threshold)
+                            capped_outliers.append({
+                                "date": dates[i],
+                                "original": val,
+                                "capped_to": cap_threshold
+                            })
+                        else:
+                            capped_values.append(val)
+                    
+                    avg = sum(capped_values) / len(capped_values)
+                    return avg, 'high', capped_outliers
+                
                 # Then subtract closing inventory to get actual requirement
                 indent_items = []
                 for key, data in product_weight_totals.items():
-                    days_count = len(data["dates"])
-                    avg_qty = data["total_qty"] / days_count
-                    base_qty = math.ceil(avg_qty * buffer_multiplier)   # Apply buffer_pct safety buffer, round up
+                    qty_per_date = data.get("qty_per_date", {})
+                    product_name = data["product_name"]
+                    
+                    # Z3: Use robust averaging with outlier detection
+                    avg_qty, confidence, capped_outliers = calculate_robust_average(qty_per_date, product_name)
+                    
+                    # Z3: For low confidence (single sample), don't apply buffer
+                    if confidence == 'low':
+                        base_qty = math.ceil(avg_qty)  # No buffer for single data point
+                    else:
+                        base_qty = math.ceil(avg_qty * buffer_multiplier)   # Apply buffer_pct safety buffer, round up
                     
                     # Subtract closing inventory if available (kept for future rollback, but NOT used)
                     product_id = data["product_id"]
@@ -7435,6 +7492,7 @@ async def generate_single_auto_indent(
                             "weight_bucket": weight_bucket if actual_weight_gm > 0 else 0,
                             "total_qty": 0,
                             "dates": set(),
+                            "qty_per_date": {},  # Z3: Track per-date quantities for outlier detection
                             "latest_invoice_date": inv_date,
                             "latest_variant_name": variant_name,
                             "latest_variant_id": variant_id
@@ -7442,6 +7500,10 @@ async def generate_single_auto_indent(
                     
                     product_weight_totals[key]["total_qty"] += invoice_qty
                     product_weight_totals[key]["dates"].add(inv_date_str)
+                    # Z3: Track per-date quantities
+                    if inv_date_str not in product_weight_totals[key]["qty_per_date"]:
+                        product_weight_totals[key]["qty_per_date"][inv_date_str] = 0
+                    product_weight_totals[key]["qty_per_date"][inv_date_str] += invoice_qty
                     dates_with_data.add(inv_date_str)
                     
                     # Track the most recent variant name for display
@@ -7529,12 +7591,74 @@ async def generate_single_auto_indent(
         
         has_closing_data = len(closing_map) > 0
         
+        # Z3: Helper function for outlier detection and minimum-sample guard
+        def calculate_robust_average(qty_per_date: dict, product_name: str):
+            """
+            Calculate average with outlier detection and minimum-sample guard.
+            
+            Returns: (avg_qty, confidence, capped_outliers)
+            - avg_qty: The calculated average (after outlier removal)
+            - confidence: 'high' (2+ samples), 'low' (1 sample - no buffer applied)
+            - capped_outliers: List of dates where values were capped
+            """
+            values = list(qty_per_date.values())
+            dates = list(qty_per_date.keys())
+            
+            if len(values) == 0:
+                return 0, 'none', []
+            
+            if len(values) == 1:
+                # Z3: Single sample - flag as low confidence, don't apply buffer
+                return values[0], 'low', []
+            
+            # Z3: Outlier detection using 3x median rule
+            sorted_values = sorted(values)
+            median = sorted_values[len(sorted_values) // 2]
+            
+            # Cap values more than 3x the median
+            capped_values = []
+            capped_outliers = []
+            cap_threshold = median * 3
+            
+            for i, val in enumerate(values):
+                if val > cap_threshold and len(values) > 2:
+                    # Cap to 3x median
+                    capped_values.append(cap_threshold)
+                    capped_outliers.append({
+                        "date": dates[i],
+                        "original": val,
+                        "capped_to": cap_threshold
+                    })
+                else:
+                    capped_values.append(val)
+            
+            avg = sum(capped_values) / len(capped_values)
+            return avg, 'high', capped_outliers
+        
         # Create indent items: avg * buffer_multiplier ceiling (NO closing subtraction)
         indent_items = []
+        low_confidence_items = []
+        capped_outlier_items = []
+        
         for key, data in product_weight_totals.items():
-            days_count = len(data["dates"])
-            avg_qty = data["total_qty"] / days_count
-            base_qty = math.ceil(avg_qty * buffer_multiplier)   # Apply buffer_pct safety buffer, round up
+            qty_per_date = data.get("qty_per_date", {})
+            product_name = data["product_name"]
+            
+            # Z3: Use robust averaging with outlier detection
+            avg_qty, confidence, capped_outliers = calculate_robust_average(qty_per_date, product_name)
+            
+            if capped_outliers:
+                capped_outlier_items.append({
+                    "product": product_name,
+                    "outliers": capped_outliers
+                })
+            
+            # Z3: For low confidence (single sample), don't apply buffer
+            if confidence == 'low':
+                base_qty = math.ceil(avg_qty)  # No buffer for single data point
+                low_confidence_items.append(product_name)
+            else:
+                base_qty = math.ceil(avg_qty * buffer_multiplier)   # Apply buffer_pct safety buffer, round up
             
             # Subtract closing inventory if available (kept for future rollback, but NOT used)
             product_id = data["product_id"]
@@ -7564,14 +7688,20 @@ async def generate_single_auto_indent(
                             final_variant_id = pkg.get("id", "")
                             break
                 
-                indent_items.append({
+                item_entry = {
                     "product_id": product_id,
                     "product_name": data["product_name"],
                     "variant_id": final_variant_id,
                     "variant_name": final_variant_name,
                     "quantity": recommended_qty,
                     "status": "pending"
-                })
+                }
+                
+                # Z3: Add confidence flag for response tracking
+                if confidence == 'low':
+                    item_entry["low_confidence"] = True
+                
+                indent_items.append(item_entry)
         
         if not indent_items:
             return {
@@ -7613,7 +7743,8 @@ async def generate_single_auto_indent(
         
         await db.retailer_indents.insert_one(new_indent)
         
-        return {
+        # Z3: Build response with confidence and outlier info
+        response = {
             "success": True,
             "message": f"Auto indent created for {retailer_name} with {len(indent_items)} products (Sales Based)",
             "retailer_name": retailer_name,
@@ -7621,6 +7752,22 @@ async def generate_single_auto_indent(
             "products_count": len(indent_items),
             "total_qty": new_indent["total_qty"]
         }
+        
+        # Z3: Add warnings about low confidence items (single data point)
+        if low_confidence_items:
+            response["low_confidence_warning"] = {
+                "message": f"{len(low_confidence_items)} products have only 1 data point (no buffer applied)",
+                "products": low_confidence_items[:10]  # Limit to first 10 for brevity
+            }
+        
+        # Z3: Add info about capped outliers
+        if capped_outlier_items:
+            response["outliers_capped"] = {
+                "message": f"{len(capped_outlier_items)} products had outlier values capped (>3x median)",
+                "details": capped_outlier_items[:5]  # Limit to first 5 for brevity
+            }
+        
+        return response
         
     except HTTPException:
         raise

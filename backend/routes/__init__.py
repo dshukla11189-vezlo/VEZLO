@@ -44,6 +44,7 @@ from .backup_data import router as backup_data_router
 from .gmail_integration import router as gmail_integration_router
 from .dashboard_analytics import router as dashboard_analytics_router
 from .retailer_portal import router as retailer_portal_router
+from .admin import router as admin_router
 
 # Export all routers
 __all__ = [
@@ -65,4 +66,5 @@ __all__ = [
     'gmail_integration_router',
     'dashboard_analytics_router',
     'retailer_portal_router',
+    'admin_router',
 ]

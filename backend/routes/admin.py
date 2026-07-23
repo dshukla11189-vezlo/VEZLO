@@ -362,3 +362,202 @@ async def reset_all_retailer_referral_codes(current_user: dict = Depends(get_cur
     except Exception as e:
         print(f"Error resetting referral codes: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Z1: FIX RETAILER ID COLLISIONS - One-time data migration
+# ============================================================================
+
+@router.post("/admin/fix-retailer-id-collisions")
+async def fix_retailer_id_collisions(
+    request: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Z1: One-time migration to fix retailer_id collisions where multiple retailer_names
+    share the same retailer_id. This is idempotent and safe to run multiple times.
+    
+    Args:
+        request.dry_run: If True (default), returns planned remaps without writing.
+                        Set to False to actually execute the migration.
+    
+    Returns:
+        Detailed report of collisions found and remaps planned/executed.
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can run this migration")
+    
+    dry_run = request.get("dry_run", True)
+    
+    # Collections that store retailer_id
+    COLLECTIONS_WITH_RETAILER_ID = [
+        "retailer_dispatches",
+        "retailer_invoices", 
+        "retailer_rejections",
+        "retailer_indents",
+        "retailer_payments",
+        "retailer_credit_notes",
+        "retailer_closing_inventory",
+        "retailer_daily_requirements",
+        "retailer_daily_sales",
+        "retailer_grn",
+        "retailer_inventory"
+    ]
+    
+    from collections import defaultdict
+    
+    try:
+        # Step 1: Scan retailer_dispatches to find collisions (has most data)
+        all_docs = []
+        for coll_name in ["retailer_dispatches", "retailer_invoices"]:
+            coll = db[coll_name]
+            docs = await coll.find({}, {"_id": 0, "retailer_id": 1, "retailer_name": 1}).to_list(50000)
+            all_docs.extend(docs)
+        
+        # Group by retailer_id -> set of retailer_names
+        id_to_names = defaultdict(lambda: defaultdict(int))
+        for doc in all_docs:
+            rid = doc.get("retailer_id", "")
+            rname = doc.get("retailer_name", "")
+            if rid and rname:
+                id_to_names[rid][rname] += 1
+        
+        # Find collisions (retailer_id mapping to more than one name)
+        collisions = {}
+        for rid, names_dict in id_to_names.items():
+            if len(names_dict) > 1:
+                collisions[rid] = names_dict
+        
+        if not collisions:
+            return {
+                "success": True,
+                "dry_run": dry_run,
+                "message": "No collisions found. All retailer_ids map to unique names.",
+                "collisions_found": 0,
+                "remaps": []
+            }
+        
+        # Step 2: Plan remaps - keep the name with most records on existing id
+        remaps = []
+        for old_id, names_dict in collisions.items():
+            sorted_names = sorted(names_dict.items(), key=lambda x: -x[1])  # Descending by count
+            keep_name, keep_count = sorted_names[0]
+            
+            for remap_name, remap_count in sorted_names[1:]:
+                new_id = str(uuid.uuid4())
+                remaps.append({
+                    "old_retailer_id": old_id,
+                    "retailer_name": remap_name,
+                    "new_retailer_id": new_id,
+                    "record_count": remap_count,
+                    "keeping_on_old_id": keep_name
+                })
+        
+        # Step 3: Count affected rows per collection for each remap
+        remap_details = []
+        for remap in remaps:
+            old_id = remap["old_retailer_id"]
+            rname = remap["retailer_name"]
+            new_id = remap["new_retailer_id"]
+            
+            collection_counts = {}
+            for coll_name in COLLECTIONS_WITH_RETAILER_ID:
+                coll = db[coll_name]
+                count = await coll.count_documents({
+                    "retailer_id": old_id,
+                    "retailer_name": rname
+                })
+                if count > 0:
+                    collection_counts[coll_name] = count
+            
+            remap_details.append({
+                **remap,
+                "collections_affected": collection_counts,
+                "total_rows": sum(collection_counts.values())
+            })
+        
+        # Step 4: If not dry_run, execute the migration
+        if not dry_run:
+            migration_results = []
+            
+            for remap in remap_details:
+                old_id = remap["old_retailer_id"]
+                rname = remap["retailer_name"]
+                new_id = remap["new_retailer_id"]
+                
+                result_entry = {
+                    "retailer_name": rname,
+                    "old_id": old_id,
+                    "new_id": new_id,
+                    "updates": {}
+                }
+                
+                # Update all collections
+                for coll_name in COLLECTIONS_WITH_RETAILER_ID:
+                    coll = db[coll_name]
+                    update_result = await coll.update_many(
+                        {"retailer_id": old_id, "retailer_name": rname},
+                        {"$set": {"retailer_id": new_id}}
+                    )
+                    if update_result.modified_count > 0:
+                        result_entry["updates"][coll_name] = update_result.modified_count
+                
+                # Check if user master already has this retailer
+                existing_user = await db.users.find_one({
+                    "role": "retailer",
+                    "$or": [
+                        {"company_name": rname},
+                        {"name": rname}
+                    ]
+                }, {"_id": 0})
+                
+                if existing_user:
+                    # Update the existing user's id to the new one
+                    await db.users.update_one(
+                        {"id": existing_user["id"]},
+                        {"$set": {"id": new_id}}
+                    )
+                    result_entry["user_master"] = f"Updated existing user {existing_user['id']} to {new_id}"
+                else:
+                    # Create a new user record
+                    new_user = {
+                        "id": new_id,
+                        "email": f"{rname.lower().replace(' ', '_')}@placeholder.com",
+                        "name": rname,
+                        "company_name": rname,
+                        "role": "retailer",
+                        "status": "active",
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "password": "",  # No password - needs to be set
+                        "commission_percentage": 0.0
+                    }
+                    await db.users.insert_one(new_user)
+                    result_entry["user_master"] = f"Created new user with id {new_id}"
+                
+                migration_results.append(result_entry)
+            
+            return {
+                "success": True,
+                "dry_run": False,
+                "message": f"Migration completed. Fixed {len(remaps)} retailer_id collisions.",
+                "collisions_found": len(collisions),
+                "remaps_executed": migration_results
+            }
+        
+        # Dry run - just return the plan
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": f"Found {len(collisions)} collisions affecting {len(remaps)} retailer names. Set dry_run=false to execute.",
+            "collisions_found": len(collisions),
+            "remaps_planned": remap_details,
+            "collision_details": {
+                rid[:8]: {name: count for name, count in names.items()}
+                for rid, names in collisions.items()
+            }
+        }
+    
+    except Exception as e:
+        import traceback
+        print(f"Error in fix-retailer-id-collisions: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))

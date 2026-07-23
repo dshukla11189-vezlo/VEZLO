@@ -6997,8 +6997,8 @@ async def generate_auto_indents_for_tomorrow():
                         product_name = item.get("product_name", "")
                         variant_id = item.get("variant_id") or ""
                         variant_name = item.get("variant_name") or ""
-                        # Invoice quantity = final dispatched qty after rejections
-                        invoice_qty = item.get("quantity", 0) or 0
+                        # Invoice quantity = net of rejections (billable_qty preferred, fallback to quantity - rejected_qty)
+                        invoice_qty = item.get("billable_qty", max(0, item.get("quantity", 0) - item.get("rejected_qty", 0)))
                         
                         if product_id and invoice_qty > 0:
                             # Get actual weight - first try packaging database, then extract from name
@@ -7390,8 +7390,8 @@ async def generate_single_auto_indent(
                 product_name = item.get("product_name", "")
                 variant_id = item.get("variant_id") or ""
                 variant_name = item.get("variant_name") or ""
-                # Use quantity from invoice (this is the final dispatched qty after rejections)
-                invoice_qty = item.get("quantity", 0) or 0
+                # Invoice quantity = net of rejections (billable_qty preferred, fallback to quantity - rejected_qty)
+                invoice_qty = item.get("billable_qty", max(0, item.get("quantity", 0) - item.get("rejected_qty", 0)))
                 
                 if product_id and invoice_qty > 0:
                     # Get actual weight - first try packaging database, then extract from name

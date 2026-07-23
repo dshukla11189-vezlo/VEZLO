@@ -328,9 +328,12 @@ export default function AdminDashboard() {
     if (!cogsSnapshot?.products) return [];
 
     // Step 1: filter "sold today" by sub-tab
+    //   QC   = qc_sp_date === snapshotDate   (GRN-based, unchanged)
+    //   Retail = retail_invoice_date === snapshotDate  (NEW invoice-based)
+    //   All  = QC-sold OR Retail-sold on that date
     let filtered = cogsSnapshot.products.filter(p => {
       const soldQC = p.qc_sp_date === cogsSnapshotDate;
-      const soldRetail = p.retail_sp_date === cogsSnapshotDate;
+      const soldRetail = p.retail_invoice_date === cogsSnapshotDate;
       if (cogsSubTab === 'qc') return soldQC;
       if (cogsSubTab === 'retail') return soldRetail;
       return soldQC || soldRetail;
@@ -342,12 +345,22 @@ export default function AdminDashboard() {
     }
 
     // Step 3: compute display_sp and sp_cp_multiplier
+    //   QC tab   → qc_sp_per_kg
+    //   Retail tab → retail_sp_per_kg
+    //   All tab  → average of qc_sp_per_kg and retail_sp_per_kg
+    //     - both present: (qc + retail) / 2
+    //     - only one present: use that one
+    //     - neither present: null (renders as "—")
     filtered = filtered.map(p => {
       let display_sp = null;
       if (cogsSubTab === 'qc') display_sp = p.qc_sp_per_kg;
       else if (cogsSubTab === 'retail') display_sp = p.retail_sp_per_kg;
-      else display_sp = (p.retail_sp_date === cogsSnapshotDate && p.retail_sp_per_kg)
-        ? p.retail_sp_per_kg : p.qc_sp_per_kg;
+      else {
+        const qc = (p.qc_sp_per_kg && p.qc_sp_per_kg > 0) ? p.qc_sp_per_kg : null;
+        const rt = (p.retail_sp_per_kg && p.retail_sp_per_kg > 0) ? p.retail_sp_per_kg : null;
+        if (qc != null && rt != null) display_sp = (qc + rt) / 2;
+        else display_sp = qc != null ? qc : rt;
+      }
 
       const sp_cp_multiplier = (display_sp && p.pp_per_kg && p.pp_per_kg > 0)
         ? Math.round((display_sp / p.pp_per_kg) * 100) / 100 : null;
@@ -355,7 +368,7 @@ export default function AdminDashboard() {
       return { ...p, display_sp, sp_cp_multiplier };
     });
 
-    // Step 4: sort
+    // Step 4: sort (unchanged from prior AA3)
     filtered.sort((a, b) => {
       let aVal = a[cogsSortField];
       let bVal = b[cogsSortField];
@@ -384,18 +397,25 @@ export default function AdminDashboard() {
       { key: 'retail', label: 'Retail' },
     ];
     tabs.forEach(tab => {
+      // Same filter as AA3
       const tabProducts = cogsSnapshot.products.filter(p => {
         const soldQC = p.qc_sp_date === cogsSnapshotDate;
-        const soldRetail = p.retail_sp_date === cogsSnapshotDate;
+        const soldRetail = p.retail_invoice_date === cogsSnapshotDate;
         if (tab.key === 'qc') return soldQC;
         if (tab.key === 'retail') return soldRetail;
         return soldQC || soldRetail;
       });
       const rows = tabProducts.map((p, idx) => {
+        // Same averaging logic as AA3
         let sp = null;
         if (tab.key === 'qc') sp = p.qc_sp_per_kg;
         else if (tab.key === 'retail') sp = p.retail_sp_per_kg;
-        else sp = (p.retail_sp_date === cogsSnapshotDate && p.retail_sp_per_kg) ? p.retail_sp_per_kg : p.qc_sp_per_kg;
+        else {
+          const qc = (p.qc_sp_per_kg && p.qc_sp_per_kg > 0) ? p.qc_sp_per_kg : null;
+          const rt = (p.retail_sp_per_kg && p.retail_sp_per_kg > 0) ? p.retail_sp_per_kg : null;
+          if (qc != null && rt != null) sp = (qc + rt) / 2;
+          else sp = qc != null ? qc : rt;
+        }
         const multiplier = (sp && p.pp_per_kg && p.pp_per_kg > 0)
           ? Math.round((sp / p.pp_per_kg) * 100) / 100 : '';
         return {

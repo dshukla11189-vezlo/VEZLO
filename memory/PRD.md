@@ -2,6 +2,29 @@
 
 ## Changelog (July 2026)
 
+### July 23, 2026 - Part AA-revised: COGS Tab Invoice-Based Retail + SP Averaging ✅
+- **AA-backend**: Added `retail_invoice_date` field to COGS snapshot API (`/app/backend/routes/cogs_snapshot.py`)
+  - Reads from `retailer_invoices` collection keyed by `invoice_date` (not dispatch_date)
+  - Uses same weighted-average per-kg pattern as dispatches
+  - Preserves existing `retail_sp_date` (dispatch-based) for backward compatibility
+  - 46 products now have `retail_invoice_date` on sample date
+  
+- **AA3-revised**: Updated Retail tab filter to use `retail_invoice_date` (invoice-based instead of dispatch-based)
+  - QC tab: `qc_sp_date === snapshotDate` (unchanged, GRN-based)
+  - Retail tab: `retail_invoice_date === snapshotDate` (NEW invoice-based)
+  - All tab: QC-sold OR Retail-sold on that date
+
+- **AA4-revised**: Updated All tab to average QC SP and Retail SP
+  - Both present: `display_sp = (qc_sp + retail_sp) / 2`
+  - Only one present: use that one
+  - Neither: shows "—"
+  - SP/CP multiplier calculated from averaged SP
+
+- **AA6 clarification**: Multiplier rules
+  - QC tab: `qc_sp_per_kg / pp_per_kg`
+  - Retail tab: `retail_sp_per_kg / pp_per_kg`
+  - All tab: `averaged_sp / pp_per_kg` (2 decimals, "—" when denominator is 0/null)
+
 ### July 23, 2026 - Part AA: COGS Tab Enhancement ✅
 - **FEATURE**: Enhanced COGS tab with switchable sub-tabs, SP/CP multiplier, and Excel export
   - **New State** (`cogsSubTab`): Controls All/QC/Retail view filter

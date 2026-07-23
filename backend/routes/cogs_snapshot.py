@@ -202,6 +202,57 @@ async def get_cogs_snapshot(
                         }
                         break
     
+    # ====================================================================
+    # AA-backend: Get Retail Invoice Date from retailer_invoices
+    # This is used by frontend's Retail sub-tab to filter "sold today" by invoice date
+    # Keep retail_sp_date (dispatch-based) intact for other consumers
+    # ====================================================================
+    retail_invoices = await db.retailer_invoices.find(
+        {"invoice_date": {"$regex": f"^{target_date_str}"}},
+        {"_id": 0, "invoice_date": 1, "items": 1}
+    ).to_list(length=None)
+    
+    # Build Retail Invoice SP map (same weighted-average pattern as dispatches)
+    retail_invoice_sp_by_product = {}  # {product_name: {"total_value": x, "total_qty_kg": y}}
+    retail_invoice_date_by_product = {}  # {product_name: invoice_date}
+    
+    for invoice in retail_invoices:
+        invoice_date = (invoice.get("invoice_date") or "")[:10]
+        if not invoice_date:
+            continue
+        
+        for item in invoice.get("items", []):
+            pname = item.get("product_name")
+            # Use item's value fields - try multiple field names for compatibility
+            mrp = item.get("mrp", 0) or item.get("rate", 0) or 0
+            qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
+            variant_name = (item.get("variant_name") or item.get("packaging_name") or "").lower().strip()
+            
+            if not pname or mrp <= 0 or qty <= 0:
+                continue
+            
+            # Convert to kg using same logic as dispatches
+            weight_gm = packaging_weights.get(variant_name, 0)
+            if weight_gm <= 0:
+                # Try to extract from variant name
+                import re
+                match = re.search(r'(\d+)\s*(?:gm|g|gram)', variant_name, re.IGNORECASE)
+                if match:
+                    weight_gm = int(match.group(1))
+                else:
+                    weight_gm = 1000  # Default to 1 kg
+            
+            qty_kg = (qty * weight_gm) / 1000
+            total_value = item.get("total_value", 0) or item.get("amount", 0) or (mrp * qty)
+            
+            if pname not in retail_invoice_sp_by_product:
+                retail_invoice_sp_by_product[pname] = {"total_value": 0, "total_qty_kg": 0}
+            retail_invoice_sp_by_product[pname]["total_value"] += total_value
+            retail_invoice_sp_by_product[pname]["total_qty_kg"] += qty_kg
+            
+            # Track the invoice date for this product
+            retail_invoice_date_by_product[pname] = invoice_date
+    
     # Build result
     result = []
     
@@ -238,6 +289,7 @@ async def get_cogs_snapshot(
                 "qc_sp_date": qc_data.get("date"),
                 "retail_sp_per_kg": retail_data.get("value"),
                 "retail_sp_date": retail_data.get("date"),
+                "retail_invoice_date": retail_invoice_date_by_product.get(pname),  # AA-backend: invoice-based date for Retail tab
                 "last_updated": last_updated
             })
     

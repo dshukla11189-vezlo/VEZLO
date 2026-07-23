@@ -2,6 +2,18 @@
 
 ## Changelog (July 2026)
 
+### July 23, 2026 - Part AA: COGS Tab Enhancement ✅
+- **FEATURE**: Enhanced COGS tab with switchable sub-tabs, SP/CP multiplier, and Excel export
+  - **New State** (`cogsSubTab`): Controls All/QC/Retail view filter
+  - **Sub-tabs**: All (shows items sold to QC or Retail), QC (only QC sales), Retail (only Retail sales)
+  - **Sales Price logic**: QC tab shows QC SP, Retail tab shows Retail SP, All tab prefers Retail SP (falls back to QC SP)
+  - **SP/CP Multiplier column**: `Math.round((display_sp / pp_per_kg) * 100) / 100` — shows "—" when PP is 0 or missing
+  - **Export Excel**: Downloads 3-sheet workbook (All/QC/Retail) with columns: S No, Item Name, Purchase Price, Sales Price, Unit, SP/CP Multiplier, Last Updated
+  - **Sortable headers**: All columns clickable for ascending/descending sort
+  - **S No column**: Added serial number column
+  - **"Sold Items" filter**: Only shows products with `qc_sp_date` or `retail_sp_date` matching the selected date
+  - **Files Modified**: `/app/frontend/src/pages/admin/Dashboard.js`
+
 ### July 23, 2026 - Part Z: Fix Retailer ID Collisions + Auto-Indent Guards ✅
 - **Z1: One-Time Data Migration** (`/app/backend/routes/admin.py`):
   - New endpoint: `POST /api/admin/fix-retailer-id-collisions`

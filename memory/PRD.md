@@ -2,6 +2,32 @@
 
 ## Changelog (July 2026)
 
+### July 28, 2026 - Retailer Name Data Quality Fix ✅
+- **STEP 1 - Migration**: Fixed 5,030 documents across 6 collections
+  - `retailer_dispatches`: 310 docs
+  - `retailer_invoices`: 290 docs
+  - `retailer_rejections`: 3,011 docs
+  - `retailer_indents`: 722 docs (including 6 additional retailers discovered)
+  - `retailer_closing_inventory`: 481 docs (including blank/null names)
+  - `retailer_grn`: 16 docs
+  
+- **Key Fixes Applied**:
+  - f77940fb... "Lucky" → "Jai Bhawani Traders Mundhwa"
+  - a400f104... "Ghisendra Choudhary" → "Tamanna Mart"
+  - d36a4f17... "G D Enterprises", "Sonaji Kharat" → "Savtamali"
+  - c15885f6... "Kartik Narang" → "Narang Super Mart (Brahmacorp)"
+  - 17b601bc... "Rohan" → "Park Way Mart"
+  - Plus 6 additional retailers fixed in retailer_indents
+
+- **STEP 2 - Prevention**: Audited and fixed all backend write paths
+  - Changed 8 locations from `retailer.get("name")` to `retailer.get("company_name") or retailer.get("name")`
+  - Files modified: `retailer_portal.py`, `retailer_indents.py`
+  - Now all write paths consistently use `company_name` (shop name) first
+
+- **Verification**: 
+  - Final scan confirms ZERO retailers have multiple names in any collection
+  - Test: Creating indent for Tamanna Mart correctly uses "Tamanna Mart" (not "Ghisendra Choudhary")
+
 ### July 23, 2026 - Part Y5: Auto Indent Rejection Fix for 100% Upfront Retailers ✅
 - **Root Cause**: `sync_invoice_rejection_amount` skips 100% upfront retailers (rejections flow via Credit Notes), leaving `billable_qty=None` and `rejected_qty=0` on invoices. The Y3 fallback used raw quantity, inflating auto-indent for 17 of 18 retailers.
 - **Fix**: Added rejection_map lookup from `retailer_rejections` collection

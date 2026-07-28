@@ -45,7 +45,7 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
     
     indent = RetailerIndent(
         retailer_id=retailer_id,
-        retailer_name=retailer.get("name", "Unknown"),
+        retailer_name=retailer.get("company_name") or retailer.get("name", "Unknown"),
         indent_date=input.indent_date,
         items=input.items,
         remarks=input.remarks,

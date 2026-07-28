@@ -315,7 +315,7 @@ async def create_retailer_indent(input: RetailerIndentCreate, current_user: dict
     # Use resolved items instead of raw input items
     indent = RetailerIndent(
         retailer_id=retailer_id,
-        retailer_name=retailer.get("name", "Unknown"),
+        retailer_name=retailer.get("company_name") or retailer.get("name", "Unknown"),
         indent_date=input.indent_date,
         items=[RetailerIndentItem(**item) for item in resolved_items],
         remarks=input.remarks,
@@ -1283,7 +1283,7 @@ async def create_retailer_rejection(input: RetailerRejectionCreate, current_user
     
     rejection = RetailerRejection(
         retailer_id=input.retailer_id,
-        retailer_name=retailer.get("name", "Unknown"),
+        retailer_name=retailer.get("company_name") or retailer.get("name", "Unknown"),
         rejection_date=input.rejection_date,
         product_id=input.product_id,
         product_name=input.product_name,
@@ -2136,7 +2136,7 @@ async def create_retailer_payment(input: RetailerPaymentCreate, current_user: di
     
     payment = RetailerPayment(
         retailer_id=input.retailer_id,
-        retailer_name=retailer.get("name", "Unknown"),
+        retailer_name=retailer.get("company_name") or retailer.get("name", "Unknown"),
         payment_date=input.payment_date,
         amount=input.amount,
         payment_mode=input.payment_mode,
@@ -3488,7 +3488,7 @@ async def set_model_change_dates(
         
         results.append({
             "retailer_id": retailer["id"],
-            "retailer_name": retailer["name"],
+            "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
             "matched": result.matched_count,
             "modified": result.modified_count,
             "current_model_changed_at": updated_user.get("model_changed_at") if updated_user else None,
@@ -4916,7 +4916,7 @@ async def create_retailer_invoice(input: RetailerInvoiceCreate, current_user: di
     invoice = RetailerInvoice(
         invoice_number=invoice_number,
         retailer_id=input.retailer_id,
-        retailer_name=retailer.get("name", "Unknown"),
+        retailer_name=retailer.get("company_name") or retailer.get("name", "Unknown"),
         invoice_date=input.invoice_date,
         dispatch_ids=input.dispatch_ids,
         items=[item.model_dump() for item in all_items],

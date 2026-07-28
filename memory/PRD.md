@@ -2,6 +2,23 @@
 
 ## Changelog (July 2026)
 
+### July 28, 2026 - Part W-21: Extended 21-Day Window for Metrics ✅
+- **Changed**: Avg Net Sales (15d) and Rejection % (15d) now use a 21-day window
+  - Fetches 21 distinct delivered days (top21)
+  - Uses only the **15 OLDEST** of those 21 (oldest15 = top21.slice(6, 21))
+  - The 6 most recent days are dropped because rejection data is still trickling in
+  
+- **Retailer Portal** (`/app/frontend/src/pages/retailer/Dashboard.js`):
+  - Updated `netSalesAndRejection15d` useMemo
+  - Card subtitles: "avg over 15 oldest of last 21 delivered days"
+  - Modal title: "Avg Net Sales — 15 Oldest of Last 21 Delivered Days"
+  - Rejection modal: Explains "The 6 most recent delivered days are excluded because rejection reporting for them is still incoming."
+  
+- **Admin Panel** (`/app/frontend/src/pages/admin/RetailerOrders.js`):
+  - Updated `adminNetSalesAndRejection15d` useMemo with same 21-day window logic
+  - Preserves W4-revised per-day-per-retailer averaging for "All Retailers" mode
+  - Card/modal text updated to match retailer portal pattern
+
 ### July 28, 2026 - Retailer Name Data Quality Fix ✅
 - **STEP 1 - Migration**: Fixed 5,030 documents across 6 collections
   - `retailer_dispatches`: 310 docs

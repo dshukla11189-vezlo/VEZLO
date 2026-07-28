@@ -978,23 +978,27 @@ export default function RetailerDashboard() {
 
   // V1 — 15-day rolling Net Sales & Rejection % for retailer portal
   const netSalesAndRejection15d = useMemo(() => {
-    // Distinct dispatch dates (delivered days), DESC, top 15
+    // W-21: Fetch 21 distinct dispatch dates (delivered days), DESC
     const dispatchDateSet = new Set();
     (dispatches || []).forEach(d => {
       const dd = (d.dispatch_date || '').split('T')[0];
       if (dd) dispatchDateSet.add(dd);
     });
-    const top15 = Array.from(dispatchDateSet).sort((a, b) => b.localeCompare(a)).slice(0, 15);
-    const top15Set = new Set(top15);
-    const deliveredDaysCount = top15.length;
+    const top21 = Array.from(dispatchDateSet).sort((a, b) => b.localeCompare(a)).slice(0, 21);
+    
+    // W-21: Use only the 15 OLDEST of those 21 (drop the 6 most recent)
+    const oldest15 = top21.slice(6, 21);
+    const oldest15Set = new Set(oldest15);
+    const deliveredDaysCount = oldest15.length;
+    const windowSize = top21.length;
 
-    // Per-day aggregation across top15
+    // Per-day aggregation ONLY for dates in oldest15
     const dayData = {};
-    top15.forEach(dd => { dayData[dd] = { grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0, products: {} }; });
+    oldest15.forEach(dd => { dayData[dd] = { grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0, products: {} }; });
 
     (dispatches || []).forEach(d => {
       const dd = (d.dispatch_date || '').split('T')[0];
-      if (!dayData[dd]) return;
+      if (!oldest15Set.has(dd)) return;
       const mrp = (d.total_mrp_value && d.total_mrp_value > 0)
         ? d.total_mrp_value
         : (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
@@ -1011,6 +1015,7 @@ export default function RetailerDashboard() {
 
     (rejections || []).forEach(r => {
       const rd = (r.rejection_date || '').split('T')[0];
+      if (!oldest15Set.has(rd)) return;
       if (!dayData[rd]) return;
       dayData[rd].rejValue += (r.rejection_value || 0);
       dayData[rd].rejQty += (r.quantity || 0);
@@ -1020,20 +1025,18 @@ export default function RetailerDashboard() {
       dayData[rd].products[pid].rejQty += (r.quantity || 0);
     });
 
-    // Avg Net Sales across all 15 delivered days
+    // Avg Net Sales across the 15 oldest delivered days
     let totalNetSales = 0;
-    top15.forEach(dd => { totalNetSales += dayData[dd].grossValue - dayData[dd].rejValue; });
+    oldest15.forEach(dd => { totalNetSales += dayData[dd].grossValue - dayData[dd].rejValue; });
     const avgNetSales = deliveredDaysCount > 0 ? totalNetSales / deliveredDaysCount : 0;
 
-    // Rejection %: 8 OLDEST of the 15 delivered days (drop 7 most recent)
-    const oldest8 = top15.slice(Math.max(0, top15.length - 8));
-    let rej8Qty = 0, sup8Qty = 0;
-    oldest8.forEach(dd => { sup8Qty += dayData[dd].grossQty; rej8Qty += dayData[dd].rejQty; });
-    const rejectionPct = sup8Qty > 0 ? (rej8Qty / sup8Qty) * 100 : null;
-    const rejection8Days = oldest8.length;
+    // Rejection %: ALL 15 oldest days (no separate 8-day slice anymore)
+    let rejQty = 0, supQty = 0;
+    oldest15.forEach(dd => { supQty += dayData[dd].grossQty; rejQty += dayData[dd].rejQty; });
+    const rejectionPct = supQty > 0 ? (rejQty / supQty) * 100 : null;
 
-    // Modal-ready arrays
-    const netSalesRows = top15.map(dd => {
+    // Modal-ready arrays — sorted newest-first from oldest15 (15 rows)
+    const netSalesRows = oldest15.sort((a, b) => b.localeCompare(a)).map(dd => {
       const day = dayData[dd];
       return {
         date: dd,
@@ -1044,13 +1047,13 @@ export default function RetailerDashboard() {
         products: day.products,
       };
     });
-    const rejectionPctRows = oldest8.sort((a, b) => b.localeCompare(a)).map(dd => {
+    const rejectionPctRows = oldest15.sort((a, b) => b.localeCompare(a)).map(dd => {
       const day = dayData[dd];
       const pct = day.grossQty > 0 ? (day.rejQty / day.grossQty) * 100 : null;
       return { date: dd, rejectionPct: pct };
     });
 
-    return { avgNetSales, deliveredDaysCount, rejectionPct, rejection8Days, netSalesRows, rejectionPctRows };
+    return { avgNetSales, deliveredDaysCount, windowSize, rejectionPct, netSalesRows, rejectionPctRows };
   }, [dispatches, rejections]);
 
   // ==================== INDENT HANDLERS ====================
@@ -3164,7 +3167,7 @@ export default function RetailerDashboard() {
                 <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide mb-1">Avg Net Sales (15d)</p>
                 <p className="text-xl font-bold text-blue-800">{formatCurrency(netSalesAndRejection15d.avgNetSales)}</p>
                 {netSalesAndRejection15d.deliveredDaysCount > 0 && (
-                  <p className="text-[10px] text-gray-500 mt-1">per delivered day ({netSalesAndRejection15d.deliveredDaysCount} days)</p>
+                  <p className="text-[10px] text-gray-500 mt-1">avg over 15 oldest of last {netSalesAndRejection15d.windowSize || 21} delivered days</p>
                 )}
                 <button
                   onClick={() => setNetSalesModalOpen(true)}
@@ -3179,9 +3182,9 @@ export default function RetailerDashboard() {
                   {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
                 </p>
                 <p className="text-[10px] text-gray-500 mt-1">
-                  {netSalesAndRejection15d.rejection8Days > 0
-                    ? `based on ${netSalesAndRejection15d.rejection8Days} oldest delivered days`
-                    : 'last 15 days'}
+                  {netSalesAndRejection15d.deliveredDaysCount > 0
+                    ? `based on 15 oldest of last ${netSalesAndRejection15d.windowSize || 21} delivered days`
+                    : 'no data'}
                 </p>
                 <button
                   onClick={() => setRejPctModalOpen(true)}
@@ -8236,7 +8239,7 @@ export default function RetailerDashboard() {
                   <h3 className="text-lg font-semibold text-blue-700">
                     {netSalesDrilldownDate
                       ? `Products on ${netSalesDrilldownDate}`
-                      : `Avg Net Sales — Last ${netSalesAndRejection15d.deliveredDaysCount} Delivered Days`}
+                      : `Avg Net Sales — 15 Oldest of Last ${netSalesAndRejection15d.windowSize || 21} Delivered Days`}
                   </h3>
                 </div>
                 <button onClick={() => { setNetSalesModalOpen(false); setNetSalesDrilldownDate(null); }} className="text-gray-500 hover:text-gray-700 text-xl font-bold">×</button>
@@ -8307,13 +8310,13 @@ export default function RetailerDashboard() {
             <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col">
               <div className="p-4 border-b border-gray-200 flex items-center justify-between bg-orange-50">
                 <h3 className="text-lg font-semibold text-orange-700">
-                  Rejection % — {netSalesAndRejection15d.rejection8Days} Oldest Delivered Days
+                  Rejection % — 15 Oldest of Last {netSalesAndRejection15d.windowSize || 21} Delivered Days
                 </h3>
                 <button onClick={() => setRejPctModalOpen(false)} className="text-gray-500 hover:text-gray-700 text-xl font-bold">×</button>
               </div>
               <div className="p-4 overflow-y-auto flex-1">
                 <p className="text-xs text-gray-500 mb-3">
-                  8 oldest delivered days from the 15-day window. The 7 most recent days are excluded because rejection reporting for them is still incoming. Per-product detail is available in the Net Sales view.
+                  The 6 most recent delivered days are excluded because rejection reporting for them is still incoming.
                 </p>
                 <table className="w-full text-sm">
                   <thead className="bg-orange-50 sticky top-0"><tr>

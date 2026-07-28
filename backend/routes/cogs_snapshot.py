@@ -141,7 +141,7 @@ async def get_cogs_snapshot(
     # We need weighted average of sell price per kg
     retail_dispatches = await db.retailer_dispatches.find(
         {"dispatch_date": {"$lte": target_date_str + "T23:59:59"}},
-        {"_id": 0, "dispatch_date": 1, "items": 1}
+        {"_id": 0, "dispatch_date": 1, "retailer_name": 1, "items": 1}
     ).to_list(5000)
     
     # Get packaging weights for kg conversion
@@ -152,6 +152,9 @@ async def get_cogs_snapshot(
     retail_sp_by_product_date = {}  # {(product_name, date): {"total_value": x, "total_qty_kg": y}}
     
     for dispatch in retail_dispatches:
+        # Bug1-fix: permanently exclude Wholesale from Retail SP (customer's explicit exclusion ask)
+        if dispatch.get("retailer_name") == "Wholesale":
+            continue
         dispatch_date = (dispatch.get("dispatch_date") or "")[:10]
         if not dispatch_date:
             continue
@@ -209,7 +212,7 @@ async def get_cogs_snapshot(
     # ====================================================================
     retail_invoices = await db.retailer_invoices.find(
         {"invoice_date": {"$regex": f"^{target_date_str}"}},
-        {"_id": 0, "invoice_date": 1, "items": 1}
+        {"_id": 0, "invoice_date": 1, "retailer_name": 1, "items": 1}
     ).to_list(length=None)
     
     # Build Retail Invoice SP map (same weighted-average pattern as dispatches)
@@ -217,6 +220,9 @@ async def get_cogs_snapshot(
     retail_invoice_date_by_product = {}  # {product_name: invoice_date}
     
     for invoice in retail_invoices:
+        # Bug1-fix: permanently exclude Wholesale from invoice-based Retail SP too (symmetric with dispatch loop)
+        if invoice.get("retailer_name") == "Wholesale":
+            continue
         invoice_date = (invoice.get("invoice_date") or "")[:10]
         if not invoice_date:
             continue
@@ -259,7 +265,15 @@ async def get_cogs_snapshot(
     for pname, pinfo in sorted(product_map.items()):
         pp_data = pp_by_product.get(pname, {})
         qc_data = qc_sp_by_product.get(pname, {})
-        retail_data = retail_sp_by_product.get(pname, {})
+        # AA-fix: prefer invoice-based Retail SP (what the customer actually wants); fall back to dispatch-based
+        _inv = retail_invoice_sp_by_product.get(pname, {})
+        if _inv.get("total_qty_kg", 0) > 0:
+            retail_data = {
+                "value": round(_inv["total_value"] / _inv["total_qty_kg"], 2),
+                "date": retail_invoice_date_by_product.get(pname),
+            }
+        else:
+            retail_data = retail_sp_by_product.get(pname, {})
         
         pp_value = pp_data.get("value", 0)
         pp_prev = pp_prev_by_product.get(pname, 0)

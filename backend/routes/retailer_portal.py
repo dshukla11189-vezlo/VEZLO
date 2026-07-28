@@ -6944,11 +6944,11 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
         for rej in rejections_in_window:
             rid = rej.get("retailer_id")
             pid = rej.get("product_id")
-            vid = rej.get("variant_id") or rej.get("variant_name") or ""
+            vid = rej.get("variant_name") or rej.get("variant_id") or ""  # Y5-fix: prefer variant_name to match invoice-side key (invoices never carry variant_id)
             rdate = str(rej.get("rejection_date", ""))[:10]
             key = (rid, pid, vid, rdate)
             rejection_map[key] = rejection_map.get(key, 0) + (rej.get("quantity", 0) or 0)
-        
+
         logger.info(f"Loaded {len(rejection_map)} rejection keys from retailer_rejections for 100% upfront handling")
         
         auto_indents_created = 0
@@ -7439,11 +7439,11 @@ async def generate_single_auto_indent(
         for rej in rejections_in_window:
             rid = rej.get("retailer_id")
             pid = rej.get("product_id")
-            vid = rej.get("variant_id") or rej.get("variant_name") or ""
+            vid = rej.get("variant_name") or rej.get("variant_id") or ""  # Y5-fix: prefer variant_name to match invoice-side key (invoices never carry variant_id)
             rdate = str(rej.get("rejection_date", ""))[:10]
             key = (rid, pid, vid, rdate)
             rejection_map[key] = rejection_map.get(key, 0) + (rej.get("quantity", 0) or 0)
-        
+
         # Get the target weekday (0=Monday, 6=Sunday)
         target_weekday = target_date.weekday()
         weekday_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']

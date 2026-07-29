@@ -8929,6 +8929,9 @@ async def fix_dispatch_ids_migration(current_user: dict = Depends(get_current_us
         logger.error(f"Migration error: {e}")
     
     return results
+
+
+@router.get("/retailer-immediately-payable")
 async def get_retailer_immediately_payable(
     retailer_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
@@ -9405,6 +9408,26 @@ async def get_retailer_payment_details(
     grand_final = sum(d["final_payment_total"] for d in result_list)
     grand_pending = sum(d["total_pending"] for d in result_list)
     
+    # Calculate immediately_payable for 50% upfront retailers:
+    # Days 0-4: only the upfront portion is immediately due
+    # Days 5+: full pending amount is immediately due
+    # For 100% upfront retailers: ALL pending is immediately due (unchanged)
+    immediately_payable = 0
+    if is_full_upfront:
+        # 100% upfront: all pending is immediately due
+        immediately_payable = grand_pending
+    else:
+        # 50% upfront: compute per-invoice based on days_since
+        for date_data in result_list:
+            for inv in date_data.get("invoices", []):
+                days_since = inv.get("days_since", 0)
+                if days_since < 5:
+                    # Only upfront portion is immediately due
+                    immediately_payable += inv.get("upfront_due", 0)
+                else:
+                    # Full pending is immediately due (credit period ended)
+                    immediately_payable += inv.get("pending_amount", 0)
+    
     # Calculate total pending credit from credit notes
     total_pending_credit = sum(cn.get("pending_amount", 0) or 0 for cn in credit_notes)
     
@@ -9416,7 +9439,8 @@ async def get_retailer_payment_details(
             "grand_total": round(grand_upfront + grand_final, 2),
             "total_pending": round(grand_pending, 2),
             "total_pending_credit": round(total_pending_credit, 2),
-            "net_payable": round(max(0, grand_upfront + grand_final - total_pending_credit), 2)
+            "net_payable": round(max(0, grand_upfront + grand_final - total_pending_credit), 2),
+            "immediately_payable": round(max(0, immediately_payable - total_pending_credit), 2)
         },
         "commission_percentage": commission_percentage,
         "upfront_collection_percentage": upfront_pct,

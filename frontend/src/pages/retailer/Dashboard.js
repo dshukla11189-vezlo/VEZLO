@@ -3645,8 +3645,14 @@ export default function RetailerDashboard() {
                           <p className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold ${
                             paymentDetails.is_full_upfront ? 'text-purple-700' : 'text-blue-700'
                           }`}>
-                            {formatCurrency((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0))}
+                            {formatCurrency(paymentDetails.totals?.immediately_payable ?? ((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0)))}
                           </p>
+                          {/* For 50% upfront: show total outstanding as secondary figure */}
+                          {!paymentDetails.is_full_upfront && paymentDetails.totals?.grand_total > paymentDetails.totals?.immediately_payable && (
+                            <p className="text-[10px] sm:text-xs text-gray-500">
+                              Total Outstanding: {formatCurrency((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0))}
+                            </p>
+                          )}
                           {paymentDetails.totals?.total_pending_credit > 0 && (
                             <p className="text-[10px] sm:text-xs text-gray-500">
                               After ₹{(paymentDetails.totals?.total_pending_credit || 0).toLocaleString()} credit adjustment

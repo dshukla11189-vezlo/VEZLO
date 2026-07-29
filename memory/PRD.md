@@ -2,6 +2,24 @@
 
 ## Changelog (July 2026)
 
+### July 29, 2026 - 50% Upfront Immediately-Payable Headline ✅
+- **FEATURE**: Wired up "immediately payable" calculation for 50% upfront retailers
+  - Backend: Added `@router.get("/retailer-immediately-payable")` endpoint
+  - Backend: Added `totals.immediately_payable` to `/api/retailer-payment-details` response
+    - Days 0-4: only upfront portion is immediately due
+    - Days 5+: full pending amount is immediately due
+    - Credit notes subtracted from immediately_payable
+  - Retailer Portal: Headline now shows `immediately_payable` instead of `grand_total`
+    - "Total Outstanding" shown as secondary figure when different
+  - Admin Panel: Headline now shows `upfront_50_total + overdue` for 50% upfront retailers
+    - "Total Outstanding" shown as secondary figure
+  - 100% upfront retailers unchanged (all pending is immediately due)
+  
+- **BUG FIX**: Added automatic password seeding on server startup
+  - Ensures all users have password hashes when preview syncs from production
+  - Prevents recurring login failures in preview environment
+  - Function: `ensure_user_passwords_on_startup()` in `server.py`
+
 ### July 28, 2026 - Part W-21: Extended 21-Day Window for Metrics ✅
 - **Changed**: Avg Net Sales (15d) and Rejection % (15d) now use a 21-day window
   - Fetches 21 distinct delivered days (top21)

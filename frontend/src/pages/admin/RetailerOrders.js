@@ -9553,8 +9553,19 @@ export default function RetailerOrders() {
               </div>
               <div className="text-right">
                 <p className={`text-2xl font-bold ${isFullUpfront ? 'text-purple-700' : 'text-red-700'}`}>
-                  {formatCurrency(immediatelyPayable.grand_totals.total)}
+                  {/* For 50% upfront: show immediately payable (upfront_50_total + overdue), not total */}
+                  {/* For 100% upfront: show total (all pending is immediately due) */}
+                  {formatCurrency(isFullUpfront 
+                    ? immediatelyPayable.grand_totals.total 
+                    : ((immediatelyPayable.grand_totals.upfront_50_total || 0) + (immediatelyPayable.grand_totals.overdue || 0))
+                  )}
                 </p>
+                {/* For 50% upfront: show total outstanding as secondary if different */}
+                {!isFullUpfront && immediatelyPayable.grand_totals.total > ((immediatelyPayable.grand_totals.upfront_50_total || 0) + (immediatelyPayable.grand_totals.overdue || 0)) && (
+                  <p className="text-xs text-gray-500">
+                    Total Outstanding: {formatCurrency(immediatelyPayable.grand_totals.total)}
+                  </p>
+                )}
                 {totalPendingCredit > 0 && (
                   <p className="text-xs text-gray-500">
                     +₹{totalPendingCredit.toLocaleString()} pending credit available

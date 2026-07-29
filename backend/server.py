@@ -942,6 +942,53 @@ async def compute_daily_cogs_scheduled():
         traceback.print_exc()
 
 
+async def ensure_user_passwords_on_startup():
+    """
+    Ensure all users have password hashes on startup.
+    This prevents login failures when preview environment syncs from production
+    and password hashes get lost or stripped.
+    
+    Runs on EVERY startup to guarantee passwords are always available.
+    """
+    try:
+        # Default passwords by role
+        default_passwords = {
+            "admin": "admin123",
+            "retailer": "retailer123",
+            "staff": "staff123"
+        }
+        
+        # Find all users missing passwords
+        users_without_password = await db.users.find({
+            "$or": [
+                {"password": {"$exists": False}},
+                {"password": None},
+                {"password": ""}
+            ]
+        }).to_list(None)
+        
+        if not users_without_password:
+            return  # All users have passwords
+        
+        fixed_count = 0
+        for user in users_without_password:
+            role = user.get("role", "retailer")
+            default_pw = default_passwords.get(role, "retailer123")
+            hashed = bcrypt.hashpw(default_pw.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"password": hashed}}
+            )
+            fixed_count += 1
+            logger.info(f"[PASSWORD_SEED] Set default password for {user.get('email')} (role: {role})")
+        
+        logger.info(f"[PASSWORD_SEED] Fixed {fixed_count} users with missing passwords")
+        
+    except Exception as e:
+        logger.error(f"[PASSWORD_SEED] Error ensuring user passwords: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize backup scheduler, Gmail sync scheduler, and seed default data on startup"""
@@ -1043,6 +1090,9 @@ async def startup_event():
         
         # Initialize default retail plans
         await initialize_default_plans()
+        
+        # CRITICAL: Ensure all users have passwords (fixes preview env sync issues)
+        await ensure_user_passwords_on_startup()
         
         # Migrate existing retailers to have upfront_collection_percentage = 50
         try:

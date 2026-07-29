@@ -9828,19 +9828,37 @@ async def get_all_retailers_immediately_payable(
             unpaid_upfront = max(0, upfront_portion - paid_amount)
             
             if days_since == 0:
-                # Today's invoice: upfront % is due
+                # Today's invoice: upfront % is due; credit-period half is outstanding but not yet due
                 if unpaid_upfront > 0:
                     retailer_payables[retailer_id]["today_50_percent"] += unpaid_upfront
                     entry["amount"] = round(unpaid_upfront, 2)
                     entry["type"] = "today"
                     detailed_entries["upfront"].append(entry)
+                    remaining_credit = pending_amount - unpaid_upfront
+                    if remaining_credit > 0:
+                        entry_credit = {**entry, "amount": round(remaining_credit, 2)}
+                        retailer_payables[retailer_id]["due_today_remaining"] += remaining_credit
+                        detailed_entries["credit_due"].append(entry_credit)
+                else:
+                    retailer_payables[retailer_id]["due_today_remaining"] += pending_amount
+                    entry["amount"] = round(pending_amount, 2)
+                    detailed_entries["credit_due"].append(entry)
             elif days_since >= 1 and days_since <= 4:
-                # Check if upfront portion was paid
+                # Upfront portion overdue; credit-period half outstanding but not yet due (< day 5)
                 if unpaid_upfront > 0:
                     retailer_payables[retailer_id]["pending_50_recent"] += unpaid_upfront
                     entry["amount"] = round(unpaid_upfront, 2)
                     entry["type"] = "pending"
                     detailed_entries["upfront"].append(entry)
+                    remaining_credit = pending_amount - unpaid_upfront
+                    if remaining_credit > 0:
+                        entry_credit = {**entry, "amount": round(remaining_credit, 2)}
+                        retailer_payables[retailer_id]["due_today_remaining"] += remaining_credit
+                        detailed_entries["credit_due"].append(entry_credit)
+                else:
+                    retailer_payables[retailer_id]["due_today_remaining"] += pending_amount
+                    entry["amount"] = round(pending_amount, 2)
+                    detailed_entries["credit_due"].append(entry)
             elif days_since == 5:
                 # Day 5: Credit period ends
                 # If 50% upfront was never paid, it still counts as pending upfront

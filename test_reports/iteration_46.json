@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only regression of Field Team Dashboard enhancements (View modals on Avg Net Sales / Rejection % cards + Record Rejection wizard) as adb@gmail.com/fieldteam123. All 9 requested scenarios PASS. (1) Login + Record Rejection button [data-testid=record-rejection-btn] visible at top of My Portfolio page. (2) 'View' click on Avg Net Sales (15D) card opens 'Avg Net Sales (15D) — Retailer Breakdown' modal with 2 rows (Tamanna Mart ₹3,896, 15/21 days; S Mart ₹0, 0/0) + Portfolio Total footer (₹3,896, 15/21). (3) 'View' click on Rejection % (15D) card opens 'Rejection % (15D) — Retailer Breakdown' modal (Tamanna Mart 15.9% highlighted, S Mart —, sorted desc by rejection). (4) 'View Dashboard' button in the modal navigates to the full retailer portal dashboard (Tamanna Mart header, Create New Order card + Create Order button, Avg Net Sales ₹3,896, Rejection % 15.9%, Your Earnings ₹53,155 with 4 charts, 7 stat cards). (5) 'Record Rejection' opens 3-step wizard; Step 1 shows ONLY the 2 assigned retailers (Tamanna Mart, S Mart) — search filter works ('tamanna' → 1 result). (6) Selecting Tamanna Mart advances to Step 2 showing 287 product/variant options from that retailer's dispatches (e.g., Amaranthus Green 250+ gm, Amla 200+ gm, Apple - Royal Gala 500+ gm). (7) Selecting a product advances to Step 3 showing 33 date rows with Date/Supplied/Already Rejected/Available/Reject Qty columns. (8) Chevron-left back button in header correctly navigates Step 3→Step 2 and Step 2→Step 1. (9) Add-to-Draft flow works: enter Reject Qty→Add to Draft returns to Step 2 with draft panel visible ('Drafts (1 product, 1 entries)'); adding a second product yields 'Drafts (2 products, 2 entries)' and Submit All (2 entries) button. Close (X) buttons and confirm-on-back logic behave correctly. No console errors (only benign Recharts width/height warnings during unmount). No backend integration issues observed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Field Team Portfolio - card headers", "issues": ["Recharts prints repeated 'width(-1) and height(-1)' warnings during chart mount/unmount transitions — cosmetic, does not break UI. Consider wrapping charts in a container with fixed min height."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Dashboard.js is 1641 lines; the Record Rejection wizard (rows 1378-1636) alone is ~260 lines and would benefit from extraction into its own <RecordRejectionWizard> component along with the 2 view modals — improves testability and reduces re-render blast radius.",
+    "Modal close buttons rely on lucide <X> icon without a data-testid; adding data-testid on close buttons for the two view modals and the wizard modal would harden E2E tests.",
+    "Step 2 product list can render 287+ options with no virtualization inside a max-h-60 scroll container — performance is fine today but consider react-window if retailer dispatch catalogs grow.",
+    "The Step-2 back button correctly asks for confirm when drafts exist before switching retailer, but the modal-level X close button (setShowRejectionModal(false) + resetRecordRejectionWizard()) silently discards drafts. Consider adding the same confirm() guard when drafts.length > 0.",
+    "retailerWiseMetrics rejection sort mutates via [...arr].sort — good (non-mutating copy). Empty-state ('No retailer data available') is correctly shown when zero retailers."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not-tested", "frontend": "100%"},
+  "test_credentials": "Field team: adb@gmail.com / fieldteam123 (2 assigned retailers: Tamanna Mart, S Mart). Tamanna retailer_id: a400f104-b0da-475e-af07-dd6d0d8776e9",
+  "seed_data_creation": "None — Add-to-Draft flow tested but Submit All was NOT clicked to avoid inserting real rejection records into the DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 9 review scenarios verified end-to-end. Key selectors: [data-testid=record-rejection-btn], [data-testid=avg-net-sales-card], [data-testid=rejection-pct-card]. Wizard modals use fixed inset-0 z-50; step retailer rows are 'div.max-h-80 > div', product rows 'div.max-h-60 > div', date rows 'div.fixed table tbody tr' with number inputs having max attr set to available_qty. Back button is 'button:has(svg.lucide-chevron-left)'. Add to Draft: 'button:has-text(\"Add to Draft\")'. Submit: 'button:has-text(\"Submit All\")'. Confirm dialog appears when switching retailer with unsaved drafts — Playwright must attach page.on('dialog', accept)."
+}

@@ -10,7 +10,8 @@ import {
   Users, TrendingUp, AlertTriangle, IndianRupee, 
   ChevronDown, ChevronUp, RefreshCw, Eye, Plus, 
   ShoppingCart, Calendar, X, Search, Menu, LogOut, User,
-  DollarSign, Home, Truck, FileText, CreditCard, ClipboardList
+  DollarSign, Home, Truck, FileText, CreditCard, ClipboardList,
+  ChevronLeft, Pencil, Trash2, Check
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -28,11 +29,16 @@ export default function FieldTeamDashboard() {
   // Portfolio data
   const [portfolioSummary, setPortfolioSummary] = useState(null);
   const [assignedRetailers, setAssignedRetailers] = useState([]);
+  const [assignedRetailersDetails, setAssignedRetailersDetails] = useState([]); // Full retailer details
   
   // Cumulative data for graphs
   const [allDispatches, setAllDispatches] = useState([]);
   const [allRejections, setAllRejections] = useState([]);
   const [portfolioCommissionPct, setPortfolioCommissionPct] = useState(0);
+  
+  // Products and Packagings for rejection recording
+  const [products, setProducts] = useState([]);
+  const [packagings, setPackagings] = useState([]);
   
   // Search filter for retailer cards
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,6 +53,24 @@ export default function FieldTeamDashboard() {
   const [dashboardDateFrom, setDashboardDateFrom] = useState('');
   const [dashboardDateTo, setDashboardDateTo] = useState('');
   const [chartViewMode, setChartViewMode] = useState('monthly');
+  
+  // ========== VIEW MODALS FOR AVG NET SALES & REJECTION % ==========
+  const [showNetSalesModal, setShowNetSalesModal] = useState(false);
+  const [showRejectionPctModal, setShowRejectionPctModal] = useState(false);
+  
+  // ========== RECORD REJECTION WIZARD STATE ==========
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [recordRejectionStep, setRecordRejectionStep] = useState(1); // 1=retailer, 2=product, 3=dates
+  const [recordRejectionRetailer, setRecordRejectionRetailer] = useState(null);
+  const [recordRejectionProduct, setRecordRejectionProduct] = useState(null);
+  const [recordRejectionRetailerSearch, setRecordRejectionRetailerSearch] = useState('');
+  const [recordRejectionProductSearch, setRecordRejectionProductSearch] = useState('');
+  const [recordRejectionDateRows, setRecordRejectionDateRows] = useState([]);
+  const [recordRejectionSubmitting, setRecordRejectionSubmitting] = useState(false);
+  const [recordRejectionDrafts, setRecordRejectionDrafts] = useState([]);
+  const [recordRejectionEditingDraftKey, setRecordRejectionEditingDraftKey] = useState(null);
+  const [retailerDispatchesForRejection, setRetailerDispatchesForRejection] = useState([]);
+  const [retailerRejectionsForRejection, setRetailerRejectionsForRejection] = useState([]);
   
   // Helper function to get IST date string
   const getLocalDateString = (date = new Date()) => {
@@ -121,6 +145,36 @@ export default function FieldTeamDashboard() {
       console.error('Error fetching portfolio data:', error);
       toast.error('Failed to load portfolio data');
     }
+  }, []);
+
+  // Fetch products and packagings for rejection recording
+  useEffect(() => {
+    const fetchProductsAndPackagings = async () => {
+      try {
+        const [productsRes, packagingsRes] = await Promise.all([
+          api.get('/api/products'),
+          api.get('/api/qc-packaging')
+        ]);
+        setProducts(productsRes.data || []);
+        setPackagings(packagingsRes.data || []);
+      } catch (error) {
+        console.error('Error fetching products:', error);
+      }
+    };
+    fetchProductsAndPackagings();
+  }, []);
+
+  // Fetch assigned retailers with full details
+  useEffect(() => {
+    const fetchAssignedRetailersDetails = async () => {
+      try {
+        const response = await api.get('/api/field-team/assigned-retailers');
+        setAssignedRetailersDetails(response.data?.retailers || []);
+      } catch (error) {
+        console.error('Error fetching assigned retailers:', error);
+      }
+    };
+    fetchAssignedRetailersDetails();
   }, []);
 
   // Initial data fetch
@@ -354,6 +408,299 @@ export default function FieldTeamDashboard() {
     return { avgNetSales, deliveredDaysCount, windowSize, rejectionPct };
   }, [allDispatches, allRejections]);
 
+  // Retailer-wise breakdown for Net Sales and Rejection % modals
+  const retailerWiseMetrics = useMemo(() => {
+    return assignedRetailers.map(retailer => {
+      const retailerId = retailer.retailer_id;
+      
+      // Get dispatches and rejections for this retailer
+      const retailerDispatches = allDispatches.filter(d => d.retailer_id === retailerId);
+      const retailerRejections = allRejections.filter(r => r.retailer_id === retailerId);
+      
+      // W-21 calculation for this retailer
+      const dispatchDateSet = new Set();
+      retailerDispatches.forEach(d => {
+        const dd = (d.dispatch_date || '').split('T')[0];
+        if (dd) dispatchDateSet.add(dd);
+      });
+      const top21 = Array.from(dispatchDateSet).sort((a, b) => b.localeCompare(a)).slice(0, 21);
+      const oldest15 = top21.slice(6, 21);
+      const oldest15Set = new Set(oldest15);
+      
+      // Per-day aggregation
+      const dayData = {};
+      oldest15.forEach(dd => { dayData[dd] = { grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0 }; });
+      
+      retailerDispatches.forEach(d => {
+        const dd = (d.dispatch_date || '').split('T')[0];
+        if (!oldest15Set.has(dd)) return;
+        const mrp = (d.total_mrp_value && d.total_mrp_value > 0)
+          ? d.total_mrp_value
+          : (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
+        dayData[dd].grossValue += mrp;
+        (d.items || []).forEach(i => {
+          dayData[dd].grossQty += (i.supplied_qty || 0);
+        });
+      });
+      
+      retailerRejections.forEach(r => {
+        const rd = (r.rejection_date || '').split('T')[0];
+        if (!oldest15Set.has(rd) || !dayData[rd]) return;
+        dayData[rd].rejValue += (r.rejection_value || 0);
+        dayData[rd].rejQty += (r.quantity || 0);
+      });
+      
+      // Calculate metrics
+      let totalNetSales = 0;
+      let rejQty = 0, supQty = 0;
+      oldest15.forEach(dd => {
+        totalNetSales += dayData[dd].grossValue - dayData[dd].rejValue;
+        supQty += dayData[dd].grossQty;
+        rejQty += dayData[dd].rejQty;
+      });
+      
+      const avgNetSales = oldest15.length > 0 ? totalNetSales / oldest15.length : 0;
+      const rejectionPct = supQty > 0 ? (rejQty / supQty) * 100 : null;
+      
+      return {
+        retailer_id: retailerId,
+        retailer_name: retailer.retailer_name,
+        avgNetSales,
+        rejectionPct,
+        deliveredDays: oldest15.length,
+        windowSize: top21.length
+      };
+    }).sort((a, b) => b.avgNetSales - a.avgNetSales);
+  }, [assignedRetailers, allDispatches, allRejections]);
+
+  // ========== REJECTION RECORDING FUNCTIONS ==========
+  
+  // Reset rejection wizard
+  const resetRecordRejectionWizard = () => {
+    setRecordRejectionStep(1);
+    setRecordRejectionRetailer(null);
+    setRecordRejectionProduct(null);
+    setRecordRejectionRetailerSearch('');
+    setRecordRejectionProductSearch('');
+    setRecordRejectionDateRows([]);
+    setRecordRejectionDrafts([]);
+    setRecordRejectionEditingDraftKey(null);
+    setRetailerDispatchesForRejection([]);
+    setRetailerRejectionsForRejection([]);
+  };
+
+  // Fetch dispatches and rejections for selected retailer
+  const fetchRetailerDataForRejection = async (retailerId) => {
+    try {
+      const [dispRes, rejRes] = await Promise.all([
+        api.get(`/api/field-team/retailer/${retailerId}-dispatches`),
+        api.get(`/api/field-team/retailer/${retailerId}-rejections`)
+      ]);
+      setRetailerDispatchesForRejection(dispRes.data || []);
+      setRetailerRejectionsForRejection(rejRes.data || []);
+    } catch (error) {
+      console.error('Error fetching retailer data for rejection:', error);
+      toast.error('Failed to load retailer dispatch data');
+    }
+  };
+
+  // Product options for selected retailer (from their dispatches)
+  const recordRejectionProductOptions = useMemo(() => {
+    if (!recordRejectionRetailer) return [];
+    
+    const productMap = {};
+    retailerDispatchesForRejection.forEach(disp => {
+      (disp.items || []).forEach(item => {
+        const key = `${item.product_id}|${item.variant_id || ''}`;
+        if (!productMap[key]) {
+          productMap[key] = {
+            product_id: item.product_id,
+            product_name: item.product_name || 'Unknown',
+            variant_id: item.variant_id || null,
+            variant_name: item.variant_name || ''
+          };
+        }
+      });
+    });
+    
+    return Object.values(productMap).sort((a, b) => 
+      (a.product_name || '').localeCompare(b.product_name || '')
+    );
+  }, [recordRejectionRetailer, retailerDispatchesForRejection]);
+
+  // Available dates for rejection (dates with dispatches for selected product)
+  const recordRejectionAvailableDates = useMemo(() => {
+    if (!recordRejectionRetailer || !recordRejectionProduct) return [];
+    
+    const pid = recordRejectionProduct.product_id;
+    const vid = recordRejectionProduct.variant_id || null;
+    
+    // Group dispatches by date
+    const dateMap = {};
+    retailerDispatchesForRejection.forEach(disp => {
+      const dispDate = (disp.dispatch_date || '').split('T')[0];
+      if (!dispDate) return;
+      
+      (disp.items || []).forEach(item => {
+        if (item.product_id !== pid) return;
+        if (vid && item.variant_id !== vid) return;
+        
+        if (!dateMap[dispDate]) {
+          dateMap[dispDate] = { supplied_qty: 0, existing_rejection: 0 };
+        }
+        dateMap[dispDate].supplied_qty += (item.supplied_qty || 0);
+      });
+    });
+    
+    // Subtract existing rejections
+    retailerRejectionsForRejection.forEach(rej => {
+      const rejDate = (rej.rejection_date || '').split('T')[0];
+      if (rej.product_id !== pid) return;
+      if (vid && rej.variant_id !== vid) return;
+      if (dateMap[rejDate]) {
+        dateMap[rejDate].existing_rejection += (rej.quantity || 0);
+      }
+    });
+    
+    // Convert to array
+    return Object.entries(dateMap)
+      .map(([date, data]) => ({
+        date,
+        supplied_qty: data.supplied_qty,
+        existing_rejection: data.existing_rejection,
+        available_qty: Math.max(0, data.supplied_qty - data.existing_rejection),
+        rejection_qty: 0,
+        selected: false
+      }))
+      .filter(row => row.available_qty > 0)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [recordRejectionRetailer, recordRejectionProduct, retailerDispatchesForRejection, retailerRejectionsForRejection]);
+
+  // Update date rows when available dates change
+  useEffect(() => {
+    setRecordRejectionDateRows(recordRejectionAvailableDates);
+  }, [recordRejectionAvailableDates]);
+
+  // Handle draft operations
+  const handleAddToDraft = () => {
+    const selected = recordRejectionDateRows.filter(r => r.selected && (r.rejection_qty || 0) > 0);
+    if (selected.length === 0) {
+      toast.error('Please select at least one date with rejection quantity');
+      return;
+    }
+    
+    const draftKey = `${recordRejectionProduct.product_id}__${recordRejectionProduct.variant_id || ''}`;
+    const entries = selected.map(row => ({
+      date: row.date,
+      quantity: row.rejection_qty
+    }));
+    
+    const newDraft = {
+      key: draftKey,
+      product_id: recordRejectionProduct.product_id,
+      product_name: recordRejectionProduct.product_name,
+      variant_id: recordRejectionProduct.variant_id || null,
+      variant_name: recordRejectionProduct.variant_name || '',
+      entries: entries
+    };
+    
+    // Check if editing existing draft
+    if (recordRejectionEditingDraftKey) {
+      setRecordRejectionDrafts(prev => prev.map(d => d.key === recordRejectionEditingDraftKey ? newDraft : d));
+    } else {
+      // Check if draft already exists for this product
+      const existingIdx = recordRejectionDrafts.findIndex(d => d.key === draftKey);
+      if (existingIdx >= 0) {
+        // Merge entries
+        setRecordRejectionDrafts(prev => {
+          const updated = [...prev];
+          const existing = updated[existingIdx];
+          const mergedEntries = [...existing.entries];
+          entries.forEach(e => {
+            const idx = mergedEntries.findIndex(m => m.date === e.date);
+            if (idx >= 0) {
+              mergedEntries[idx].quantity += e.quantity;
+            } else {
+              mergedEntries.push(e);
+            }
+          });
+          updated[existingIdx] = { ...existing, entries: mergedEntries };
+          return updated;
+        });
+      } else {
+        setRecordRejectionDrafts(prev => [...prev, newDraft]);
+      }
+    }
+    
+    toast.success(recordRejectionEditingDraftKey ? 'Draft updated' : 'Added to draft');
+    setRecordRejectionProduct(null);
+    setRecordRejectionEditingDraftKey(null);
+    setRecordRejectionStep(2);
+  };
+
+  const handleEditDraft = (draftKey) => {
+    const draft = recordRejectionDrafts.find(d => d.key === draftKey);
+    if (!draft) return;
+    
+    setRecordRejectionProduct({
+      product_id: draft.product_id,
+      product_name: draft.product_name,
+      variant_id: draft.variant_id,
+      variant_name: draft.variant_name
+    });
+    setRecordRejectionEditingDraftKey(draftKey);
+    setRecordRejectionStep(3);
+  };
+
+  const handleDeleteDraft = (draftKey) => {
+    setRecordRejectionDrafts(prev => prev.filter(d => d.key !== draftKey));
+    toast.success('Draft deleted');
+  };
+
+  // Submit all drafts
+  const handleSubmitAllDrafts = async () => {
+    if (recordRejectionDrafts.length === 0) {
+      toast.error('No drafts to submit');
+      return;
+    }
+    
+    setRecordRejectionSubmitting(true);
+    try {
+      // Build rejection records from drafts
+      const rejections = [];
+      recordRejectionDrafts.forEach(draft => {
+        draft.entries.forEach(entry => {
+          rejections.push({
+            retailer_id: recordRejectionRetailer.id,
+            product_id: draft.product_id,
+            product_name: draft.product_name,
+            variant_id: draft.variant_id || null,
+            variant_name: draft.variant_name || '',
+            rejection_date: entry.date,
+            quantity: entry.quantity
+          });
+        });
+      });
+      
+      // Submit rejections one by one or in batch
+      for (const rej of rejections) {
+        await api.post('/api/retailer-rejections', rej);
+      }
+      
+      toast.success(`${rejections.length} rejection(s) recorded successfully`);
+      setShowRejectionModal(false);
+      resetRecordRejectionWizard();
+      
+      // Refresh data
+      await fetchPortfolioData();
+    } catch (error) {
+      console.error('Error submitting rejections:', error);
+      toast.error(error.response?.data?.detail || 'Failed to submit rejections');
+    } finally {
+      setRecordRejectionSubmitting(false);
+    }
+  };
+
   // Format chart values
   const formatValue = (value) => {
     if (value >= 100000) return `₹${(value/100000).toFixed(1)}L`;
@@ -482,16 +829,27 @@ export default function FieldTeamDashboard() {
                 My Portfolio
               </h1>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              data-testid="refresh-btn"
-            >
-              <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white"
+                onClick={() => setShowRejectionModal(true)}
+                data-testid="record-rejection-btn"
+              >
+                <AlertTriangle className="w-4 h-4 mr-1" />
+                Record Rejection
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                data-testid="refresh-btn"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
           </div>
 
           {/* Summary Cards Row */}
@@ -562,41 +920,47 @@ export default function FieldTeamDashboard() {
           {/* Avg Net Sales (15D) and Rejection % (15D) Cards */}
           <div className="grid grid-cols-2 gap-3 mb-4">
             {/* Avg Net Sales (15D) Card */}
-            <Card className="bg-gradient-to-br from-blue-50 to-white border-blue-200" data-testid="avg-net-sales-card">
+            <Card className="bg-gradient-to-br from-blue-50 to-white border-blue-200 cursor-pointer hover:shadow-md transition-shadow" data-testid="avg-net-sales-card" onClick={() => setShowNetSalesModal(true)}>
               <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <TrendingUp className="w-5 h-5 text-blue-600" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <TrendingUp className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-blue-600 font-semibold uppercase">Avg Net Sales (15D)</p>
+                      <p className="text-xl font-bold text-blue-800">{formatCurrency(netSalesAndRejection15d.avgNetSales)}</p>
+                      {netSalesAndRejection15d.deliveredDaysCount > 0 && (
+                        <p className="text-[10px] text-gray-500 mt-1">avg over 15 oldest of last {netSalesAndRejection15d.windowSize || 21} delivered days</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-blue-600 font-semibold uppercase">Avg Net Sales (15D)</p>
-                    <p className="text-xl font-bold text-blue-800">{formatCurrency(netSalesAndRejection15d.avgNetSales)}</p>
-                    {netSalesAndRejection15d.deliveredDaysCount > 0 && (
-                      <p className="text-[10px] text-gray-500 mt-1">avg over 15 oldest of last {netSalesAndRejection15d.windowSize || 21} delivered days</p>
-                    )}
-                  </div>
+                  <button className="text-blue-600 text-xs font-semibold hover:underline">View</button>
                 </div>
               </CardContent>
             </Card>
             
             {/* Rejection % (15D) Card */}
-            <Card className="bg-gradient-to-br from-red-50 to-white border-red-200" data-testid="rejection-pct-card">
+            <Card className="bg-gradient-to-br from-red-50 to-white border-red-200 cursor-pointer hover:shadow-md transition-shadow" data-testid="rejection-pct-card" onClick={() => setShowRejectionPctModal(true)}>
               <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-red-100 rounded-lg">
-                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-red-100 rounded-lg">
+                      <AlertTriangle className="w-5 h-5 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-red-600 font-semibold uppercase">Rejection % (15D)</p>
+                      <p className="text-xl font-bold text-red-700">
+                        {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
+                      </p>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        {netSalesAndRejection15d.deliveredDaysCount > 0
+                          ? `based on 15 oldest of last ${netSalesAndRejection15d.windowSize || 21} delivered days`
+                          : 'No delivered days'}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-red-600 font-semibold uppercase">Rejection % (15D)</p>
-                    <p className="text-xl font-bold text-red-700">
-                      {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
-                    </p>
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      {netSalesAndRejection15d.deliveredDaysCount > 0
-                        ? `based on 15 oldest of last ${netSalesAndRejection15d.windowSize || 21} delivered days`
-                        : 'No delivered days'}
-                    </p>
-                  </div>
+                  <button className="text-red-600 text-xs font-semibold hover:underline">View</button>
                 </div>
               </CardContent>
             </Card>
@@ -879,6 +1243,397 @@ export default function FieldTeamDashboard() {
             )}
           </div>
         </div>
+
+        {/* ==================== NET SALES MODAL (Retailer-wise) ==================== */}
+        {showNetSalesModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">Avg Net Sales (15D) — Retailer Breakdown</h3>
+                  <p className="text-xs text-gray-500">15 oldest of last 21 delivered days per retailer</p>
+                </div>
+                <button onClick={() => setShowNetSalesModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1">
+                {retailerWiseMetrics.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No retailer data available</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2">Retailer</th>
+                        <th className="text-right p-2">Avg Net Sales</th>
+                        <th className="text-right p-2">Days</th>
+                        <th className="text-center p-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {retailerWiseMetrics.map(r => (
+                        <tr key={r.retailer_id} className="border-t hover:bg-gray-50">
+                          <td className="p-2 font-medium">{r.retailer_name}</td>
+                          <td className="p-2 text-right text-blue-600 font-semibold">{formatCurrency(r.avgNetSales)}</td>
+                          <td className="p-2 text-right text-gray-500">{r.deliveredDays}/{r.windowSize}</td>
+                          <td className="p-2 text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setShowNetSalesModal(false);
+                                handleViewRetailer(r.retailer_id);
+                              }}
+                              className="text-xs"
+                            >
+                              View Dashboard
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td className="p-2">Portfolio Total</td>
+                        <td className="p-2 text-right text-blue-700">{formatCurrency(netSalesAndRejection15d.avgNetSales)}</td>
+                        <td className="p-2 text-right">{netSalesAndRejection15d.deliveredDaysCount}/{netSalesAndRejection15d.windowSize}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== REJECTION % MODAL (Retailer-wise) ==================== */}
+        {showRejectionPctModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">Rejection % (15D) — Retailer Breakdown</h3>
+                  <p className="text-xs text-gray-500">15 oldest of last 21 delivered days per retailer</p>
+                </div>
+                <button onClick={() => setShowRejectionPctModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1">
+                {retailerWiseMetrics.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No retailer data available</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2">Retailer</th>
+                        <th className="text-right p-2">Rejection %</th>
+                        <th className="text-right p-2">Days</th>
+                        <th className="text-center p-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...retailerWiseMetrics].sort((a, b) => (b.rejectionPct || 0) - (a.rejectionPct || 0)).map(r => (
+                        <tr key={r.retailer_id} className="border-t hover:bg-gray-50">
+                          <td className="p-2 font-medium">{r.retailer_name}</td>
+                          <td className={`p-2 text-right font-semibold ${(r.rejectionPct || 0) > 15 ? 'text-red-600' : 'text-orange-600'}`}>
+                            {r.rejectionPct !== null ? `${r.rejectionPct.toFixed(1)}%` : '—'}
+                          </td>
+                          <td className="p-2 text-right text-gray-500">{r.deliveredDays}/{r.windowSize}</td>
+                          <td className="p-2 text-center">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setShowRejectionPctModal(false);
+                                handleViewRetailer(r.retailer_id);
+                              }}
+                              className="text-xs"
+                            >
+                              View Dashboard
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100 font-semibold">
+                      <tr>
+                        <td className="p-2">Portfolio Total</td>
+                        <td className="p-2 text-right text-red-700">
+                          {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
+                        </td>
+                        <td className="p-2 text-right">{netSalesAndRejection15d.deliveredDaysCount}/{netSalesAndRejection15d.windowSize}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== RECORD REJECTION MODAL (Wizard) ==================== */}
+        {showRejectionModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="flex items-center justify-between p-3 sm:p-4 border-b flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  {recordRejectionStep > 1 && (
+                    <button
+                      onClick={() => {
+                        if (recordRejectionStep === 3) {
+                          setRecordRejectionProduct(null);
+                          setRecordRejectionEditingDraftKey(null);
+                          setRecordRejectionStep(2);
+                        } else if (recordRejectionStep === 2) {
+                          if (recordRejectionDrafts.length > 0) {
+                            if (!window.confirm('Drafts will be discarded if you switch retailer. Continue?')) return;
+                            setRecordRejectionDrafts([]);
+                          }
+                          setRecordRejectionProduct(null);
+                          setRecordRejectionRetailer(null);
+                          setRetailerDispatchesForRejection([]);
+                          setRetailerRejectionsForRejection([]);
+                          setRecordRejectionStep(1);
+                        }
+                      }}
+                      className="p-1 hover:bg-gray-100 rounded text-gray-500"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                  )}
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold">Record Rejection</h3>
+                    <p className="text-xs text-gray-500">
+                      {recordRejectionStep === 1 && 'Step 1: Select Retailer'}
+                      {recordRejectionStep === 2 && `${recordRejectionRetailer?.name} › Select Product`}
+                      {recordRejectionStep === 3 && `${recordRejectionRetailer?.name} › ${recordRejectionProduct?.product_name}${recordRejectionProduct?.variant_name ? ' (' + recordRejectionProduct.variant_name + ')' : ''}`}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => { setShowRejectionModal(false); resetRecordRejectionWizard(); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-3 sm:p-4 overflow-y-auto flex-1">
+                {/* Step 1: Retailer Picker (ONLY assigned retailers) */}
+                {recordRejectionStep === 1 && (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Search retailer..."
+                      value={recordRejectionRetailerSearch}
+                      onChange={(e) => setRecordRejectionRetailerSearch(e.target.value)}
+                      className="w-full px-3 py-2 mb-3 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    />
+                    {assignedRetailersDetails.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400">No retailers assigned to you</div>
+                    ) : (
+                      <div className="max-h-80 overflow-y-auto border rounded">
+                        {assignedRetailersDetails
+                          .filter(r => !recordRejectionRetailerSearch || (r.company_name || r.name || '').toLowerCase().includes(recordRejectionRetailerSearch.toLowerCase()))
+                          .map(r => (
+                            <div
+                              key={r.id}
+                              onClick={async () => {
+                                setRecordRejectionRetailer({ id: r.id, name: r.company_name || r.name });
+                                setRecordRejectionRetailerSearch('');
+                                await fetchRetailerDataForRejection(r.id);
+                                setRecordRejectionStep(2);
+                              }}
+                              className="p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0 text-sm"
+                            >
+                              {r.company_name || r.name}
+                            </div>
+                          ))
+                        }
+                        {assignedRetailersDetails.filter(r => !recordRejectionRetailerSearch || (r.company_name || r.name || '').toLowerCase().includes(recordRejectionRetailerSearch.toLowerCase())).length === 0 && (
+                          <div className="p-4 text-center text-gray-400 text-sm">No retailer matches.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 2: Product Picker */}
+                {recordRejectionStep === 2 && (
+                  <div>
+                    {/* Drafts Panel */}
+                    {recordRejectionDrafts.length > 0 && (
+                      <div className="mb-3 border rounded bg-green-50 p-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-green-700">
+                            Drafts ({recordRejectionDrafts.length} product{recordRejectionDrafts.length > 1 ? 's' : ''}, {recordRejectionDrafts.reduce((s, d) => s + d.entries.length, 0)} entries)
+                          </span>
+                        </div>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-left text-gray-600">
+                              <th className="p-1">Product</th>
+                              <th className="p-1">Variant</th>
+                              <th className="p-1 text-center"># Entries</th>
+                              <th className="p-1 text-center">Total Qty</th>
+                              <th className="p-1 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recordRejectionDrafts.map(draft => (
+                              <tr key={draft.key} className="border-t">
+                                <td className="p-1">{draft.product_name}</td>
+                                <td className="p-1 text-gray-500">{draft.variant_name || '—'}</td>
+                                <td className="p-1 text-center">{draft.entries.length}</td>
+                                <td className="p-1 text-center">{draft.entries.reduce((s, e) => s + e.quantity, 0)}</td>
+                                <td className="p-1 text-center">
+                                  <button onClick={() => handleEditDraft(draft.key)} className="text-blue-600 hover:underline mr-2" title="Edit">
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button onClick={() => handleDeleteDraft(draft.key)} className="text-red-600 hover:underline" title="Delete">
+                                    <Trash2 size={13} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    <input
+                      type="text"
+                      placeholder="Search product..."
+                      value={recordRejectionProductSearch}
+                      onChange={(e) => setRecordRejectionProductSearch(e.target.value)}
+                      className="w-full px-3 py-2 mb-3 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+                    />
+                    {recordRejectionProductOptions.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400">No products found in dispatches for this retailer</div>
+                    ) : (
+                      <div className="max-h-60 overflow-y-auto border rounded">
+                        {recordRejectionProductOptions
+                          .filter(p => !recordRejectionProductSearch || (p.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase()))
+                          .map((p, idx) => (
+                            <div
+                              key={idx}
+                              onClick={() => {
+                                setRecordRejectionProduct(p);
+                                setRecordRejectionProductSearch('');
+                                setRecordRejectionStep(3);
+                              }}
+                              className="p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0 text-sm flex justify-between"
+                            >
+                              <span>{p.product_name}</span>
+                              {p.variant_name && <span className="text-gray-400">{p.variant_name}</span>}
+                            </div>
+                          ))
+                        }
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 3: Date Selection */}
+                {recordRejectionStep === 3 && (
+                  <div>
+                    {recordRejectionDateRows.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400">No available dates for rejection (all dispatched quantity already rejected)</div>
+                    ) : (
+                      <div className="border rounded overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="p-2 text-left w-8">
+                                <input
+                                  type="checkbox"
+                                  checked={recordRejectionDateRows.every(r => r.selected)}
+                                  onChange={(e) => {
+                                    setRecordRejectionDateRows(prev => prev.map(r => ({ ...r, selected: e.target.checked })));
+                                  }}
+                                />
+                              </th>
+                              <th className="p-2 text-left">Date</th>
+                              <th className="p-2 text-right">Supplied</th>
+                              <th className="p-2 text-right">Already Rejected</th>
+                              <th className="p-2 text-right">Available</th>
+                              <th className="p-2 text-right">Reject Qty</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recordRejectionDateRows.map((row, idx) => (
+                              <tr key={row.date} className="border-t hover:bg-gray-50">
+                                <td className="p-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.selected}
+                                    onChange={(e) => {
+                                      setRecordRejectionDateRows(prev => {
+                                        const updated = [...prev];
+                                        updated[idx] = { ...updated[idx], selected: e.target.checked };
+                                        return updated;
+                                      });
+                                    }}
+                                  />
+                                </td>
+                                <td className="p-2">{row.date}</td>
+                                <td className="p-2 text-right">{row.supplied_qty}</td>
+                                <td className="p-2 text-right text-red-500">{row.existing_rejection}</td>
+                                <td className="p-2 text-right text-green-600 font-semibold">{row.available_qty}</td>
+                                <td className="p-2 text-right">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={row.available_qty}
+                                    value={row.rejection_qty || ''}
+                                    onChange={(e) => {
+                                      const val = Math.min(parseFloat(e.target.value) || 0, row.available_qty);
+                                      setRecordRejectionDateRows(prev => {
+                                        const updated = [...prev];
+                                        updated[idx] = { ...updated[idx], rejection_qty: val, selected: val > 0 };
+                                        return updated;
+                                      });
+                                    }}
+                                    className="w-20 h-8 text-right"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              {(recordRejectionStep === 3 || (recordRejectionStep === 2 && recordRejectionDrafts.length > 0)) && (
+                <div className="p-3 sm:p-4 border-t flex justify-between items-center">
+                  {recordRejectionStep === 3 && (
+                    <Button variant="outline" onClick={handleAddToDraft}>
+                      <Plus size={16} className="mr-1" /> Add to Draft
+                    </Button>
+                  )}
+                  {recordRejectionStep === 2 && recordRejectionDrafts.length > 0 && (
+                    <div></div>
+                  )}
+                  {recordRejectionDrafts.length > 0 && (
+                    <Button
+                      className="bg-red-600 hover:bg-red-700"
+                      onClick={handleSubmitAllDrafts}
+                      disabled={recordRejectionSubmitting}
+                    >
+                      {recordRejectionSubmitting ? 'Submitting...' : `Submit All (${recordRejectionDrafts.reduce((s, d) => s + d.entries.length, 0)} entries)`}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </Layout>
   );

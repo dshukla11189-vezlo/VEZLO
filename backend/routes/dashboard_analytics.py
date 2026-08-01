@@ -391,14 +391,20 @@ async def derive_fresh_wastage_for_date(
     if prefetched_data and "packaging_map" in prefetched_data:
         packaging_map = prefetched_data["packaging_map"]
     else:
+        # Build packaging_map from db.qc_packaging (mirrors recalculate_dispatches_for_date lines 55-68)
+        packaging_variants = await db_ref.qc_packaging.find({}, {"_id": 0}).to_list(100)
         packaging_map = {}
-        for p in all_products:
-            for v in p.get("variants", []):
-                variant_name = (v.get("name") or "").lower().strip()
-                if variant_name:
-                    weight_gm = extract_weight_from_packaging_name(variant_name)
-                    if weight_gm:
-                        packaging_map[variant_name] = weight_gm
+        for pv in packaging_variants:
+            name = pv.get('name', '')
+            name_lower = name.lower().strip()
+            weight = pv.get('weight_gm') or extract_weight_from_packaging_name(name)
+            if weight and weight > 0:
+                packaging_map[name_lower] = weight
+                if 'packet' in name_lower:
+                    packaging_map[name_lower.replace('packet', '').strip()] = weight
+                number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+                if number_match:
+                    packaging_map[number_match.group(1)] = weight
     
     # Build product name to ID mapping
     product_name_to_id = {}
@@ -1589,15 +1595,20 @@ async def get_pnl_report(
     # 1. Pre-load all products once (exclude image_url to reduce transfer)
     all_products_for_wastage = await db.products.find({}, {"_id": 0, "image_url": 0}).to_list(500)
     
-    # Build packaging map once
+    # Build packaging map from db.qc_packaging (mirrors recalculate_dispatches_for_date lines 55-68)
+    packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
     packaging_map = {}
-    for p in all_products_for_wastage:
-        for v in p.get("variants", []):
-            variant_name = (v.get("name") or "").lower().strip()
-            if variant_name:
-                weight_gm = extract_weight_from_packaging_name(variant_name)
-                if weight_gm:
-                    packaging_map[variant_name] = weight_gm
+    for pv in packaging_variants:
+        name = pv.get('name', '')
+        name_lower = name.lower().strip()
+        weight = pv.get('weight_gm') or extract_weight_from_packaging_name(name)
+        if weight and weight > 0:
+            packaging_map[name_lower] = weight
+            if 'packet' in name_lower:
+                packaging_map[name_lower.replace('packet', '').strip()] = weight
+            number_match = re.search(r'^(\d+)\s*(gm|g)?', name_lower)
+            if number_match:
+                packaging_map[number_match.group(1)] = weight
     
     # 2. Fetch all procurements in date range and group by date
     all_procurements = await db.procurements.find(
@@ -6055,6 +6066,99 @@ async def delete_stock_status(status_id: str, current_user: dict = Depends(get_c
         raise HTTPException(status_code=404, detail="Stock status not found")
     
     return {"message": "Stock status deleted"}
+
+
+@router.post("/admin/dedupe-qc-packaging")
+async def dedupe_qc_packaging(current_user: dict = Depends(get_current_user)):
+    """
+    Deduplicate qc_packaging entries by lowercased name.
+    For duplicates: keeps the newest (by updated_at or created_at), updates older rows' weight_gm
+    to match canonical, then deletes older rows.
+    
+    Specific fix for known case:
+    - 70bc8946-af68-4e7d-a43e-49f7c84fd7bd (70-80 gm Packet) - keep, set weight_gm=80
+    - d9e3e3e7-a519-45df-9f7d-bf0671e26552 (70-80 gm packet) - delete
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    result = {
+        "groups_processed": 0,
+        "documents_deleted": 0,
+        "documents_updated": 0,
+        "details": []
+    }
+    
+    # Fetch all qc_packaging documents
+    all_packaging = await db.qc_packaging.find({}, {"_id": 0}).to_list(500)
+    
+    # Group by lowercased name
+    groups = {}
+    for p in all_packaging:
+        name_lower = (p.get("name") or "").lower().strip()
+        if name_lower not in groups:
+            groups[name_lower] = []
+        groups[name_lower].append(p)
+    
+    # Process groups with duplicates
+    for name_lower, docs in groups.items():
+        if len(docs) < 2:
+            continue
+        
+        result["groups_processed"] += 1
+        
+        # Sort by updated_at (or created_at) descending - newest first
+        def get_timestamp(d):
+            ts = d.get("updated_at") or d.get("created_at") or ""
+            return str(ts)
+        
+        docs_sorted = sorted(docs, key=get_timestamp, reverse=True)
+        canonical = docs_sorted[0]
+        canonical_weight = canonical.get("weight_gm")
+        canonical_id = canonical.get("id")
+        
+        # Update canonical to ensure weight_gm is set correctly
+        # For "70-80 gm" type names, use 80 (upper bound)
+        if not canonical_weight or canonical_weight == 0:
+            # Try to extract from name - use upper bound of range
+            import re
+            range_match = re.search(r'(\d+)\s*[-–]\s*(\d+)\s*(gm|g)?', name_lower)
+            if range_match:
+                canonical_weight = int(range_match.group(2))  # Use upper bound
+            else:
+                num_match = re.search(r'(\d+)\s*(gm|g)?', name_lower)
+                if num_match:
+                    canonical_weight = int(num_match.group(1))
+        
+        # For the known case "70-80 gm", ensure weight is 80
+        if "70-80" in name_lower or "70 - 80" in name_lower:
+            canonical_weight = 80
+        
+        # Update canonical document
+        await db.qc_packaging.update_one(
+            {"id": canonical_id},
+            {"$set": {
+                "weight_gm": canonical_weight,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        result["documents_updated"] += 1
+        
+        # Delete older duplicates
+        older_docs = docs_sorted[1:]
+        for old_doc in older_docs:
+            old_id = old_doc.get("id")
+            await db.qc_packaging.delete_one({"id": old_id})
+            result["documents_deleted"] += 1
+            result["details"].append({
+                "action": "deleted",
+                "name": old_doc.get("name"),
+                "id": old_id,
+                "canonical_id": canonical_id,
+                "canonical_weight": canonical_weight
+            })
+    
+    return result
 
 
 # ============================================================================

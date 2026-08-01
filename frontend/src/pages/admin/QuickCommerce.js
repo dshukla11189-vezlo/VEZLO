@@ -1273,9 +1273,8 @@ export default function QuickCommerce() {
 
     try {
       if (editingPackaging) {
-        // Update existing - delete and re-add since API may not have PUT
-        await api.delete(`/api/qc-packaging/${editingPackaging.id}`);
-        await api.post(`/api/qc-packaging?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}`);
+        // Update existing in place using PUT (do NOT delete and re-create)
+        await api.put(`/api/qc-packaging/${editingPackaging.id}?name=${encodeURIComponent(packagingForm.name)}&weight_gm=${packagingForm.weight_gm}`);
         toast.success('Packaging updated successfully');
       } else {
         // Add new

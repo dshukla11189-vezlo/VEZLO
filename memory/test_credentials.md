@@ -13,8 +13,7 @@
 ## Field Team Accounts
 | Name | Email | Password | Assigned Retailers |
 |------|-------|----------|-------------------|
-| Gaurav | adb@gmail.com | fieldteam123 | Tamanna Mart, S Mart |
-| Rajesh Kumar | rajesh.fieldteam@test.com | fieldteam123 | (none) |
+| Ayaz Md Rafik Shaikh | ayaz.shaikh2026@gmail.com | fieldteam123 | Anjali Supermarket |
 
 ## Retailer Portal
 - **URL**: https://harvest-hub-384.preview.emergentagent.com/login

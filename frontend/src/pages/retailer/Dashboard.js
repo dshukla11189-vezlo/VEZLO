@@ -731,7 +731,10 @@ export default function RetailerDashboard({
   const loadPaymentDetails = useCallback(async (startDate = '', endDate = '') => {
     setPaymentDetailsLoading(true);
     try {
-      let url = '/api/retailer-payment-details';
+      // Use field team endpoint if in fieldTeamMode
+      let url = fieldTeamMode && selectedRetailerId 
+        ? `/api/field-team/retailer/${selectedRetailerId}/payment-details`
+        : '/api/retailer-payment-details';
       const params = new URLSearchParams();
       if (startDate) params.append('start_date', startDate);
       if (endDate) params.append('end_date', endDate);
@@ -745,7 +748,7 @@ export default function RetailerDashboard({
     } finally {
       setPaymentDetailsLoading(false);
     }
-  }, []);
+  }, [fieldTeamMode, selectedRetailerId]);
 
   // Load payment details on initial load
   useEffect(() => {
@@ -772,12 +775,22 @@ export default function RetailerDashboard({
 
   // Load Payment Summary Data
   const loadPaymentSummary = async (startDate, endDate) => {
-    if (!dashboardData?.retailer?.id) return;
+    const retailerId = fieldTeamMode ? selectedRetailerId : dashboardData?.retailer?.id;
+    if (!retailerId) return;
     setPaymentSummaryLoading(true);
     try {
-      let url = `/api/retailer-payment-summary?retailer_id=${dashboardData.retailer.id}`;
-      if (startDate) url += `&start_date=${startDate}`;
-      if (endDate) url += `&end_date=${endDate}`;
+      let url = fieldTeamMode && selectedRetailerId
+        ? `/api/field-team/retailer/${selectedRetailerId}/payment-summary`
+        : `/api/retailer-payment-summary?retailer_id=${retailerId}`;
+      if (!fieldTeamMode) {
+        if (startDate) url += `&start_date=${startDate}`;
+        if (endDate) url += `&end_date=${endDate}`;
+      } else {
+        const params = new URLSearchParams();
+        if (startDate) params.append('start_date', startDate);
+        if (endDate) params.append('end_date', endDate);
+        if (params.toString()) url += `?${params.toString()}`;
+      }
       const response = await api.get(url);
       setPaymentSummaryData(response.data);
     } catch (error) {

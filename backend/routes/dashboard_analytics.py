@@ -906,7 +906,6 @@ async def get_pnl_report(
             
             # If packaging_weight_gm not set, try to extract from packaging name
             if not packaging_weight_gm and unit:
-                import re
                 # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
                 range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit.lower())
                 if range_match:
@@ -1131,7 +1130,6 @@ async def get_pnl_report(
         if not variant_name_raw:
             return "Kg"
         # Check if it looks like a UUID
-        import re
         uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
         if uuid_pattern.match(str(variant_name_raw)):
             # Try to resolve from packagings
@@ -1165,7 +1163,6 @@ async def get_pnl_report(
         if not unit_str:
             return 0
         unit_lower = str(unit_str).lower()
-        import re
         
         # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
         range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit_lower)
@@ -1335,7 +1332,6 @@ async def get_pnl_report(
                     packaging_weight_gm = packaging_weight_map[variant_key]
                 else:
                     # Try to extract weight from variant_name like "240-260 gm" or "200 gm"
-                    import re
                     # Check for range pattern first (e.g., "90-110 gm", "200-250 gm")
                     range_match = re.search(r'(\d+)\s*-\s*(\d+)\s*(?:gm|g)\b', unit.lower())
                     if range_match:
@@ -6121,7 +6117,6 @@ async def dedupe_qc_packaging(current_user: dict = Depends(get_current_user)):
         # For "70-80 gm" type names, use 80 (upper bound)
         if not canonical_weight or canonical_weight == 0:
             # Try to extract from name - use upper bound of range
-            import re
             range_match = re.search(r'(\d+)\s*[-–]\s*(\d+)\s*(gm|g)?', name_lower)
             if range_match:
                 canonical_weight = int(range_match.group(2))  # Use upper bound

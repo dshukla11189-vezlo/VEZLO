@@ -15,7 +15,8 @@ import {
 const ROLE_CONFIG = {
   admin: { label: 'Admin', color: 'bg-red-100 text-red-700', icon: Shield },
   staff: { label: 'Staff', color: 'bg-blue-100 text-blue-700', icon: UserCheck },
-  retailer: { label: 'Retailer', color: 'bg-green-100 text-green-700', icon: Store }
+  retailer: { label: 'Retailer', color: 'bg-green-100 text-green-700', icon: Store },
+  field_team: { label: 'Field Team', color: 'bg-orange-100 text-orange-700', icon: Users }
 };
 
 export default function UserManagement() {
@@ -35,6 +36,7 @@ export default function UserManagement() {
     contact: '',
     company_name: '',
     address: '',
+    city: '',
     commission_percentage: 0,
     upfront_collection_percentage: 50,
     model_changed_at: '',
@@ -105,6 +107,7 @@ export default function UserManagement() {
       contact: user.contact || '',
       company_name: user.company_name || '',
       address: user.address || '',
+      city: user.city || '',
       commission_percentage: user.commission_percentage || 0,
       upfront_collection_percentage: user.upfront_collection_percentage ?? 50,
       model_changed_at: user.model_changed_at || '',
@@ -136,6 +139,7 @@ export default function UserManagement() {
       contact: '',
       company_name: '',
       address: '',
+      city: '',
       commission_percentage: 0,
       upfront_collection_percentage: 50,
       model_changed_at: '',
@@ -164,7 +168,8 @@ export default function UserManagement() {
     all: users.length,
     admin: users.filter(u => u.role === 'admin').length,
     staff: users.filter(u => u.role === 'staff').length,
-    retailer: users.filter(u => u.role === 'retailer').length
+    retailer: users.filter(u => u.role === 'retailer').length,
+    field_team: users.filter(u => u.role === 'field_team').length
   };
 
   return (
@@ -189,7 +194,7 @@ export default function UserManagement() {
 
         {/* Role Filter Tabs */}
         <div className="flex flex-wrap gap-2 mb-4">
-          {['all', 'admin', 'staff', 'retailer'].map(role => (
+          {['all', 'admin', 'staff', 'retailer', 'field_team'].map(role => (
             <Button
               key={role}
               variant={filterRole === role ? 'default' : 'outline'}
@@ -229,7 +234,7 @@ export default function UserManagement() {
                     <th className="p-3 text-left font-medium text-gray-500">ROLE</th>
                     <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
                     <th className="p-3 text-left font-medium text-gray-500">CONTACT</th>
-                    <th className="p-3 text-left font-medium text-gray-500">COMPANY</th>
+                    <th className="p-3 text-left font-medium text-gray-500">COMPANY/CITY</th>
                     <th className="p-3 text-center font-medium text-gray-500">COMMISSION</th>
                     <th className="p-3 text-center font-medium text-gray-500">UPFRONT %</th>
                     <th className="p-3 text-center font-medium text-gray-500">REFERRAL</th>
@@ -279,7 +284,12 @@ export default function UserManagement() {
                             ) : '-'}
                           </td>
                           <td className="p-3 text-gray-600">{user.contact || '-'}</td>
-                          <td className="p-3 text-gray-600">{user.company_name || '-'}</td>
+                          <td className="p-3 text-gray-600">
+                            {user.role === 'field_team' 
+                              ? (user.city ? `${user.city}` : '-')
+                              : (user.company_name || '-')
+                            }
+                          </td>
                           <td className="p-3 text-center">
                             {user.role === 'retailer' ? (
                               <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium">
@@ -356,8 +366,8 @@ export default function UserManagement() {
                 {/* Role Selection */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
-                  <div className="flex gap-2">
-                    {['admin', 'staff', 'retailer'].map(role => {
+                  <div className="flex flex-wrap gap-2">
+                    {['admin', 'staff', 'retailer', 'field_team'].map(role => {
                       const config = ROLE_CONFIG[role];
                       const RoleIcon = config.icon;
                       return (
@@ -365,7 +375,7 @@ export default function UserManagement() {
                           key={role}
                           type="button"
                           onClick={() => setFormData(prev => ({ ...prev, role }))}
-                          className={`flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-lg border-2 transition-colors ${
+                          className={`flex-1 min-w-[100px] flex items-center justify-center gap-1 px-3 py-2 rounded-lg border-2 transition-colors ${
                             formData.role === role 
                               ? 'border-[#14532D] bg-green-50' 
                               : 'border-gray-200 hover:border-gray-300'
@@ -432,21 +442,23 @@ export default function UserManagement() {
                   </div>
                 </div>
 
-                {/* Contact */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
-                  <div className="relative">
-                    <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      type="tel"
-                      value={formData.contact}
-                      onChange={(e) => setFormData(prev => ({ ...prev, contact: e.target.value }))}
-                      placeholder="Phone number"
-                      className="pl-9"
-                      data-testid="user-contact-input"
-                    />
+                {/* Contact (hide for field_team - they have specific fields below) */}
+                {formData.role !== 'field_team' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
+                    <div className="relative">
+                      <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <Input
+                        type="tel"
+                        value={formData.contact}
+                        onChange={(e) => setFormData(prev => ({ ...prev, contact: e.target.value }))}
+                        placeholder="Phone number"
+                        className="pl-9"
+                        data-testid="user-contact-input"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Company Name (show for retailer) */}
                 {formData.role === 'retailer' && (
@@ -472,6 +484,44 @@ export default function UserManagement() {
                       data-testid="user-address-input"
                     />
                   </div>
+                )}
+
+                {/* Field Team specific fields */}
+                {formData.role === 'field_team' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number *</label>
+                      <div className="relative">
+                        <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          type="tel"
+                          value={formData.contact}
+                          onChange={(e) => setFormData(prev => ({ ...prev, contact: e.target.value }))}
+                          placeholder="Enter contact number"
+                          className="pl-9"
+                          data-testid="field-team-contact-input"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Address *</label>
+                      <Input
+                        value={formData.address}
+                        onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                        placeholder="Enter full address"
+                        data-testid="field-team-address-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+                      <Input
+                        value={formData.city}
+                        onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
+                        placeholder="Enter city"
+                        data-testid="field-team-city-input"
+                      />
+                    </div>
+                  </>
                 )}
 
                 {/* Commission Percentage (show for retailer) */}

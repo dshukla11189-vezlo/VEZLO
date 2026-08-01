@@ -176,6 +176,8 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["contact"] = contact
     if input.address is not None:
         update_data["address"] = input.address
+    if input.city is not None:
+        update_data["city"] = input.city
     if input.commission_percentage is not None:
         update_data["commission_percentage"] = input.commission_percentage
         

@@ -26,10 +26,11 @@ class User(BaseModel):
     email: EmailStr
     password: str
     name: str
-    role: Literal["admin", "retailer", "staff"]
+    role: Literal["admin", "retailer", "staff", "field_team"]
     company_name: Optional[str] = None
-    contact: Optional[str] = None
+    contact: Optional[str] = None  # Contact number
     address: Optional[str] = None
+    city: Optional[str] = None  # City for field team
     commission_percentage: Optional[float] = 0  # For retailers: their commission %
     upfront_collection_percentage: Optional[float] = 50  # For retailers: 50%, 100%, etc.
     model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)
@@ -43,10 +44,11 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     name: str
-    role: Literal["admin", "retailer", "staff"]
+    role: Literal["admin", "retailer", "staff", "field_team"]
     company_name: Optional[str] = None
-    contact: Optional[str] = None
+    contact: Optional[str] = None  # Contact number
     address: Optional[str] = None
+    city: Optional[str] = None  # City for field team
     commission_percentage: Optional[float] = 0
     upfront_collection_percentage: Optional[float] = 50
     status: str = 'active'  # 'active' | 'churned'
@@ -64,6 +66,7 @@ class UserResponse(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+    city: Optional[str] = None
     commission_percentage: Optional[float] = 0
 
 class AuthResponse(BaseModel):
@@ -74,10 +77,11 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     password: Optional[str] = None
-    role: Optional[Literal["admin", "retailer", "staff"]] = None
+    role: Optional[Literal["admin", "retailer", "staff", "field_team"]] = None
     company_name: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+    city: Optional[str] = None
     commission_percentage: Optional[float] = None
     upfront_collection_percentage: Optional[float] = None
     model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)

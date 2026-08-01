@@ -135,6 +135,7 @@ export default function WastageDashboard() {
   });
   const [selectedDateWastage, setSelectedDateWastage] = useState(null);
   const [loadingSelectedDate, setLoadingSelectedDate] = useState(false);
+  const [wastageTab, setWastageTab] = useState('all');  // 'all', 'qc', 'retail'
   
   // Persist selected wastage date
   useEffect(() => {
@@ -382,10 +383,10 @@ export default function WastageDashboard() {
   };
   
   // Load wastage for a specific selected date
-  const loadSelectedDateWastage = useCallback(async (date) => {
+  const loadSelectedDateWastage = useCallback(async (date, tab = 'all') => {
     setLoadingSelectedDate(true);
     try {
-      const response = await api.get(`/api/stock-status/wastage-by-date?date=${date}`);
+      const response = await api.get(`/api/stock-status/wastage-by-date?date=${date}&tab=${tab}`);
       setSelectedDateWastage(response.data);
     } catch (error) {
       console.error('Load selected date wastage error:', error);
@@ -396,10 +397,10 @@ export default function WastageDashboard() {
     }
   }, []);
   
-  // Load selected date wastage when date changes
+  // Load selected date wastage when date or tab changes
   useEffect(() => {
-    loadSelectedDateWastage(selectedWastageDate);
-  }, [selectedWastageDate, loadSelectedDateWastage]);
+    loadSelectedDateWastage(selectedWastageDate, wastageTab);
+  }, [selectedWastageDate, wastageTab, loadSelectedDateWastage]);
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
@@ -464,7 +465,7 @@ export default function WastageDashboard() {
       }
       // Reload data
       loadDashboardData();
-      loadSelectedDateWastage(selectedWastageDate);
+      loadSelectedDateWastage(selectedWastageDate, wastageTab);
     } catch (error) {
       console.error('Recalculate wastage error:', error);
       toast.error(error.response?.data?.detail || 'Failed to recalculate wastage');
@@ -616,7 +617,7 @@ export default function WastageDashboard() {
       toast.success(data.message || `Fixed ${data.total_fixed} records`);
       // Reload data
       loadDashboardData();
-      loadSelectedDateWastage(selectedWastageDate);
+      loadSelectedDateWastage(selectedWastageDate, wastageTab);
     } catch (error) {
       console.error('Fix wastage error:', error);
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
@@ -857,6 +858,58 @@ export default function WastageDashboard() {
             </div>
           </div>
         </CardHeader>
+        
+        {/* Subtabs for All/QC/Retail */}
+        <div className="px-6 py-2 border-b">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setWastageTab('all')}
+              className={`px-4 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+                wastageTab === 'all'
+                  ? 'bg-red-100 text-red-700 border-b-2 border-red-600'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              All
+              {selectedDateWastage && (
+                <span className="ml-1.5 text-xs">
+                  ({selectedDateWastage.all_wastage_kg?.toFixed(1) || 0} kg)
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setWastageTab('qc')}
+              className={`px-4 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+                wastageTab === 'qc'
+                  ? 'bg-purple-100 text-purple-700 border-b-2 border-purple-600'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              QC
+              {selectedDateWastage && (
+                <span className="ml-1.5 text-xs">
+                  ({selectedDateWastage.qc_wastage_kg?.toFixed(1) || 0} kg)
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setWastageTab('retail')}
+              className={`px-4 py-1.5 text-sm font-medium rounded-t-lg transition-colors ${
+                wastageTab === 'retail'
+                  ? 'bg-blue-100 text-blue-700 border-b-2 border-blue-600'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              Retail
+              {selectedDateWastage && (
+                <span className="ml-1.5 text-xs">
+                  ({selectedDateWastage.retail_wastage_kg?.toFixed(1) || 0} kg)
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+        
         <CardContent>
           {loadingSelectedDate ? (
             <div className="flex items-center justify-center h-32">

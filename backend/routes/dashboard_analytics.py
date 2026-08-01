@@ -290,22 +290,38 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
                     logging.warning(f"[COMBO_DEBUG] NO PRODUCT ID FOUND for ingredient '{ing_name}'")
             
             if product_id:
-                # Determine the format of dispatches_by_product (dict with qty/value or simple number)
+                # Determine the format of dispatches_by_product
+                # New format: {"total": X, "qc": Y, "retail": Z}
+                # Or simple number for legacy
+                is_new_format = False
                 is_dict_format = False
                 if dispatches_by_product:
                     sample_val = next(iter(dispatches_by_product.values()))
                     is_dict_format = isinstance(sample_val, dict)
+                    is_new_format = is_dict_format and "total" in sample_val
                 
                 old_val = dispatches_by_product.get(product_id, 0 if not is_dict_format else {"qty": 0})
                 
                 if product_id not in dispatches_by_product:
-                    if is_dict_format:
+                    if is_new_format:
+                        dispatches_by_product[product_id] = {"total": 0, "qc": 0, "retail": 0}
+                    elif is_dict_format:
                         dispatches_by_product[product_id] = {"qty": 0, "value": 0}
                     else:
                         dispatches_by_product[product_id] = 0
                 
+                # Get is_qc flag from item (added during dispatch processing)
+                is_qc = item.get("_is_qc", True)  # Default to QC for backward compat
+                
                 # Add the ingredient quantity
-                if is_dict_format:
+                if is_new_format:
+                    dispatches_by_product[product_id]["total"] += ingredient_qty_kg
+                    if is_qc:
+                        dispatches_by_product[product_id]["qc"] += ingredient_qty_kg
+                    else:
+                        dispatches_by_product[product_id]["retail"] += ingredient_qty_kg
+                    new_val = dispatches_by_product[product_id]["total"]
+                elif is_dict_format:
                     dispatches_by_product[product_id]["qty"] += ingredient_qty_kg
                     new_val = dispatches_by_product[product_id]["qty"]
                 else:
@@ -525,14 +541,16 @@ async def derive_fresh_wastage_for_date(
         }, {"_id": 0}).to_list(1000)
     
     for dispatch in qc_dispatches + retailer_dispatches:
+        is_qc = dispatch in qc_dispatches  # Track dispatch source (QC vs Retail)
         for item in dispatch.get("items", []):
             product_id = item.get("product_id")
             product_name = item.get("product_name", "")
             supplied_qty = item.get("supplied_qty", 0) or 0
             packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
             
-            # Collect ALL items for combo processing
-            all_dispatch_items.append(item)
+            # Collect ALL items for combo processing (with source flag)
+            item_with_source = {**item, "_is_qc": is_qc}
+            all_dispatch_items.append(item_with_source)
             
             # Skip combo products from direct dispatch counting (they don't have base stock)
             if is_combo_product(product_name):
@@ -550,8 +568,12 @@ async def derive_fresh_wastage_for_date(
             qty_kg = (supplied_qty * weight_gm) / 1000
             
             if target_product_id not in dispatches_by_product:
-                dispatches_by_product[target_product_id] = 0
-            dispatches_by_product[target_product_id] += qty_kg
+                dispatches_by_product[target_product_id] = {"total": 0, "qc": 0, "retail": 0}
+            dispatches_by_product[target_product_id]["total"] += qty_kg
+            if is_qc:
+                dispatches_by_product[target_product_id]["qc"] += qty_kg
+            else:
+                dispatches_by_product[target_product_id]["retail"] += qty_kg
     
     # Add combo ingredient dispatches to their respective base products
     dispatches_by_product = add_combo_ingredient_dispatches(
@@ -622,9 +644,22 @@ async def derive_fresh_wastage_for_date(
         purchase_value = round(fresh_purchase["value"], 2)
         
         # Use FRESH dispatch data including combo ingredient decomposition
-        fresh_dispatch_qty = dispatches_by_product.get(product_id, 0)
-        if isinstance(fresh_dispatch_qty, dict):
-            fresh_dispatch_qty = fresh_dispatch_qty.get("qty", 0)
+        fresh_dispatch_data = dispatches_by_product.get(product_id, {"total": 0, "qc": 0, "retail": 0})
+        if isinstance(fresh_dispatch_data, dict):
+            if "total" in fresh_dispatch_data:
+                # New format with QC/Retail split
+                fresh_dispatch_qty = fresh_dispatch_data.get("total", 0)
+                qc_dispatch_qty = fresh_dispatch_data.get("qc", 0)
+                retail_dispatch_qty = fresh_dispatch_data.get("retail", 0)
+            else:
+                # Legacy format
+                fresh_dispatch_qty = fresh_dispatch_data.get("qty", 0)
+                qc_dispatch_qty = fresh_dispatch_qty  # Assume all QC for legacy
+                retail_dispatch_qty = 0
+        else:
+            fresh_dispatch_qty = fresh_dispatch_data
+            qc_dispatch_qty = fresh_dispatch_qty
+            retail_dispatch_qty = 0
         dispatch_qty = round(fresh_dispatch_qty, 2)
         
         # Compute wastage for CLOSED records only
@@ -639,6 +674,18 @@ async def derive_fresh_wastage_for_date(
                 wastage_qty = record.get("wastage_qty", 0) or 0
         
         wastage_qty = round(wastage_qty, 2)
+        
+        # Calculate QC vs Retail wastage allocation based on dispatch proportions
+        total_dispatched = qc_dispatch_qty + retail_dispatch_qty
+        if total_dispatched > 0 and wastage_qty > 0:
+            qc_dispatch_pct = qc_dispatch_qty / total_dispatched
+            retail_dispatch_pct = retail_dispatch_qty / total_dispatched
+            qc_wastage_qty = round(wastage_qty * qc_dispatch_pct, 2)
+            retail_wastage_qty = round(wastage_qty * retail_dispatch_pct, 2)
+        else:
+            # If no dispatch, attribute all wastage to QC (procurement stage)
+            qc_wastage_qty = wastage_qty
+            retail_wastage_qty = 0
         
         # ===== PRICING CASCADE =====
         cogs_price = 0
@@ -664,8 +711,10 @@ async def derive_fresh_wastage_for_date(
             cogs_price = 0  # Reset unreasonable price
         
         wastage_value = round(wastage_qty * cogs_price, 2)
+        qc_wastage_value = round(qc_wastage_qty * cogs_price, 2)
+        retail_wastage_value = round(retail_wastage_qty * cogs_price, 2)
         
-        # Store result
+        # Store result with QC/Retail breakdown
         product_wastage[product_id] = {
             "product_id": product_id,
             "product_name": product_name,
@@ -673,9 +722,15 @@ async def derive_fresh_wastage_for_date(
             "purchase_qty": purchase_qty,
             "purchase_value": round(purchase_value, 2),
             "dispatch_qty": dispatch_qty,
+            "qc_dispatch_qty": round(qc_dispatch_qty, 2),
+            "retail_dispatch_qty": round(retail_dispatch_qty, 2),
             "closing_qty": round(closing_qty, 2),
             "wastage_qty": wastage_qty,
             "wastage_value": wastage_value,
+            "qc_wastage_qty": qc_wastage_qty,
+            "qc_wastage_value": qc_wastage_value,
+            "retail_wastage_qty": retail_wastage_qty,
+            "retail_wastage_value": retail_wastage_value,
             "cogs_price": round(cogs_price, 2),
             "status": status
         }
@@ -5842,15 +5897,28 @@ async def get_yesterday_wastage(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/stock-status/wastage-by-date")
-async def get_wastage_by_date(date: str, current_user: dict = Depends(get_current_user)):
+async def get_wastage_by_date(
+    date: str, 
+    tab: str = "all",  # "all", "qc", or "retail"
+    current_user: dict = Depends(get_current_user)
+):
     """
-    Get product-wise wastage for a specific date.
+    Get product-wise wastage for a specific date with QC/Retail tabs.
     
     Uses derive_fresh_wastage_for_date() helper for real-time recomputation
     from source collections (procurements, dispatches, stock status).
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        tab: "all" (default), "qc", or "retail" - filters wastage by channel
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Validate tab parameter
+    tab = tab.lower()
+    if tab not in ["all", "qc", "retail"]:
+        tab = "all"
     
     # Call the shared helper for fresh wastage derivation
     fresh_data = await derive_fresh_wastage_for_date(date, db)
@@ -5860,6 +5928,14 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
     total_wastage_kg = 0
     total_wastage_value = 0
     
+    # Track totals for all tabs
+    all_wastage_kg = 0
+    all_wastage_value = 0
+    qc_wastage_kg = 0
+    qc_wastage_value = 0
+    retail_wastage_kg = 0
+    retail_wastage_value = 0
+    
     for product_id, pdata in fresh_data["products"].items():
         product_name = pdata.get("product_name", "Unknown")
         
@@ -5867,18 +5943,44 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
         if is_combo_product(product_name):
             continue
         
-        wastage_qty = pdata.get("wastage_qty", 0)
-        wastage_value = pdata.get("wastage_value", 0)
+        # Get total wastage and QC/Retail breakdown
+        total_wastage_qty = pdata.get("wastage_qty", 0)
+        total_wastage_val = pdata.get("wastage_value", 0)
+        qc_wq = pdata.get("qc_wastage_qty", 0)
+        qc_wv = pdata.get("qc_wastage_value", 0)
+        retail_wq = pdata.get("retail_wastage_qty", 0)
+        retail_wv = pdata.get("retail_wastage_value", 0)
         
-        # Only include products with wastage > 0
+        # Accumulate overall totals
+        all_wastage_kg += total_wastage_qty
+        all_wastage_value += total_wastage_val
+        qc_wastage_kg += qc_wq
+        qc_wastage_value += qc_wv
+        retail_wastage_kg += retail_wq
+        retail_wastage_value += retail_wv
+        
+        # Determine which wastage to show based on tab
+        if tab == "qc":
+            wastage_qty = qc_wq
+            wastage_value = qc_wv
+            dispatch_qty = pdata.get("qc_dispatch_qty", 0)
+        elif tab == "retail":
+            wastage_qty = retail_wq
+            wastage_value = retail_wv
+            dispatch_qty = pdata.get("retail_dispatch_qty", 0)
+        else:  # "all"
+            wastage_qty = total_wastage_qty
+            wastage_value = total_wastage_val
+            dispatch_qty = pdata.get("dispatch_qty", 0)
+        
+        # Only include products with wastage > 0 for selected tab
         if wastage_qty > 0:
             opening_qty = pdata.get("opening_qty", 0)
             purchase_qty = pdata.get("purchase_qty", 0)
-            dispatch_qty = pdata.get("dispatch_qty", 0)
             closing_qty = pdata.get("closing_qty", 0)
             status = pdata.get("status", "pending")
             
-            # Calculate wastage percent
+            # Calculate wastage percent (based on total available, not per-tab)
             available = opening_qty + purchase_qty
             wastage_percent = (wastage_qty / available * 100) if available > 0 else 0
             
@@ -5894,7 +5996,12 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
                 "wastage_qty": round(wastage_qty, 2),
                 "wastage_value": round(wastage_value, 2),
                 "wastage_percent": round(wastage_percent, 1),
-                "status": status
+                "status": status,
+                # Include QC/Retail breakdown for reference
+                "qc_wastage_qty": round(qc_wq, 2),
+                "qc_wastage_value": round(qc_wv, 2),
+                "retail_wastage_qty": round(retail_wq, 2),
+                "retail_wastage_value": round(retail_wv, 2)
             })
             
             total_wastage_kg += wastage_qty
@@ -5905,8 +6012,16 @@ async def get_wastage_by_date(date: str, current_user: dict = Depends(get_curren
     
     return {
         "date": date,
+        "tab": tab,
         "total_wastage_kg": round(total_wastage_kg, 2),
         "total_wastage_value": round(total_wastage_value, 2),
+        # Include totals for all tabs (for tab headers)
+        "all_wastage_kg": round(all_wastage_kg, 2),
+        "all_wastage_value": round(all_wastage_value, 2),
+        "qc_wastage_kg": round(qc_wastage_kg, 2),
+        "qc_wastage_value": round(qc_wastage_value, 2),
+        "retail_wastage_kg": round(retail_wastage_kg, 2),
+        "retail_wastage_value": round(retail_wastage_value, 2),
         "products": wastage_products
     }
 

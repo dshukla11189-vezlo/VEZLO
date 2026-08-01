@@ -1783,90 +1783,66 @@ export default function FieldTeamDashboard() {
         {/* ==================== INDENTS MODAL ==================== */}
         {showIndentsModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
               <div className="flex items-center justify-between p-4 border-b">
-                <div>
-                  <h3 className="text-lg font-semibold">
-                    {indentsModalMode === 'today' ? "Today's" : "Tomorrow's"} Indents
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    {indentsModalMode === 'today' 
-                      ? new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })
-                      : (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }); })()
-                    }
-                  </p>
-                </div>
+                <h3 className="text-lg font-semibold">
+                  {indentsModalMode === 'today' ? "Today's" : "Tomorrow's"} Orders — Retailer List
+                </h3>
                 <button onClick={() => setShowIndentsModal(false)} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
                 </button>
               </div>
               <div className="p-4 overflow-y-auto flex-1">
-                {indentsForModal.length === 0 ? (
-                  <p className="text-center text-gray-500 py-8">No indents for {indentsModalMode === 'today' ? 'today' : 'tomorrow'}</p>
-                ) : (
-                  <div className="space-y-3">
-                    {indentsForModal.map(indent => {
-                      const retailer = assignedRetailers.find(r => r.retailer_id === indent.retailer_id);
-                      return (
-                        <div key={indent.id} className="border rounded-lg p-3">
-                          <div className="flex items-center justify-between mb-2">
-                            <div>
-                              <h4 className="font-semibold text-sm">{retailer?.retailer_name || indent.retailer_name || 'Unknown Retailer'}</h4>
-                              <p className="text-xs text-gray-500">
-                                {indent.items?.length || 0} items • Total: {(indent.items || []).reduce((s, i) => s + (i.quantity || 0), 0)} qty
-                              </p>
-                            </div>
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              indent.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              indent.status === 'dispatched' ? 'bg-green-100 text-green-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {indent.status || 'pending'}
-                            </span>
-                          </div>
-                          <div className="bg-gray-50 rounded p-2 text-xs">
-                            <table className="w-full">
-                              <thead>
-                                <tr className="text-left text-gray-500">
-                                  <th className="pb-1">Product</th>
-                                  <th className="pb-1">Variant</th>
-                                  <th className="pb-1 text-right">Qty</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {(indent.items || []).slice(0, 5).map((item, idx) => (
-                                  <tr key={idx}>
-                                    <td className="py-0.5">{item.product_name}</td>
-                                    <td className="py-0.5 text-gray-500">{item.variant_name || '-'}</td>
-                                    <td className="py-0.5 text-right font-medium">{item.quantity}</td>
-                                  </tr>
-                                ))}
-                                {(indent.items || []).length > 5 && (
-                                  <tr>
-                                    <td colSpan={3} className="py-0.5 text-gray-400 text-center">
-                                      +{(indent.items || []).length - 5} more items...
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="mt-2 text-xs"
+                {(() => {
+                  // Aggregate indents by retailer
+                  const retailerMap = new Map();
+                  indentsForModal.forEach(indent => {
+                    const rid = indent.retailer_id;
+                    const retailer = assignedRetailers.find(r => r.retailer_id === rid);
+                    const retailerName = retailer?.retailer_name || indent.retailer_name || 'Unknown Retailer';
+                    const qty = (indent.items || []).reduce((s, i) => s + (i.quantity || 0), 0);
+                    
+                    if (retailerMap.has(rid)) {
+                      retailerMap.get(rid).qty += qty;
+                    } else {
+                      retailerMap.set(rid, { retailer_id: rid, retailer_name: retailerName, qty: qty });
+                    }
+                  });
+                  
+                  const retailerList = Array.from(retailerMap.values());
+                  
+                  if (retailerList.length === 0) {
+                    return <p className="text-center text-gray-500 py-8">No orders for {indentsModalMode === 'today' ? 'today' : 'tomorrow'}</p>;
+                  }
+                  
+                  return (
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left text-gray-600 border-b">
+                          <th className="py-2 px-2 w-16">S No</th>
+                          <th className="py-2 px-2">Retailer Name</th>
+                          <th className="py-2 px-2 text-right">Order Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {retailerList.map((r, idx) => (
+                          <tr 
+                            key={r.retailer_id} 
+                            className="border-b hover:bg-gray-50 cursor-pointer"
                             onClick={() => {
                               setShowIndentsModal(false);
-                              handleViewRetailer(indent.retailer_id);
+                              handleViewRetailer(r.retailer_id);
                             }}
                           >
-                            View Retailer Dashboard
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                            <td className="py-3 px-2 text-gray-500">{idx + 1}</td>
+                            <td className="py-3 px-2 font-medium">{r.retailer_name}</td>
+                            <td className="py-3 px-2 text-right">{r.qty || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
               </div>
             </div>
           </div>

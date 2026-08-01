@@ -3106,16 +3106,27 @@ export default function RetailerDashboard({
               );
             })}
             
-            {/* Logout Button */}
+            {/* Logout Button / Back to Portfolio Button */}
             <div className="border-t mt-4 pt-4">
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50"
-                data-testid="logout-btn"
-              >
-                <LogOut size={20} />
-                <span className="font-medium">Logout</span>
-              </button>
+              {fieldTeamMode && onBackToPortfolio ? (
+                <button
+                  onClick={onBackToPortfolio}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors text-blue-600 hover:bg-blue-50"
+                  data-testid="back-to-portfolio-menu-btn"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+                  <span className="font-medium">Back to Portfolio</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors text-red-600 hover:bg-red-50"
+                  data-testid="logout-btn"
+                >
+                  <LogOut size={20} />
+                  <span className="font-medium">Logout</span>
+                </button>
+              )}
             </div>
           </nav>
         </div>
@@ -3124,7 +3135,7 @@ export default function RetailerDashboard({
         <div className="min-h-screen">
           {/* Header with Hamburger */}
           <div className="flex items-center gap-4 mb-6">
-            {fieldTeamMode && onBackToPortfolio ? (
+            {fieldTeamMode && onBackToPortfolio && (
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -3134,22 +3145,21 @@ export default function RetailerDashboard({
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
               </Button>
-            ) : (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setSideMenuOpen(true);
-                }}
-                onTouchStart={(e) => e.stopPropagation()}
-                className="p-2 touch-none"
-                data-testid="hamburger-menu-btn"
-              >
-                <Menu size={24} />
-              </Button>
             )}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSideMenuOpen(true);
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
+              className="p-2 touch-none"
+              data-testid="hamburger-menu-btn"
+            >
+              <Menu size={24} />
+            </Button>
             <h1 className="text-xl md:text-2xl font-bold text-gray-900">
               {fieldTeamMode 
                 ? `${selectedRetailerName || 'Retailer'}`

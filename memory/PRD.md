@@ -10,25 +10,30 @@
     - `GET /api/field-team/retailer/{retailer_id}/dashboard` - Full dashboard for specific retailer
     - `GET /api/field-team/retailer/{retailer_id}/payment-details` - Payment details for retailer
     - `POST /api/field-team/retailer/{retailer_id}/indent` - Create indent on behalf of retailer
-    - NEW: Proxy endpoints for retailer data access (dispatches, rejections, invoices, indents, payments, grn, immediately-payable)
+    - Proxy endpoints for retailer data access (dispatches, rejections, invoices, indents, payments, grn, immediately-payable)
   
   - Frontend at `/app/frontend/src/pages/field_team/Dashboard.js`:
     - **Portfolio Home (Cumulative View)**:
       - Summary cards: Retailers count, Immediately Payable, Overdue, Total Outstanding
+      - **Avg Net Sales (15D)** and **Rejection % (15D)** cards with **View links**
       - Portfolio Earnings card with total earnings, avg per day, and date range picker
       - **4 Cumulative Charts**: Monthly Order Value, Monthly Rejection MRP, Monthly Earnings, Avg Earning/Day
       - View mode toggle: Daily/Weekly/Monthly
       - Mini-cards for each assigned retailer with expandable details
+      - **Record Rejection button** at top
+    - **View Modals (Retailer-wise Breakdown)**:
+      - Avg Net Sales modal: Shows per-retailer breakdown with View Dashboard button
+      - Rejection % modal: Shows per-retailer breakdown sorted by rejection %, View Dashboard button
+    - **Record Rejection Wizard (3 steps)**:
+      - Step 1: Select Retailer (ONLY assigned retailers shown)
+      - Step 2: Select Product (from retailer's dispatches with variants)
+      - Step 3: Select Dates and Quantities
+      - Draft support: Add multiple products before submitting
+      - Back navigation between steps
     - **Individual Retailer View**:
       - Renders the full Retailer Portal Dashboard (exact same as retailer sees)
       - Back arrow button to return to portfolio
       - All retailer features: Create Order, My Orders, Payment Ledger, etc.
-    - Side menu: My Portfolio, My Retailers list, Logout
-  
-  - Modified `/app/frontend/src/pages/retailer/Dashboard.js`:
-    - Added props: fieldTeamMode, selectedRetailerId, selectedRetailerName, onBackToPortfolio
-    - Conditional API endpoints based on field team mode
-    - Back button in header when in field team mode
   
   - Test credentials:
     - Gaurav: adb@gmail.com / fieldteam123 (2 assigned retailers: Tamanna Mart, S Mart)

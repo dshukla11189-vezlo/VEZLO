@@ -10,27 +10,28 @@
     - `GET /api/field-team/retailer/{retailer_id}/dashboard` - Full dashboard for specific retailer
     - `GET /api/field-team/retailer/{retailer_id}/payment-details` - Payment details for retailer
     - `POST /api/field-team/retailer/{retailer_id}/indent` - Create indent on behalf of retailer
+    - NEW: Proxy endpoints for retailer data access (dispatches, rejections, invoices, indents, payments, grn, immediately-payable)
   
   - Frontend at `/app/frontend/src/pages/field_team/Dashboard.js`:
-    - Cumulative view: Shows portfolio summary cards (Retailers, Immediately Payable, Overdue, Total Outstanding)
-    - Mini-cards for each assigned retailer with key metrics
-    - Expandable cards with detailed info and action buttons
-    - Dropdown selector to switch between "All Retailers (Cumulative)" and individual retailer views
-    - Individual retailer view: Mimics Retailer Portal with Outstanding, Payable, Net Sales, Rejection %
-    - Payment Details table with date-wise breakdown
-    - Create Indent modal for placing orders on behalf of retailers
-    - Back button to return to cumulative view
+    - **Portfolio Home (Cumulative View)**:
+      - Summary cards: Retailers count, Immediately Payable, Overdue, Total Outstanding
+      - Portfolio Earnings card with total earnings, avg per day, and date range picker
+      - **4 Cumulative Charts**: Monthly Order Value, Monthly Rejection MRP, Monthly Earnings, Avg Earning/Day
+      - View mode toggle: Daily/Weekly/Monthly
+      - Mini-cards for each assigned retailer with expandable details
+    - **Individual Retailer View**:
+      - Renders the full Retailer Portal Dashboard (exact same as retailer sees)
+      - Back arrow button to return to portfolio
+      - All retailer features: Create Order, My Orders, Payment Ledger, etc.
+    - Side menu: My Portfolio, My Retailers list, Logout
   
-  - App routing updated in `/app/frontend/src/App.js`:
-    - Added `/field-team/dashboard` route with 'field_team' role protection
-    - Updated `getDefaultRoute()` to redirect field_team users
-  
-  - Login updated in `/app/frontend/src/pages/Login.js`:
-    - Added redirect to `/field-team/dashboard` for field_team users
+  - Modified `/app/frontend/src/pages/retailer/Dashboard.js`:
+    - Added props: fieldTeamMode, selectedRetailerId, selectedRetailerName, onBackToPortfolio
+    - Conditional API endpoints based on field team mode
+    - Back button in header when in field team mode
   
   - Test credentials:
     - Gaurav: adb@gmail.com / fieldteam123 (2 assigned retailers: Tamanna Mart, S Mart)
-    - Rajesh Kumar: rajesh.fieldteam@test.com / fieldteam123 (no assigned retailers)
 
 ## Changelog (July 2026)
 

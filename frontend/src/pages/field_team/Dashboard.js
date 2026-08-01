@@ -299,6 +299,61 @@ export default function FieldTeamDashboard() {
     };
   }, [chartData, allDispatches]);
 
+  // W-21: Avg Net Sales (15d) and Rejection % (15d) for portfolio
+  // Uses 15 oldest of last 21 delivered days (same logic as Retailer Dashboard)
+  const netSalesAndRejection15d = useMemo(() => {
+    // Fetch 21 distinct dispatch dates (delivered days), DESC
+    const dispatchDateSet = new Set();
+    (allDispatches || []).forEach(d => {
+      const dd = (d.dispatch_date || '').split('T')[0];
+      if (dd) dispatchDateSet.add(dd);
+    });
+    const top21 = Array.from(dispatchDateSet).sort((a, b) => b.localeCompare(a)).slice(0, 21);
+    
+    // Use only the 15 OLDEST of those 21 (drop the 6 most recent)
+    const oldest15 = top21.slice(6, 21);
+    const oldest15Set = new Set(oldest15);
+    const deliveredDaysCount = oldest15.length;
+    const windowSize = top21.length;
+
+    // Per-day aggregation ONLY for dates in oldest15
+    const dayData = {};
+    oldest15.forEach(dd => { dayData[dd] = { grossValue: 0, grossQty: 0, rejValue: 0, rejQty: 0 }; });
+
+    (allDispatches || []).forEach(d => {
+      const dd = (d.dispatch_date || '').split('T')[0];
+      if (!oldest15Set.has(dd)) return;
+      const mrp = (d.total_mrp_value && d.total_mrp_value > 0)
+        ? d.total_mrp_value
+        : (d.items || []).reduce((s, i) => s + ((i.supplied_qty || 0) * (i.mrp || 0)), 0);
+      dayData[dd].grossValue += mrp;
+      (d.items || []).forEach(i => {
+        const qty = i.supplied_qty || 0;
+        dayData[dd].grossQty += qty;
+      });
+    });
+
+    (allRejections || []).forEach(r => {
+      const rd = (r.rejection_date || '').split('T')[0];
+      if (!oldest15Set.has(rd)) return;
+      if (!dayData[rd]) return;
+      dayData[rd].rejValue += (r.rejection_value || 0);
+      dayData[rd].rejQty += (r.quantity || 0);
+    });
+
+    // Avg Net Sales across the 15 oldest delivered days
+    let totalNetSales = 0;
+    oldest15.forEach(dd => { totalNetSales += dayData[dd].grossValue - dayData[dd].rejValue; });
+    const avgNetSales = deliveredDaysCount > 0 ? totalNetSales / deliveredDaysCount : 0;
+
+    // Rejection %: ALL 15 oldest days
+    let rejQty = 0, supQty = 0;
+    oldest15.forEach(dd => { supQty += dayData[dd].grossQty; rejQty += dayData[dd].rejQty; });
+    const rejectionPct = supQty > 0 ? (rejQty / supQty) * 100 : null;
+
+    return { avgNetSales, deliveredDaysCount, windowSize, rejectionPct };
+  }, [allDispatches, allRejections]);
+
   // Format chart values
   const formatValue = (value) => {
     if (value >= 100000) return `₹${(value/100000).toFixed(1)}L`;
@@ -497,6 +552,49 @@ export default function FieldTeamDashboard() {
                     <p className="text-xs text-gray-500 uppercase">Outstanding</p>
                     <p className="text-lg font-bold text-orange-600">
                       {formatCurrency(portfolioSummary?.summary?.total_outstanding)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Avg Net Sales (15D) and Rejection % (15D) Cards */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {/* Avg Net Sales (15D) Card */}
+            <Card className="bg-gradient-to-br from-blue-50 to-white border-blue-200" data-testid="avg-net-sales-card">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <TrendingUp className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-blue-600 font-semibold uppercase">Avg Net Sales (15D)</p>
+                    <p className="text-xl font-bold text-blue-800">{formatCurrency(netSalesAndRejection15d.avgNetSales)}</p>
+                    {netSalesAndRejection15d.deliveredDaysCount > 0 && (
+                      <p className="text-[10px] text-gray-500 mt-1">avg over 15 oldest of last {netSalesAndRejection15d.windowSize || 21} delivered days</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Rejection % (15D) Card */}
+            <Card className="bg-gradient-to-br from-red-50 to-white border-red-200" data-testid="rejection-pct-card">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-lg">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-red-600 font-semibold uppercase">Rejection % (15D)</p>
+                    <p className="text-xl font-bold text-red-700">
+                      {netSalesAndRejection15d.rejectionPct !== null ? `${netSalesAndRejection15d.rejectionPct.toFixed(1)}%` : '—'}
+                    </p>
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      {netSalesAndRejection15d.deliveredDaysCount > 0
+                        ? `based on 15 oldest of last ${netSalesAndRejection15d.windowSize || 21} delivered days`
+                        : 'No delivered days'}
                     </p>
                   </div>
                 </div>

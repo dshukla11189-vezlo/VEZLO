@@ -22,6 +22,7 @@ import Backup from './pages/admin/Backup';
 import RetailerDashboard from './pages/retailer/Dashboard';
 import StaffDashboard from './pages/staff/Dashboard';
 import StaffAttendance from './pages/staff/Attendance';
+import FieldTeamDashboard from './pages/field_team/Dashboard';
 import './App.css';
 
 function ProtectedRoute({ children, allowedRoles }) {
@@ -50,6 +51,8 @@ function App() {
         return '/admin/stock-status'; // Staff lands on Stock Status (no P&L access)
       case 'retailer':
         return '/retailer/dashboard';
+      case 'field_team':
+        return '/field-team/dashboard';
       default:
         return '/login';
     }
@@ -210,6 +213,16 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['staff', 'admin']}>
                 <StaffAttendance />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Field Team Routes */}
+          <Route
+            path="/field-team/dashboard"
+            element={
+              <ProtectedRoute allowedRoles={['field_team']}>
+                <FieldTeamDashboard />
               </ProtectedRoute>
             }
           />

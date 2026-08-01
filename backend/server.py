@@ -83,6 +83,7 @@ from routes import auth_router, labour_router, health_router, users_router, farm
 from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date, save_daily_cogs
 from routes.background_jobs import router as background_jobs_router
 from routes.cogs_snapshot import router as cogs_snapshot_router
+from routes.field_team import router as field_team_router
 from routes.retail_plans import initialize_default_plans
 from routes.retailer_portal import run_blinkit_scrape_scheduled, generate_auto_indents_wrapper
 
@@ -781,6 +782,7 @@ app.include_router(admin_router)  # Admin utility routes (has /api prefix built-
 app.include_router(daily_cogs_router)  # Daily COGS tracking
 app.include_router(background_jobs_router, prefix="/api")  # Background job management
 app.include_router(cogs_snapshot_router)  # COGS snapshot API
+app.include_router(field_team_router, prefix="/api")  # Field Team dashboard
 
 # Root-level health endpoint for Kubernetes health checks (without /api prefix)
 @app.get("/health")

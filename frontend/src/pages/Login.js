@@ -27,6 +27,8 @@ export default function Login() {
         navigate('/retailer/dashboard');
       } else if (user.role === 'staff') {
         navigate('/staff/dashboard');
+      } else if (user.role === 'field_team') {
+        navigate('/field-team/dashboard');
       } else {
         navigate('/admin/dashboard');
       }

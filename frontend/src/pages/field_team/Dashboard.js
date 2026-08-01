@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, RefreshCw, Eye, Plus, 
   ShoppingCart, Calendar, X, Search, Menu, LogOut, User,
   DollarSign, Home, Truck, FileText, CreditCard, ClipboardList,
-  ChevronLeft, Pencil, Trash2, Check
+  ChevronLeft, Pencil, Trash2, Check, Package
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -26,10 +26,16 @@ export default function FieldTeamDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   
+  // Current user info
+  const [currentUser, setCurrentUser] = useState(null);
+  
   // Portfolio data
   const [portfolioSummary, setPortfolioSummary] = useState(null);
   const [assignedRetailers, setAssignedRetailers] = useState([]);
   const [assignedRetailersDetails, setAssignedRetailersDetails] = useState([]); // Full retailer details
+  
+  // All indents for stats
+  const [allIndents, setAllIndents] = useState([]);
   
   // Cumulative data for graphs
   const [allDispatches, setAllDispatches] = useState([]);
@@ -58,6 +64,10 @@ export default function FieldTeamDashboard() {
   const [showNetSalesModal, setShowNetSalesModal] = useState(false);
   const [showRejectionPctModal, setShowRejectionPctModal] = useState(false);
   
+  // ========== INDENTS MODAL ==========
+  const [showIndentsModal, setShowIndentsModal] = useState(false);
+  const [indentsModalMode, setIndentsModalMode] = useState('today'); // 'today' or 'tomorrow'
+  
   // ========== RECORD REJECTION WIZARD STATE ==========
   const [showRejectionModal, setShowRejectionModal] = useState(false);
   const [recordRejectionStep, setRecordRejectionStep] = useState(1); // 1=retailer, 2=product, 3=dates
@@ -82,6 +92,16 @@ export default function FieldTeamDashboard() {
     }).format(date);
   };
 
+  // Get IST today date
+  const getISTDate = () => getLocalDateString(new Date());
+  
+  // Get IST tomorrow date
+  const getISTTomorrow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return getLocalDateString(d);
+  };
+
   // Format currency
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en-IN', {
@@ -90,6 +110,18 @@ export default function FieldTeamDashboard() {
       maximumFractionDigits: 0
     }).format(value || 0);
   };
+
+  // Load current user from localStorage
+  useEffect(() => {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        setCurrentUser(JSON.parse(userStr));
+      }
+    } catch (e) {
+      console.error('Error loading user:', e);
+    }
+  }, []);
 
   // Fetch portfolio summary and all dispatches/rejections for graphs
   const fetchPortfolioData = useCallback(async () => {
@@ -102,25 +134,31 @@ export default function FieldTeamDashboard() {
       const retailerIds = (summaryRes.data.retailer_summaries || []).map(r => r.retailer_id);
       
       if (retailerIds.length > 0) {
-        // Fetch dispatches and rejections for all assigned retailers
+        // Fetch dispatches, rejections, and indents for all assigned retailers
         const dispatchPromises = retailerIds.map(rid => 
           api.get(`/api/field-team/retailer/${rid}-dispatches`).catch(() => ({ data: [] }))
         );
         const rejectionPromises = retailerIds.map(rid => 
           api.get(`/api/field-team/retailer/${rid}-rejections`).catch(() => ({ data: [] }))
         );
+        const indentPromises = retailerIds.map(rid => 
+          api.get(`/api/field-team/retailer/${rid}-indents`).catch(() => ({ data: [] }))
+        );
         
-        const [dispatchResults, rejectionResults] = await Promise.all([
+        const [dispatchResults, rejectionResults, indentResults] = await Promise.all([
           Promise.all(dispatchPromises),
-          Promise.all(rejectionPromises)
+          Promise.all(rejectionPromises),
+          Promise.all(indentPromises)
         ]);
         
-        // Combine all dispatches and rejections
+        // Combine all dispatches, rejections, and indents
         const combinedDispatches = dispatchResults.flatMap(r => r.data || []);
         const combinedRejections = rejectionResults.flatMap(r => r.data || []);
+        const combinedIndents = indentResults.flatMap(r => r.data || []);
         
         setAllDispatches(combinedDispatches);
         setAllRejections(combinedRejections);
+        setAllIndents(combinedIndents);
         
         // Calculate average commission percentage
         const totalCommPct = (summaryRes.data.retailer_summaries || [])
@@ -352,6 +390,38 @@ export default function FieldTeamDashboard() {
       rejectionPct: totalGross > 0 ? (totalRejections / totalGross * 100) : 0
     };
   }, [chartData, allDispatches]);
+
+  // Indent stats for Today and Tomorrow
+  const indentStats = useMemo(() => {
+    const today = getISTDate();
+    const tomorrow = getISTTomorrow();
+    
+    const todayIndents = allIndents.filter(i => (i.indent_date || '').split('T')[0] === today);
+    const tomorrowIndents = allIndents.filter(i => (i.indent_date || '').split('T')[0] === tomorrow);
+    
+    const calcQty = (indents) => {
+      return indents.reduce((sum, ind) => {
+        return sum + (ind.items || []).reduce((s, item) => s + (item.quantity || 0), 0);
+      }, 0);
+    };
+    
+    return {
+      todayCount: todayIndents.length,
+      todayQty: calcQty(todayIndents),
+      todayIndents: todayIndents,
+      tomorrowCount: tomorrowIndents.length,
+      tomorrowQty: calcQty(tomorrowIndents),
+      tomorrowIndents: tomorrowIndents
+    };
+  }, [allIndents]);
+
+  // Get indents for modal based on mode
+  const indentsForModal = useMemo(() => {
+    if (indentsModalMode === 'today') {
+      return indentStats.todayIndents;
+    }
+    return indentStats.tomorrowIndents;
+  }, [indentsModalMode, indentStats]);
 
   // W-21: Avg Net Sales (15d) and Rejection % (15d) for portfolio
   // Uses 15 oldest of last 21 delivered days (same logic as Retailer Dashboard)
@@ -849,7 +919,7 @@ export default function FieldTeamDashboard() {
                 <Menu size={24} />
               </Button>
               <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-                My Portfolio
+                Welcome, {currentUser?.name || 'Field Team'}
               </h1>
             </div>
             <div className="flex items-center gap-2">
@@ -872,6 +942,54 @@ export default function FieldTeamDashboard() {
                 <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
+            </div>
+          </div>
+
+          {/* Today's and Tomorrow's Indents Cards */}
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-white rounded-lg border p-3">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <Package size={14} />
+                <span>Today&apos;s Indents ({new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })})</span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">Count:</span>
+                  <span className="text-xs font-semibold">{indentStats.todayCount} <span className="text-blue-600">({indentStats.todayQty} qty)</span></span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setIndentsModalMode('today'); setShowIndentsModal(true); }}
+                  className="h-6 text-[10px] mt-2 w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                  data-testid="view-today-indents-btn"
+                >
+                  <Eye size={12} className="mr-1" />
+                  View
+                </Button>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg border p-3">
+              <div className="flex items-center gap-2 text-gray-500 text-xs mb-1">
+                <Truck size={14} />
+                <span>Tomorrow&apos;s Indents ({(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); })()})</span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">Count:</span>
+                  <span className="text-xs font-semibold">{indentStats.tomorrowCount} <span className="text-blue-600">({indentStats.tomorrowQty} qty)</span></span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setIndentsModalMode('tomorrow'); setShowIndentsModal(true); }}
+                  className="h-6 text-[10px] mt-2 w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                  data-testid="view-tomorrow-indents-btn"
+                >
+                  <Eye size={12} className="mr-1" />
+                  View
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -1658,6 +1776,98 @@ export default function FieldTeamDashboard() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ==================== INDENTS MODAL ==================== */}
+        {showIndentsModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">
+                    {indentsModalMode === 'today' ? "Today's" : "Tomorrow's"} Indents
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    {indentsModalMode === 'today' 
+                      ? new Date().toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })
+                      : (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toLocaleDateString('en-IN', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }); })()
+                    }
+                  </p>
+                </div>
+                <button onClick={() => setShowIndentsModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-4 overflow-y-auto flex-1">
+                {indentsForModal.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No indents for {indentsModalMode === 'today' ? 'today' : 'tomorrow'}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {indentsForModal.map(indent => {
+                      const retailer = assignedRetailers.find(r => r.retailer_id === indent.retailer_id);
+                      return (
+                        <div key={indent.id} className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <h4 className="font-semibold text-sm">{retailer?.retailer_name || indent.retailer_name || 'Unknown Retailer'}</h4>
+                              <p className="text-xs text-gray-500">
+                                {indent.items?.length || 0} items • Total: {(indent.items || []).reduce((s, i) => s + (i.quantity || 0), 0)} qty
+                              </p>
+                            </div>
+                            <span className={`px-2 py-1 text-xs rounded-full ${
+                              indent.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                              indent.status === 'dispatched' ? 'bg-green-100 text-green-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {indent.status || 'pending'}
+                            </span>
+                          </div>
+                          <div className="bg-gray-50 rounded p-2 text-xs">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="text-left text-gray-500">
+                                  <th className="pb-1">Product</th>
+                                  <th className="pb-1">Variant</th>
+                                  <th className="pb-1 text-right">Qty</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(indent.items || []).slice(0, 5).map((item, idx) => (
+                                  <tr key={idx}>
+                                    <td className="py-0.5">{item.product_name}</td>
+                                    <td className="py-0.5 text-gray-500">{item.variant_name || '-'}</td>
+                                    <td className="py-0.5 text-right font-medium">{item.quantity}</td>
+                                  </tr>
+                                ))}
+                                {(indent.items || []).length > 5 && (
+                                  <tr>
+                                    <td colSpan={3} className="py-0.5 text-gray-400 text-center">
+                                      +{(indent.items || []).length - 5} more items...
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 text-xs"
+                            onClick={() => {
+                              setShowIndentsModal(false);
+                              handleViewRetailer(indent.retailer_id);
+                            }}
+                          >
+                            View Retailer Dashboard
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

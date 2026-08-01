@@ -44,6 +44,10 @@ export default function WastageDashboard() {
   });
   const [products, setProducts] = useState([]);
   
+  // Wastage table sort state (default: wastage_percent desc)
+  const [wastageSortField, setWastageSortField] = useState('wastage_percent');
+  const [wastageSortAsc, setWastageSortAsc] = useState(false);
+  
   // Persist selected period
   useEffect(() => {
     localStorage.setItem('wastage_selectedPeriod', selectedPeriod.toString());
@@ -136,6 +140,31 @@ export default function WastageDashboard() {
   useEffect(() => {
     localStorage.setItem('wastage_selectedDate', selectedWastageDate);
   }, [selectedWastageDate]);
+  
+  // Sorted wastage products (mirrors Dashboard.js COGS sort pattern)
+  const sortedWastageProducts = useMemo(() => {
+    if (!selectedDateWastage?.products) return [];
+    const filtered = [...selectedDateWastage.products];
+    filtered.sort((a, b) => {
+      let aVal, bVal;
+      if (wastageSortField === 'product_name') {
+        aVal = getProductName(a);
+        bVal = getProductName(b);
+      } else {
+        aVal = a[wastageSortField];
+        bVal = b[wastageSortField];
+      }
+      if (aVal == null) aVal = wastageSortAsc ? Infinity : -Infinity;
+      if (bVal == null) bVal = wastageSortAsc ? Infinity : -Infinity;
+      if (wastageSortField === 'product_name') {
+        aVal = (aVal || '').toString().toLowerCase();
+        bVal = (bVal || '').toString().toLowerCase();
+        return wastageSortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return wastageSortAsc ? aVal - bVal : bVal - aVal;
+    });
+    return filtered;
+  }, [selectedDateWastage, wastageSortField, wastageSortAsc, getProductName]);
 
   // Export date range state
   const [exportStartDate, setExportStartDate] = useState(() => {
@@ -838,21 +867,73 @@ export default function WastageDashboard() {
               <table className="w-full text-sm">
                 <thead className="bg-red-50">
                   <tr>
-                    <th className="p-2 text-left font-medium text-red-700">Product</th>
-                    <th className="p-2 text-right font-medium text-red-700">Opening</th>
-                    <th className="p-2 text-right font-medium text-red-700">Purchase</th>
-                    <th className="p-2 text-right font-medium text-red-700">Dispatch</th>
-                    <th className="p-2 text-right font-medium text-red-700">Closing</th>
-                    <th className="p-2 text-right font-medium text-red-700">Closing Value</th>
-                    <th className="p-2 text-right font-medium text-red-700">Wastage (Kg)</th>
-                    <th className="p-2 text-right font-medium text-red-700">Value (₹)</th>
-                    <th className="p-2 text-right font-medium text-red-700">%</th>
+                    <th className="p-2 text-left font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'product_name') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('product_name'); setWastageSortAsc(true); }
+                        }}>
+                      Product {wastageSortField === 'product_name' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'opening_qty') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('opening_qty'); setWastageSortAsc(true); }
+                        }}>
+                      Opening {wastageSortField === 'opening_qty' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'purchase_qty') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('purchase_qty'); setWastageSortAsc(true); }
+                        }}>
+                      Purchase {wastageSortField === 'purchase_qty' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'dispatch_qty') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('dispatch_qty'); setWastageSortAsc(true); }
+                        }}>
+                      Dispatch {wastageSortField === 'dispatch_qty' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'closing_qty') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('closing_qty'); setWastageSortAsc(true); }
+                        }}>
+                      Closing {wastageSortField === 'closing_qty' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'closing_value') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('closing_value'); setWastageSortAsc(true); }
+                        }}>
+                      Closing Value {wastageSortField === 'closing_value' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'wastage_qty') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('wastage_qty'); setWastageSortAsc(true); }
+                        }}>
+                      Wastage (Kg) {wastageSortField === 'wastage_qty' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'wastage_value') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('wastage_value'); setWastageSortAsc(true); }
+                        }}>
+                      Value (₹) {wastageSortField === 'wastage_value' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
+                    <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
+                        onClick={() => {
+                          if (wastageSortField === 'wastage_percent') setWastageSortAsc(!wastageSortAsc);
+                          else { setWastageSortField('wastage_percent'); setWastageSortAsc(true); }
+                        }}>
+                      % {wastageSortField === 'wastage_percent' && (wastageSortAsc ? '▲' : '▼')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[...selectedDateWastage.products]
-                    .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0))
-                    .map((product, idx) => (
+                  {sortedWastageProducts.map((product, idx) => (
                     <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                       <td className="p-2 font-medium">{getProductName(product)}</td>
                       <td className="p-2 text-right">{product.opening_qty?.toFixed(1)}</td>

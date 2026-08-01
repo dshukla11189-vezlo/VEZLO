@@ -1,5 +1,37 @@
 # Mr Organix - Product Requirements Document
 
+## Changelog (August 2026)
+
+### August 1, 2026 - Field Team Dashboard ✅
+- **FEATURE**: Built complete Field Team Dashboard for portfolio management
+  - Backend endpoints in `/app/backend/routes/field_team.py`:
+    - `GET /api/field-team/assigned-retailers` - Lists retailers assigned to current field team member
+    - `GET /api/field-team/portfolio-summary` - Aggregated metrics across all assigned retailers
+    - `GET /api/field-team/retailer/{retailer_id}/dashboard` - Full dashboard for specific retailer
+    - `GET /api/field-team/retailer/{retailer_id}/payment-details` - Payment details for retailer
+    - `POST /api/field-team/retailer/{retailer_id}/indent` - Create indent on behalf of retailer
+  
+  - Frontend at `/app/frontend/src/pages/field_team/Dashboard.js`:
+    - Cumulative view: Shows portfolio summary cards (Retailers, Immediately Payable, Overdue, Total Outstanding)
+    - Mini-cards for each assigned retailer with key metrics
+    - Expandable cards with detailed info and action buttons
+    - Dropdown selector to switch between "All Retailers (Cumulative)" and individual retailer views
+    - Individual retailer view: Mimics Retailer Portal with Outstanding, Payable, Net Sales, Rejection %
+    - Payment Details table with date-wise breakdown
+    - Create Indent modal for placing orders on behalf of retailers
+    - Back button to return to cumulative view
+  
+  - App routing updated in `/app/frontend/src/App.js`:
+    - Added `/field-team/dashboard` route with 'field_team' role protection
+    - Updated `getDefaultRoute()` to redirect field_team users
+  
+  - Login updated in `/app/frontend/src/pages/Login.js`:
+    - Added redirect to `/field-team/dashboard` for field_team users
+  
+  - Test credentials:
+    - Gaurav: adb@gmail.com / fieldteam123 (2 assigned retailers: Tamanna Mart, S Mart)
+    - Rajesh Kumar: rajesh.fieldteam@test.com / fieldteam123 (no assigned retailers)
+
 ## Changelog (July 2026)
 
 ### July 29, 2026 - 50% Upfront Immediately-Payable Headline ✅

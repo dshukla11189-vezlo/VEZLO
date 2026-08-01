@@ -10,6 +10,12 @@
 - **Password**: staff123
 - **Role**: Staff
 
+## Field Team Accounts
+| Name | Email | Password | Assigned Retailers |
+|------|-------|----------|-------------------|
+| Gaurav | adb@gmail.com | fieldteam123 | Tamanna Mart, S Mart |
+| Rajesh Kumar | rajesh.fieldteam@test.com | fieldteam123 | (none) |
+
 ## Retailer Portal
 - **URL**: https://harvest-hub-384.preview.emergentagent.com/login
 - **Standard Password**: retailer123
@@ -30,6 +36,7 @@
 | Narang Super Mart | Narangsupermart@gmail.com |
 
 ## Notes
+- **August 1, 2026**: Field Team Dashboard implemented. Gaurav has 2 retailers assigned.
 - **July 13, 2026**: Retailer passwords set to 'retailer123' for Tamanna Mart and Bagwan
 - Production credentials may differ - this file is for preview/testing only
 - Database: `test_database`

@@ -9,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { 
   Users, Plus, Edit, Trash2, Shield, UserCheck, Store, 
-  Search, Eye, EyeOff, Mail, Phone, X, MapPin
+  Search, Eye, EyeOff, Mail, Phone, X, MapPin, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 const ROLE_CONFIG = {
@@ -54,6 +54,7 @@ export default function UserManagement() {
   });
   
   const [assignableUsers, setAssignableUsers] = useState([]);
+  const [expandedRows, setExpandedRows] = useState({});  // Track which rows are expanded
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -116,17 +117,39 @@ export default function UserManagement() {
     }
 
     try {
+      // Clean up form data - remove empty strings for optional numeric fields
+      const cleanFormData = { ...formData };
+      
+      // Convert empty strings to null for optional numeric fields
+      if (cleanFormData.latitude === '' || cleanFormData.latitude === null) {
+        delete cleanFormData.latitude;
+      } else if (cleanFormData.latitude) {
+        cleanFormData.latitude = parseFloat(cleanFormData.latitude);
+      }
+      
+      if (cleanFormData.longitude === '' || cleanFormData.longitude === null) {
+        delete cleanFormData.longitude;
+      } else if (cleanFormData.longitude) {
+        cleanFormData.longitude = parseFloat(cleanFormData.longitude);
+      }
+      
+      // Remove empty optional string fields for cleaner data
+      ['zone', 'category', 'shop_type', 'shop_type_remark', 'assigned_to'].forEach(field => {
+        if (!cleanFormData[field]) {
+          delete cleanFormData[field];
+        }
+      });
+      
       if (editingUser) {
         // Update existing user
-        const updateData = { ...formData };
-        if (!updateData.password) {
-          delete updateData.password; // Don't send empty password
+        if (!cleanFormData.password) {
+          delete cleanFormData.password; // Don't send empty password
         }
-        await api.put(`/api/users/${editingUser.id}`, updateData);
+        await api.put(`/api/users/${editingUser.id}`, cleanFormData);
         toast.success('User updated successfully');
       } else {
         // Create new user
-        await api.post('/api/users', formData);
+        await api.post('/api/users', cleanFormData);
         toast.success('User created successfully');
       }
       
@@ -135,7 +158,19 @@ export default function UserManagement() {
       loadUsers();
     } catch (error) {
       console.error('Failed to save user:', error);
-      toast.error(error.response?.data?.detail || 'Failed to save user');
+      // Handle Pydantic validation errors (array of objects)
+      const detail = error.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        // Extract first error message
+        const firstError = detail[0];
+        const errorMsg = firstError?.msg || firstError?.message || 'Validation error';
+        const field = firstError?.loc?.slice(-1)[0] || '';
+        toast.error(field ? `${field}: ${errorMsg}` : errorMsg);
+      } else if (typeof detail === 'string') {
+        toast.error(detail);
+      } else {
+        toast.error('Failed to save user');
+      }
     }
   };
 
@@ -208,6 +243,20 @@ export default function UserManagement() {
       status: 'active'
     });
     setShowPassword(false);
+  };
+  
+  const toggleRowExpanded = (userId) => {
+    setExpandedRows(prev => ({
+      ...prev,
+      [userId]: !prev[userId]
+    }));
+  };
+  
+  // Get assigned user name by ID
+  const getAssignedUserName = (assignedToId) => {
+    if (!assignedToId) return '-';
+    const user = assignableUsers.find(u => u.id === assignedToId);
+    return user ? `${user.name} (${user.role === 'field_team' ? 'Field Team' : 'Staff'})` : assignedToId;
   };
 
   const openNewUserModal = () => {
@@ -322,7 +371,8 @@ export default function UserManagement() {
                       const RoleIcon = roleConfig.icon;
                       
                       return (
-                        <tr key={user.id} className="border-b hover:bg-gray-50" data-testid={`user-row-${user.id}`}>
+                        <React.Fragment key={user.id}>
+                        <tr className="border-b hover:bg-gray-50" data-testid={`user-row-${user.id}`}>
                           <td className="p-3">
                             <div className="flex items-center gap-2">
                               <div className="w-8 h-8 rounded-full bg-[#14532D] flex items-center justify-center text-white text-xs font-medium">
@@ -357,7 +407,7 @@ export default function UserManagement() {
                               <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-medium">
                                 {user.commission_percentage || 0}%
                               </span>
-                            ) : '-'}
+                            ) : user.role === 'field_team' ? '' : '-'}
                           </td>
                           <td className="p-3 text-center">
                             {user.role === 'retailer' ? (
@@ -368,7 +418,7 @@ export default function UserManagement() {
                               }`}>
                                 {user.upfront_collection_percentage ?? 50}%
                               </span>
-                            ) : '-'}
+                            ) : user.role === 'field_team' ? '' : '-'}
                           </td>
                           <td className="p-3 text-center">
                             {user.role === 'retailer' && user.referral_code ? (
@@ -377,10 +427,26 @@ export default function UserManagement() {
                               </span>
                             ) : user.role === 'retailer' ? (
                               <span className="text-gray-400 text-xs">Not set</span>
-                            ) : '-'}
+                            ) : user.role === 'field_team' ? '' : '-'}
                           </td>
                           <td className="p-3">
                             <div className="flex items-center justify-center gap-1">
+                              {/* Expand button for retailers */}
+                              {user.role === 'retailer' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => toggleRowExpanded(user.id)}
+                                  className="h-8 w-8 p-0"
+                                  data-testid={`expand-user-${user.id}`}
+                                >
+                                  {expandedRows[user.id] ? (
+                                    <ChevronUp size={14} className="text-gray-600" />
+                                  ) : (
+                                    <ChevronDown size={14} className="text-gray-600" />
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -402,10 +468,78 @@ export default function UserManagement() {
                             </div>
                           </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
+                        
+                        {/* Expanded row details for retailers */}
+                        {user.role === 'retailer' && expandedRows[user.id] && (
+                          <tr className="bg-gray-50 border-b">
+                            <td colSpan="11" className="p-4">
+                              <div className="grid grid-cols-4 gap-4 text-sm">
+                                <div>
+                                  <span className="text-gray-500 block text-xs">Address</span>
+                                  <span className="font-medium">{user.address || '-'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">Area</span>
+                                  <span className="font-medium">{user.area || '-'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">City</span>
+                                  <span className="font-medium">{user.city || '-'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">State</span>
+                                  <span className="font-medium">{user.state || '-'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">Zone</span>
+                                  <span className="font-medium">{user.zone || '-'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">Shop Type</span>
+                                  <span className="font-medium">
+                                    {user.shop_type || '-'}
+                                    {user.shop_type === 'Others' && user.shop_type_remark && (
+                                      <span className="text-gray-500 text-xs ml-1">({user.shop_type_remark})</span>
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">Category</span>
+                                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+                                    user.category === 'Platinum' ? 'bg-purple-100 text-purple-700' :
+                                    user.category === 'Gold' ? 'bg-yellow-100 text-yellow-700' :
+                                    user.category === 'Silver' ? 'bg-gray-200 text-gray-700' :
+                                    user.category === 'Bronze' ? 'bg-orange-100 text-orange-700' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>
+                                    {user.category || 'Not set'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 block text-xs">Assigned To</span>
+                                  <span className="font-medium">{getAssignedUserName(user.assigned_to)}</span>
+                                </div>
+                                {(user.latitude || user.longitude) && (
+                                  <>
+                                    <div>
+                                      <span className="text-gray-500 block text-xs">Latitude</span>
+                                      <span className="font-medium">{user.latitude || '-'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500 block text-xs">Longitude</span>
+                                      <span className="font-medium">{user.longitude || '-'}</span>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
+              </tbody>
               </table>
             </div>
           </CardContent>

@@ -178,6 +178,26 @@ async def update_user(user_id: str, input: UserUpdate, current_user: dict = Depe
         update_data["address"] = input.address
     if input.city is not None:
         update_data["city"] = input.city
+    # Retailer-specific location fields
+    if input.area is not None:
+        update_data["area"] = input.area
+    if input.state is not None:
+        update_data["state"] = input.state
+    if input.zone is not None:
+        update_data["zone"] = input.zone
+    if input.latitude is not None:
+        update_data["latitude"] = input.latitude
+    if input.longitude is not None:
+        update_data["longitude"] = input.longitude
+    # Retailer business fields
+    if input.category is not None:
+        update_data["category"] = input.category
+    if input.shop_type is not None:
+        update_data["shop_type"] = input.shop_type
+    if input.shop_type_remark is not None:
+        update_data["shop_type_remark"] = input.shop_type_remark
+    if input.assigned_to is not None:
+        update_data["assigned_to"] = input.assigned_to
     if input.commission_percentage is not None:
         update_data["commission_percentage"] = input.commission_percentage
         
@@ -375,3 +395,21 @@ async def migrate_retailer_status_and_commission_history(current_user: dict = De
         "status_added": status_added,
         "commission_history_added": commission_history_added
     }
+
+
+
+@router.get("/assignable-users")
+async def get_assignable_users(current_user: dict = Depends(get_current_user)):
+    """
+    Get list of Staff and Field Team users for "Assigned To" dropdown.
+    Returns users with id, name, role for selection.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    users = await db.users.find(
+        {"role": {"$in": ["staff", "field_team"]}},
+        {"_id": 0, "id": 1, "name": 1, "role": 1, "city": 1}
+    ).to_list(1000)
+    
+    return users

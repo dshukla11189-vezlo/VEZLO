@@ -30,7 +30,18 @@ class User(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None  # Contact number
     address: Optional[str] = None
-    city: Optional[str] = None  # City for field team
+    city: Optional[str] = None  # City
+    # Retailer-specific location fields
+    area: Optional[str] = None  # Area/Locality
+    state: Optional[str] = None  # State
+    zone: Optional[str] = None  # Custom zone (optional)
+    latitude: Optional[float] = None  # GPS latitude
+    longitude: Optional[float] = None  # GPS longitude
+    # Retailer business fields
+    category: Optional[str] = None  # Gold, Platinum, etc. (business tier)
+    shop_type: Optional[str] = None  # Fruit Shop, Vegetable Shop, Supermarket, Grocery Shop, Others
+    shop_type_remark: Optional[str] = None  # Required if shop_type is "Others"
+    assigned_to: Optional[str] = None  # Staff or Field Team user ID
     commission_percentage: Optional[float] = 0  # For retailers: their commission %
     upfront_collection_percentage: Optional[float] = 50  # For retailers: 50%, 100%, etc.
     model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)
@@ -48,7 +59,18 @@ class RegisterRequest(BaseModel):
     company_name: Optional[str] = None
     contact: Optional[str] = None  # Contact number
     address: Optional[str] = None
-    city: Optional[str] = None  # City for field team
+    city: Optional[str] = None
+    # Retailer-specific location fields
+    area: Optional[str] = None
+    state: Optional[str] = None
+    zone: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    # Retailer business fields
+    category: Optional[str] = None
+    shop_type: Optional[str] = None
+    shop_type_remark: Optional[str] = None
+    assigned_to: Optional[str] = None
     commission_percentage: Optional[float] = 0
     upfront_collection_percentage: Optional[float] = 50
     status: str = 'active'  # 'active' | 'churned'
@@ -67,6 +89,15 @@ class UserResponse(BaseModel):
     contact: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
+    area: Optional[str] = None
+    state: Optional[str] = None
+    zone: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    category: Optional[str] = None
+    shop_type: Optional[str] = None
+    shop_type_remark: Optional[str] = None
+    assigned_to: Optional[str] = None
     commission_percentage: Optional[float] = 0
 
 class AuthResponse(BaseModel):
@@ -82,6 +113,17 @@ class UserUpdate(BaseModel):
     contact: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
+    # Retailer-specific location fields
+    area: Optional[str] = None
+    state: Optional[str] = None
+    zone: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    # Retailer business fields
+    category: Optional[str] = None
+    shop_type: Optional[str] = None
+    shop_type_remark: Optional[str] = None
+    assigned_to: Optional[str] = None
     commission_percentage: Optional[float] = None
     upfront_collection_percentage: Optional[float] = None
     model_changed_at: Optional[str] = None  # Date when retailer switched to 100% upfront (YYYY-MM-DD)

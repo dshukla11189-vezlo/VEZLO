@@ -9,7 +9,7 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { 
   Users, Plus, Edit, Trash2, Shield, UserCheck, Store, 
-  Search, Eye, EyeOff, Mail, Phone, X
+  Search, Eye, EyeOff, Mail, Phone, X, MapPin
 } from 'lucide-react';
 
 const ROLE_CONFIG = {
@@ -37,11 +37,23 @@ export default function UserManagement() {
     company_name: '',
     address: '',
     city: '',
+    // Retailer-specific fields
+    area: '',
+    state: '',
+    zone: '',
+    latitude: '',
+    longitude: '',
+    category: '',
+    shop_type: '',
+    shop_type_remark: '',
+    assigned_to: '',
     commission_percentage: 0,
     upfront_collection_percentage: 50,
     model_changed_at: '',
     status: 'active'
   });
+  
+  const [assignableUsers, setAssignableUsers] = useState([]);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -55,10 +67,20 @@ export default function UserManagement() {
       setLoading(false);
     }
   }, []);
+  
+  const loadAssignableUsers = useCallback(async () => {
+    try {
+      const response = await api.get('/api/assignable-users');
+      setAssignableUsers(response.data);
+    } catch (error) {
+      console.error('Failed to load assignable users:', error);
+    }
+  }, []);
 
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+    loadAssignableUsers();
+  }, [loadUsers, loadAssignableUsers]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -71,6 +93,26 @@ export default function UserManagement() {
     if (!editingUser && !formData.password) {
       toast.error('Password is required for new users');
       return;
+    }
+    
+    // Retailer-specific validation
+    if (formData.role === 'retailer') {
+      if (!formData.area || !formData.city || !formData.state) {
+        toast.error('Area, City and State are required for retailers');
+        return;
+      }
+      if (formData.shop_type === 'Others' && !formData.shop_type_remark) {
+        toast.error('Please provide remark for "Others" shop type');
+        return;
+      }
+    }
+    
+    // Field Team validation
+    if (formData.role === 'field_team') {
+      if (!formData.contact || !formData.address || !formData.city) {
+        toast.error('Contact, Address and City are required for Field Team');
+        return;
+      }
     }
 
     try {
@@ -108,6 +150,16 @@ export default function UserManagement() {
       company_name: user.company_name || '',
       address: user.address || '',
       city: user.city || '',
+      // Retailer-specific fields
+      area: user.area || '',
+      state: user.state || '',
+      zone: user.zone || '',
+      latitude: user.latitude || '',
+      longitude: user.longitude || '',
+      category: user.category || '',
+      shop_type: user.shop_type || '',
+      shop_type_remark: user.shop_type_remark || '',
+      assigned_to: user.assigned_to || '',
       commission_percentage: user.commission_percentage || 0,
       upfront_collection_percentage: user.upfront_collection_percentage ?? 50,
       model_changed_at: user.model_changed_at || '',
@@ -140,6 +192,16 @@ export default function UserManagement() {
       company_name: '',
       address: '',
       city: '',
+      // Retailer-specific fields
+      area: '',
+      state: '',
+      zone: '',
+      latitude: '',
+      longitude: '',
+      category: '',
+      shop_type: '',
+      shop_type_remark: '',
+      assigned_to: '',
       commission_percentage: 0,
       upfront_collection_percentage: 50,
       model_changed_at: '',
@@ -484,6 +546,140 @@ export default function UserManagement() {
                       data-testid="user-address-input"
                     />
                   </div>
+                )}
+
+                {/* Retailer Location Fields */}
+                {formData.role === 'retailer' && (
+                  <>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Area *</label>
+                        <Input
+                          value={formData.area}
+                          onChange={(e) => setFormData(prev => ({ ...prev, area: e.target.value }))}
+                          placeholder="Area/Locality"
+                          data-testid="retailer-area-input"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+                        <Input
+                          value={formData.city}
+                          onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
+                          placeholder="City"
+                          data-testid="retailer-city-input"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">State *</label>
+                        <Input
+                          value={formData.state}
+                          onChange={(e) => setFormData(prev => ({ ...prev, state: e.target.value }))}
+                          placeholder="State"
+                          data-testid="retailer-state-input"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Zone</label>
+                        <Input
+                          value={formData.zone}
+                          onChange={(e) => setFormData(prev => ({ ...prev, zone: e.target.value }))}
+                          placeholder="Custom zone (optional)"
+                          data-testid="retailer-zone-input"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                        <Input
+                          type="number"
+                          step="any"
+                          value={formData.latitude}
+                          onChange={(e) => setFormData(prev => ({ ...prev, latitude: e.target.value }))}
+                          placeholder="Latitude"
+                          data-testid="retailer-lat-input"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                        <Input
+                          type="number"
+                          step="any"
+                          value={formData.longitude}
+                          onChange={(e) => setFormData(prev => ({ ...prev, longitude: e.target.value }))}
+                          placeholder="Longitude"
+                          data-testid="retailer-lng-input"
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Shop Type and Category */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Shop Type</label>
+                        <select
+                          value={formData.shop_type}
+                          onChange={(e) => setFormData(prev => ({ ...prev, shop_type: e.target.value, shop_type_remark: e.target.value !== 'Others' ? '' : prev.shop_type_remark }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                          data-testid="retailer-shop-type-select"
+                        >
+                          <option value="">Select Shop Type</option>
+                          <option value="Fruit Shop">Fruit Shop</option>
+                          <option value="Vegetable Shop">Vegetable Shop</option>
+                          <option value="Supermarket">Supermarket</option>
+                          <option value="Grocery Shop">Grocery Shop</option>
+                          <option value="Others">Others</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                        <select
+                          value={formData.category}
+                          onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                          data-testid="retailer-category-select"
+                        >
+                          <option value="">Select Category</option>
+                          <option value="Platinum">Platinum</option>
+                          <option value="Gold">Gold</option>
+                          <option value="Silver">Silver</option>
+                          <option value="Bronze">Bronze</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    {/* Shop Type Remark (required if Others) */}
+                    {formData.shop_type === 'Others' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Shop Type Remark *</label>
+                        <Input
+                          value={formData.shop_type_remark}
+                          onChange={(e) => setFormData(prev => ({ ...prev, shop_type_remark: e.target.value }))}
+                          placeholder="Please specify the shop type"
+                          data-testid="retailer-shop-remark-input"
+                        />
+                      </div>
+                    )}
+                    
+                    {/* Assigned To */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Assigned To</label>
+                      <select
+                        value={formData.assigned_to}
+                        onChange={(e) => setFormData(prev => ({ ...prev, assigned_to: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+                        data-testid="retailer-assigned-to-select"
+                      >
+                        <option value="">Select Staff/Field Team</option>
+                        {assignableUsers.map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name} ({u.role === 'field_team' ? 'Field Team' : 'Staff'}{u.city ? ` - ${u.city}` : ''})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
                 )}
 
                 {/* Field Team specific fields */}

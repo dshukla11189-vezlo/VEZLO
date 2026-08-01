@@ -504,71 +504,94 @@ export default function FieldTeamDashboard() {
     }
   };
 
-  // Product options for selected retailer (from their dispatches)
+  // Rejection window constant (same as Admin Portal)
+  const RECORD_REJECTION_WINDOW_DAYS = 30;
+
+  // Product options for selected retailer (from their dispatches in last 30 days)
+  // Matches Admin Portal logic exactly
   const recordRejectionProductOptions = useMemo(() => {
     if (!recordRejectionRetailer) return [];
     
-    const productMap = {};
-    retailerDispatchesForRejection.forEach(disp => {
+    const cutoffTs = Date.now() - RECORD_REJECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const seen = new Map();
+    
+    (retailerDispatchesForRejection || []).forEach(disp => {
+      const d = new Date(disp.dispatch_date);
+      if (isNaN(d.getTime()) || d.getTime() < cutoffTs) return;
+      
       (disp.items || []).forEach(item => {
-        const key = `${item.product_id}|${item.variant_id || ''}`;
-        if (!productMap[key]) {
-          productMap[key] = {
+        if (!item.product_id) return;
+        const key = `${item.product_id}__${item.variant_id || ''}`;
+        if (!seen.has(key)) {
+          seen.set(key, {
             product_id: item.product_id,
             product_name: item.product_name || 'Unknown',
             variant_id: item.variant_id || null,
             variant_name: item.variant_name || ''
-          };
+          });
         }
       });
     });
     
-    return Object.values(productMap).sort((a, b) => 
+    return Array.from(seen.values()).sort((a, b) => 
       (a.product_name || '').localeCompare(b.product_name || '')
     );
   }, [recordRejectionRetailer, retailerDispatchesForRejection]);
 
-  // Available dates for rejection (dates with dispatches for selected product)
+  // Available dates for rejection (dates with dispatches for selected product in last 30 days)
+  // Matches Admin Portal logic exactly
   const recordRejectionAvailableDates = useMemo(() => {
     if (!recordRejectionRetailer || !recordRejectionProduct) return [];
     
+    const cutoffTs = Date.now() - RECORD_REJECTION_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const pid = recordRejectionProduct.product_id;
     const vid = recordRejectionProduct.variant_id || null;
     
-    // Group dispatches by date
-    const dateMap = {};
-    retailerDispatchesForRejection.forEach(disp => {
-      const dispDate = (disp.dispatch_date || '').split('T')[0];
-      if (!dispDate) return;
+    const dateMap = new Map();
+    
+    (retailerDispatchesForRejection || []).forEach(disp => {
+      const d = new Date(disp.dispatch_date);
+      if (isNaN(d.getTime()) || d.getTime() < cutoffTs) return;
+      
+      const dateKey = String(disp.dispatch_date).slice(0, 10);
+      let mrpForRow = 0;
+      let suppliedForRow = 0;
       
       (disp.items || []).forEach(item => {
         if (item.product_id !== pid) return;
-        if (vid && item.variant_id !== vid) return;
-        
-        if (!dateMap[dispDate]) {
-          dateMap[dispDate] = { supplied_qty: 0, existing_rejection: 0 };
-        }
-        dateMap[dispDate].supplied_qty += (item.supplied_qty || 0);
+        if ((item.variant_id || null) !== vid) return;
+        suppliedForRow += (item.supplied_qty || 0);
+        if (item.mrp && item.mrp > 0) mrpForRow = item.mrp;
       });
+      
+      if (suppliedForRow <= 0) return;
+      
+      if (!dateMap.has(dateKey)) {
+        dateMap.set(dateKey, { supplied_qty: 0, existing_rejection: 0, mrp: 0 });
+      }
+      const entry = dateMap.get(dateKey);
+      entry.supplied_qty += suppliedForRow;
+      if (mrpForRow > 0 && entry.mrp === 0) entry.mrp = mrpForRow;
     });
     
     // Subtract existing rejections
-    retailerRejectionsForRejection.forEach(rej => {
-      const rejDate = (rej.rejection_date || '').split('T')[0];
+    (retailerRejectionsForRejection || []).forEach(rej => {
       if (rej.product_id !== pid) return;
-      if (vid && rej.variant_id !== vid) return;
-      if (dateMap[rejDate]) {
-        dateMap[rejDate].existing_rejection += (rej.quantity || 0);
+      if ((rej.variant_id || null) !== vid) return;
+      const rejDate = (rej.rejection_date || '').split('T')[0];
+      if (dateMap.has(rejDate)) {
+        dateMap.get(rejDate).existing_rejection += (rej.quantity || 0);
       }
     });
     
     // Convert to array
-    return Object.entries(dateMap)
+    return Array.from(dateMap.entries())
       .map(([date, data]) => ({
         date,
         supplied_qty: data.supplied_qty,
         existing_rejection: data.existing_rejection,
         available_qty: Math.max(0, data.supplied_qty - data.existing_rejection),
+        mrp: data.mrp,
         rejection_qty: 0,
         selected: false
       }))
@@ -1505,13 +1528,14 @@ export default function FieldTeamDashboard() {
 
                     <input
                       type="text"
-                      placeholder="Search product..."
+                      placeholder="Search product dispatched to this retailer in last 30 days..."
                       value={recordRejectionProductSearch}
                       onChange={(e) => setRecordRejectionProductSearch(e.target.value)}
                       className="w-full px-3 py-2 mb-3 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
                     />
+                    <p className="text-xs text-gray-400 mb-2">Showing products supplied in the last 30 days.</p>
                     {recordRejectionProductOptions.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400">No products found in dispatches for this retailer</div>
+                      <div className="text-center py-8 text-gray-400">No products dispatched to this retailer in the last 30 days.</div>
                     ) : (
                       <div className="max-h-60 overflow-y-auto border rounded">
                         {recordRejectionProductOptions
@@ -1531,6 +1555,9 @@ export default function FieldTeamDashboard() {
                             </div>
                           ))
                         }
+                        {recordRejectionProductOptions.filter(p => !recordRejectionProductSearch || (p.product_name || '').toLowerCase().includes(recordRejectionProductSearch.toLowerCase())).length === 0 && (
+                          <div className="p-4 text-center text-gray-400 text-sm">No products match your search.</div>
+                        )}
                       </div>
                     )}
                   </div>

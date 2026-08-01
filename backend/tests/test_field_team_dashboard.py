@@ -151,3 +151,64 @@ class TestCreateIndent:
         assert r.status_code in (200, 201), r.text
         data = r.json()
         assert "id" in data
+
+
+TAMANNA_ID = "a400f104-b0da-475e-af07-dd6d0d8776e9"
+
+
+class TestProxyEndpoints:
+    """Tests for new proxy endpoints that allow field team to access retailer data"""
+
+    def test_dispatches_proxy(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-dispatches", headers=headers)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert isinstance(data, list)
+
+    def test_rejections_proxy(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-rejections", headers=headers)
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json(), list)
+
+    def test_invoices_proxy(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-invoices", headers=headers)
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json(), list)
+
+    def test_indents_proxy(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-indents", headers=headers)
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json(), list)
+
+    def test_payments_proxy(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-payments", headers=headers)
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json(), list)
+
+    def test_grn_proxy(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-grn", headers=headers)
+        assert r.status_code == 200, r.text
+        assert isinstance(r.json(), list)
+
+    def test_dashboard_data(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}/dashboard-data", headers=headers)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "retailer" in data
+        assert "summary" in data
+
+    def test_immediately_payable(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}/immediately-payable", headers=headers)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "immediately_payable" in data
+        assert "total_outstanding" in data
+        assert "upfront_percentage" in data
+
+    def test_proxy_rejects_unassigned_retailer(self, headers):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/bogus-id-xyz-dispatches", headers=headers)
+        assert r.status_code == 404
+
+    def test_proxy_requires_auth(self):
+        r = requests.get(f"{BASE_URL}/api/field-team/retailer/{TAMANNA_ID}-dispatches")
+        assert r.status_code in (401, 403)

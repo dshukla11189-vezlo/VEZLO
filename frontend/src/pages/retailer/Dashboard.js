@@ -143,7 +143,12 @@ const LazyImage = ({ src, alt, className, onError, onClick }) => {
   );
 };
 
-export default function RetailerDashboard() {
+export default function RetailerDashboard({ 
+  fieldTeamMode = false, 
+  selectedRetailerId = null,
+  selectedRetailerName = null,
+  onBackToPortfolio = null 
+}) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   
@@ -508,19 +513,28 @@ export default function RetailerDashboard() {
     setLoading(true);
     setCatalogueError(false); // Reset error state
     try {
+      // Build endpoint URLs based on field team mode
+      const baseRetailerUrl = fieldTeamMode && selectedRetailerId 
+        ? `/api/field-team/retailer/${selectedRetailerId}` 
+        : '/api/retailer';
+      
       // Use Promise.allSettled to prevent single API failure from breaking entire load
       const results = await Promise.allSettled([
-        api.get('/api/retailer-dashboard'),
-        api.get('/api/retailer-indents'),
-        api.get('/api/retailer-dispatches'),
-        api.get('/api/retailer-invoices'),
-        api.get('/api/retailer-rejections'),
+        fieldTeamMode && selectedRetailerId 
+          ? api.get(`/api/field-team/retailer/${selectedRetailerId}/dashboard-data`)
+          : api.get('/api/retailer-dashboard'),
+        api.get(`${baseRetailerUrl}-indents`),
+        api.get(`${baseRetailerUrl}-dispatches`),
+        api.get(`${baseRetailerUrl}-invoices`),
+        api.get(`${baseRetailerUrl}-rejections`),
         api.get('/api/products?include_images=false'),
         api.get('/api/qc-packaging'),
-        api.get('/api/retailer-grn'),
-        api.get('/api/retailer-payments'),
+        api.get(`${baseRetailerUrl}-grn`),
+        api.get(`${baseRetailerUrl}-payments`),
         api.get('/api/product-types'),
-        api.get('/api/retailer-immediately-payable'),
+        fieldTeamMode && selectedRetailerId 
+          ? api.get(`/api/field-team/retailer/${selectedRetailerId}/immediately-payable`)
+          : api.get('/api/retailer-immediately-payable'),
         api.get('/api/retailer-catalogue?include_images=false'),  // Load names instantly, images load lazily
         api.get('/api/retailer-catalogue/mrp')
       ]);
@@ -626,7 +640,7 @@ export default function RetailerDashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fieldTeamMode, selectedRetailerId]);
 
   // Set dashboard date range to first order till today once dispatches are loaded
   // Also set default chart view based on retailer tenure (>2 months = monthly, <2 months = weekly)
@@ -3110,22 +3124,37 @@ export default function RetailerDashboard() {
         <div className="min-h-screen">
           {/* Header with Hamburger */}
           <div className="flex items-center gap-4 mb-6">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setSideMenuOpen(true);
-              }}
-              onTouchStart={(e) => e.stopPropagation()}
-              className="p-2 touch-none"
-              data-testid="hamburger-menu-btn"
-            >
-              <Menu size={24} />
-            </Button>
+            {fieldTeamMode && onBackToPortfolio ? (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={onBackToPortfolio}
+                className="p-2"
+                data-testid="back-to-portfolio-btn"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+              </Button>
+            ) : (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSideMenuOpen(true);
+                }}
+                onTouchStart={(e) => e.stopPropagation()}
+                className="p-2 touch-none"
+                data-testid="hamburger-menu-btn"
+              >
+                <Menu size={24} />
+              </Button>
+            )}
             <h1 className="text-xl md:text-2xl font-bold text-gray-900">
-              {t('retailer.welcome')}, {dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}
+              {fieldTeamMode 
+                ? `${selectedRetailerName || 'Retailer'}`
+                : `${t('retailer.welcome')}, ${dashboardData?.retailer?.company_name || dashboardData?.retailer?.name || 'Retailer'}`
+              }
             </h1>
           </div>
 

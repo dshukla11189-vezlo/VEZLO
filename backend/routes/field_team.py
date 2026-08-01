@@ -655,3 +655,214 @@ async def get_retailer_payment_details_for_field_team(
         "totals": totals,
         "dates": dates_list
     }
+
+
+
+# ============================================================
+# PROXY ENDPOINTS FOR FIELD TEAM TO ACCESS RETAILER DATA
+# These endpoints allow field team to access retailer-specific 
+# data as if they were the retailer (for viewing retailer portal)
+# ============================================================
+
+async def verify_field_team_retailer_access(current_user: dict, retailer_id: str):
+    """Helper to verify field team has access to the specified retailer"""
+    if current_user.get("role") != "field_team":
+        raise HTTPException(status_code=403, detail="Only field team members can access this endpoint")
+    
+    field_team_id = current_user.get("user_id")
+    
+    # Verify this retailer is assigned to the field team member
+    retailer = await db.users.find_one(
+        {"id": retailer_id, "role": "retailer", "assigned_to": field_team_id},
+        {"_id": 0, "password": 0}
+    )
+    
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    
+    return retailer
+
+
+@router.get("/field-team/retailer/{retailer_id}/dashboard-data")
+async def get_retailer_dashboard_data_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get dashboard data for a specific retailer (mimics /api/retailer-dashboard)"""
+    retailer = await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    # Return dashboard data in the same format as retailer-dashboard endpoint
+    return {
+        "retailer": retailer,
+        "summary": {
+            "total_orders": 0,
+            "pending_orders": 0,
+            "total_spent": 0
+        }
+    }
+
+
+@router.get("/field-team/retailer/{retailer_id}-indents")
+async def get_retailer_indents_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get indents for a specific retailer"""
+    await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    indents = await db.retailer_indents.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("indent_date", -1).to_list(1000)
+    
+    return indents
+
+
+@router.get("/field-team/retailer/{retailer_id}-dispatches")
+async def get_retailer_dispatches_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get dispatches for a specific retailer"""
+    await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    dispatches = await db.retailer_dispatches.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("dispatch_date", -1).to_list(1000)
+    
+    return dispatches
+
+
+@router.get("/field-team/retailer/{retailer_id}-invoices")
+async def get_retailer_invoices_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get invoices for a specific retailer"""
+    await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    invoices = await db.retailer_invoices.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("invoice_date", -1).to_list(1000)
+    
+    return invoices
+
+
+@router.get("/field-team/retailer/{retailer_id}-rejections")
+async def get_retailer_rejections_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get rejections for a specific retailer"""
+    await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    rejections = await db.retailer_rejections.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("rejection_date", -1).to_list(5000)
+    
+    return rejections
+
+
+@router.get("/field-team/retailer/{retailer_id}-grn")
+async def get_retailer_grn_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get GRN records for a specific retailer"""
+    await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    grns = await db.retailer_grn.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    return grns
+
+
+@router.get("/field-team/retailer/{retailer_id}-payments")
+async def get_retailer_payments_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get payments for a specific retailer"""
+    await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    payments = await db.retailer_payments.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("payment_date", -1).to_list(500)
+    
+    return payments
+
+
+@router.get("/field-team/retailer/{retailer_id}/immediately-payable")
+async def get_retailer_immediately_payable_for_field_team(
+    retailer_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get immediately payable amount for a specific retailer"""
+    retailer = await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    today = get_ist_today()
+    upfront_pct = retailer.get("upfront_collection_percentage", 50)
+    is_full_upfront = upfront_pct == 100
+    
+    # Fetch pending/partial invoices
+    invoices = await db.retailer_invoices.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["pending", "partial"]}},
+        {"_id": 0}
+    ).to_list(500)
+    
+    immediately_payable = 0
+    total_outstanding = 0
+    
+    for inv in invoices:
+        inv_date = inv.get("invoice_date")
+        if isinstance(inv_date, str):
+            inv_date_obj = datetime.fromisoformat(inv_date[:10]).date()
+        elif isinstance(inv_date, datetime):
+            inv_date_obj = inv_date.date()
+        else:
+            continue
+        
+        gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
+        rejection_amount = inv.get("rejection_amount", 0) or 0
+        commission_amount = inv.get("commission_amount", 0) or 0
+        paid_amount = inv.get("paid_amount", 0) or 0
+        total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
+        
+        net_payable = inv.get("net_payable", 0) or 0
+        if net_payable <= 0:
+            net_payable = gross_value - rejection_amount - commission_amount
+        
+        final_payable = net_payable - total_credit_adjusted
+        pending_amount = max(0, final_payable - paid_amount)
+        
+        if pending_amount <= 0:
+            continue
+        
+        total_outstanding += pending_amount
+        days_since = (today - inv_date_obj).days
+        
+        if is_full_upfront:
+            immediately_payable += pending_amount
+        else:
+            upfront_portion = final_payable * (upfront_pct / 100)
+            unpaid_upfront = max(0, upfront_portion - paid_amount)
+            
+            if days_since == 0:
+                immediately_payable += min(upfront_portion, pending_amount)
+            elif days_since >= 1 and days_since <= 4:
+                if unpaid_upfront > 0:
+                    immediately_payable += unpaid_upfront
+            elif days_since >= 5:
+                immediately_payable += pending_amount
+    
+    return {
+        "immediately_payable": round(immediately_payable, 2),
+        "total_outstanding": round(total_outstanding, 2),
+        "upfront_percentage": upfront_pct
+    }

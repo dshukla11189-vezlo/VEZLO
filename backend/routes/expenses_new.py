@@ -434,25 +434,32 @@ async def get_variable_expenses_by_retailer(
         included = False
         retailers_count = 0
         
+        # First check: Is the retailer active on the expense date?
+        active_ids = get_active_retailers_on_date(all_retailers, exp_date)
+        retailer_was_active = retailer_id in active_ids
+        
         if split_type == "selected":
-            # Only selected retailers
-            if retailer_id in selected_retailer_ids:
-                share = round(amount / len(selected_retailer_ids), 2) if selected_retailer_ids else 0
-                included = True
-                retailers_count = len(selected_retailer_ids)
+            # Only selected retailers - but also must be active on that date
+            if retailer_id in selected_retailer_ids and retailer_was_active:
+                # Filter selected_retailer_ids to only those active on that date
+                active_selected = [rid for rid in selected_retailer_ids if rid in active_ids]
+                if active_selected:
+                    share = round(amount / len(active_selected), 2)
+                    included = True
+                    retailers_count = len(active_selected)
         elif split_type == "all_equal":
             # All active retailers on expense date
-            active_ids = get_active_retailers_on_date(all_retailers, exp_date)
-            if retailer_id in active_ids:
+            if retailer_was_active:
                 share = round(amount / len(active_ids), 2) if active_ids else 0
                 included = True
                 retailers_count = len(active_ids)
         else:
             # proportional - this retailer's share depends on sales proportion
-            # For now, mark as proportional (calculated in P&L)
-            included = True
-            share = 0  # Will be calculated based on sales
-            retailers_count = -1  # Indicates proportional
+            # BUT only include if retailer was active on the expense date
+            if retailer_was_active:
+                included = True
+                share = 0  # Will be calculated based on sales proportion
+                retailers_count = -1  # Indicates proportional
         
         if included:
             total_share += share

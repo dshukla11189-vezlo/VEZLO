@@ -5,12 +5,21 @@
 ### August 2, 2026 - Mobile Horizontal Scroll Fix for Retailer Portal Header Buttons ✅
 - **BUG FIX**: Staff/Admin on mobile can now horizontally scroll header buttons in Retailer Orders
   - Problem: Buttons like "Auto Indent", "New Indent", "Select Retailer", "Record Rejection" were cut off on mobile
-  - Solution: Added `overflow-x-auto` and `flex-shrink-0` to button containers in `/app/frontend/src/pages/admin/RetailerOrders.js`:
-    - **Indents tab**: Date filters + action buttons now scrollable
-    - **Dispatches tab**: Date filters + language/export buttons now scrollable
-    - **Invoices tab**: All action buttons (Export, Final Summary, Payment Summary, etc.) now scrollable
-    - **Rejections tab**: View mode toggle + action buttons now scrollable
-  - Line items (data rows) continue to scroll horizontally as before
+  - Solution: Added `overflow-x-auto` and `flex-shrink-0` to button containers
+  - **Rejections tab toggle fix**: "By Invoice Date" / "By Recorded Date" toggle is now visible on mobile
+    - Changed from `flex-row items-center justify-between` to `flex-col md:flex-row` layout
+    - Toggle now stacks properly on mobile and is scrollable
+
+### August 2, 2026 - Admin-Only Buttons Hidden for Non-Admin Users ✅
+- **FEATURE**: Sensitive admin buttons are now hidden from staff users
+  - Wrapped with `getCurrentUserRole() === 'admin'` checks
+  - **Rejection tab**: "Sync to Invoices" - hidden for staff
+  - **Invoice tab**: "Payment Audit", "Fix Rejection Data" - hidden for staff (Fix Statuses already was)
+  - **Credit Notes tab**: ALL maintenance buttons hidden for staff:
+    - Fix Product Details, Backfill Missing CNs, Reconcile 100% Upfront CNs
+    - Cleanup Bogus CNs, Set Model Switch Dates, Fix Orphaned CNs
+    - Diagnose Sync, Fix Sync Issues
+  - Staff users can still: Export, Record Rejection, Refresh, Create Invoice, etc.
 
 ### August 2, 2026 - Retailer P&L Variable Expense Date Filtering Fix ✅
 - **BUG FIX**: Variable expenses now properly exclude retailers who weren't active on the expense date

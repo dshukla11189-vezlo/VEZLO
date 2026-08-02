@@ -12044,22 +12044,26 @@ export default function RetailerOrders() {
                   >
                     <FileText size={14} className="mr-1" /> Payment Ledger
                   </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => {
-                      if (!invoiceForm.retailer_id) {
-                        toast.error('Please select a retailer first');
-                        return;
-                      }
-                      setPaymentAuditRetailerId(invoiceForm.retailer_id);
-                      loadPaymentAudit(invoiceForm.retailer_id);
-                    }}
-                    className="text-red-700 border-red-300 hover:bg-red-50 flex-shrink-0"
-                    disabled={paymentAuditLoading}
-                  >
-                    <AlertTriangle size={14} className="mr-1" /> Payment Audit
-                  </Button>
+                  {/* Admin Only: Payment Audit */}
+                  {getCurrentUserRole() === 'admin' && (
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      onClick={() => {
+                        if (!invoiceForm.retailer_id) {
+                          toast.error('Please select a retailer first');
+                          return;
+                        }
+                        setPaymentAuditRetailerId(invoiceForm.retailer_id);
+                        loadPaymentAudit(invoiceForm.retailer_id);
+                      }}
+                      className="text-red-700 border-red-300 hover:bg-red-50 flex-shrink-0"
+                      disabled={paymentAuditLoading}
+                    >
+                      <AlertTriangle size={14} className="mr-1" /> Payment Audit
+                    </Button>
+                  )}
+                  {/* Admin Only: Fix Statuses */}
                   {getCurrentUserRole() === 'admin' && (
                     <Button 
                       size="sm" 
@@ -12096,24 +12100,27 @@ export default function RetailerOrders() {
                   <Button size="sm" className="bg-[#14532D] flex-shrink-0" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
                     <Plus size={14} className="mr-1" /> Create Invoice
                   </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={fixInvoiceRejectionData}
-                    disabled={isFixingRejectionData}
-                    className="border-red-300 text-red-700 hover:bg-red-50 flex-shrink-0"
-                    title="Fix invoices with incorrect rejection amounts by recalculating from actual rejections"
-                  >
-                    {isFixingRejectionData ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
-                      </>
-                    ) : (
-                      <>
-                        <Wrench className="h-3 w-3 mr-1" /> Fix Rejection Data
-                      </>
-                    )}
-                  </Button>
+                  {/* Admin Only: Fix Rejection Data */}
+                  {getCurrentUserRole() === 'admin' && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={fixInvoiceRejectionData}
+                      disabled={isFixingRejectionData}
+                      className="border-red-300 text-red-700 hover:bg-red-50 flex-shrink-0"
+                      title="Fix invoices with incorrect rejection amounts by recalculating from actual rejections"
+                    >
+                      {isFixingRejectionData ? (
+                        <>
+                          <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                        </>
+                      ) : (
+                        <>
+                          <Wrench className="h-3 w-3 mr-1" /> Fix Rejection Data
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
               {/* Status Filter */}
@@ -12815,14 +12822,15 @@ export default function RetailerOrders() {
         {activeTab === 'rejections' && (
           <Card>
             <CardHeader className="py-3 flex flex-col gap-3">
-              <div className="flex flex-row items-center justify-between gap-2">
-                <div className="flex items-center gap-3 overflow-x-auto pb-1 flex-1">
+              {/* Title + Toggle + Actions - all scrollable on mobile */}
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div className="flex items-center gap-3 overflow-x-auto pb-1">
                   <CardTitle className="text-sm flex-shrink-0">Rejections</CardTitle>
                   {/* View Mode Toggle */}
                   <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
                     <button
                       onClick={() => setRejectionViewMode('by-invoice')}
-                      className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                      className={`px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
                         rejectionViewMode === 'by-invoice' 
                           ? 'bg-white text-gray-900 shadow-sm' 
                           : 'text-gray-500 hover:text-gray-700'
@@ -12835,7 +12843,7 @@ export default function RetailerOrders() {
                         setRejectionViewMode('by-recorded');
                         if (dailyRejectionSummary.length === 0) loadDailyRejectionSummary();
                       }}
-                      className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                      className={`px-2 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
                         rejectionViewMode === 'by-recorded' 
                           ? 'bg-white text-gray-900 shadow-sm' 
                           : 'text-gray-500 hover:text-gray-700'
@@ -12846,17 +12854,20 @@ export default function RetailerOrders() {
                   </div>
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={syncRejectionsToInvoices} 
-                    disabled={syncingRejections}
-                    title="Sync rejection amounts to invoices for Payment Summary"
-                    className="text-blue-600 border-blue-300 hover:bg-blue-50 flex-shrink-0"
-                  >
-                    <RefreshCw size={14} className={`mr-1 ${syncingRejections ? 'animate-spin' : ''}`} />
-                    {syncingRejections ? 'Syncing...' : 'Sync to Invoices'}
-                  </Button>
+                  {/* Admin Only: Sync to Invoices */}
+                  {getCurrentUserRole() === 'admin' && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={syncRejectionsToInvoices} 
+                      disabled={syncingRejections}
+                      title="Sync rejection amounts to invoices for Payment Summary"
+                      className="text-blue-600 border-blue-300 hover:bg-blue-50 flex-shrink-0"
+                    >
+                      <RefreshCw size={14} className={`mr-1 ${syncingRejections ? 'animate-spin' : ''}`} />
+                      {syncingRejections ? 'Syncing...' : 'Sync to Invoices'}
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={exportRejections} title="Export to Excel" className="flex-shrink-0">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
@@ -13506,10 +13517,10 @@ export default function RetailerOrders() {
                     Track credit notes from rejections and their adjustments against invoices
                   </p>
                 </div>
-                <div className="flex gap-2 items-center flex-wrap">
+                <div className="flex gap-2 items-center flex-wrap overflow-x-auto pb-1">
                   {/* Show selected retailer info */}
                   {selectedRetailer && (
-                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded flex-shrink-0">
                       {retailers.find(r => r.id === selectedRetailer)?.company_name || 'Selected Retailer'}
                     </span>
                   )}
@@ -13517,164 +13528,171 @@ export default function RetailerOrders() {
                   <select
                     value={creditNoteFilter.status}
                     onChange={(e) => setCreditNoteFilter(prev => ({ ...prev, status: e.target.value }))}
-                    className="text-xs border rounded px-2 py-1"
+                    className="text-xs border rounded px-2 py-1 flex-shrink-0"
                   >
                     <option value="">All Status</option>
                     <option value="pending">Pending</option>
                     <option value="partial">Partial</option>
                     <option value="adjusted">Adjusted</option>
                   </select>
-                  <Button size="sm" variant="outline" onClick={loadCreditNotes}>
+                  <Button size="sm" variant="outline" onClick={loadCreditNotes} className="flex-shrink-0">
                     <RefreshCw className="h-3 w-3 mr-1" /> Refresh
                   </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={backfillCreditNoteDetails}
-                    disabled={isBackfillingCreditNotes}
-                    className="border-orange-300 text-orange-700 hover:bg-orange-50"
-                    title="Fix credit notes that are missing product-level details"
-                  >
-                    {isBackfillingCreditNotes ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
-                      </>
-                    ) : (
-                      <>
-                        <Wrench className="h-3 w-3 mr-1" /> Fix Product Details
-                      </>
-                    )}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={backfillMissingCreditNotes}
-                    disabled={isBackfillingMissingCNs}
-                    className="border-green-300 text-green-700 hover:bg-green-50"
-                    title="Create credit notes for rejections that are missing them"
-                  >
-                    {isBackfillingMissingCNs ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Creating...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-3 w-3 mr-1" /> Backfill Missing CNs
-                      </>
-                    )}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={reconcile100UpfrontCNs}
-                    disabled={isReconciling100UpfrontCNs}
-                    className="border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                    title="Create instant CNs for 100% upfront retailers with pending rejections"
-                  >
-                    {isReconciling100UpfrontCNs ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Reconciling...
-                      </>
-                    ) : (
-                      <>
-                        <CreditCard className="h-3 w-3 mr-1" /> Reconcile 100% Upfront CNs
-                      </>
-                    )}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={cleanupBogusCreditNotes}
-                    disabled={isCleaningBogusCNs}
-                    className="border-red-500 bg-red-50 text-red-700 hover:bg-red-100"
-                    title="ONE-TIME: Delete bogus CNs created on June 26 for Jai Bhawani & Savtamali"
-                  >
-                    {isCleaningBogusCNs ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Cleaning...
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 className="h-3 w-3 mr-1" /> 🚨 Cleanup Bogus CNs
-                      </>
-                    )}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={setModelChangeDates}
-                    disabled={isSettingModelDates}
-                    className="border-orange-500 bg-orange-50 text-orange-700 hover:bg-orange-100"
-                    title="ONE-TIME: Set June 18 as model switch date for Jai Bhawani & Savtamali"
-                  >
-                    {isSettingModelDates ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Setting...
-                      </>
-                    ) : (
-                      <>
-                        <Calendar className="h-3 w-3 mr-1" /> Set Model Switch Dates
-                      </>
-                    )}
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={fixOrphanedCreditNotes}
-                    disabled={isFixingOrphanedCNs}
-                    className="border-orange-300 text-orange-700 hover:bg-orange-50"
-                    title="Reset credit notes that reference deleted invoices back to pending status"
-                  >
-                    {isFixingOrphanedCNs ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
-                      </>
-                    ) : (
-                      <>
-                        <Wrench className="h-3 w-3 mr-1" /> Fix Orphaned CNs
-                      </>
-                    )}
-                  </Button>
                   
-                  {/* Diagnose CN-Invoice Sync Issues */}
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={diagnoseCNSyncIssues}
-                    disabled={isDiagnosingCNSync}
-                    className="border-blue-300 text-blue-700 hover:bg-blue-50"
-                    title="Diagnose credit notes that show as 'adjusted' but invoice doesn't have the adjustment"
-                  >
-                    {isDiagnosingCNSync ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Diagnosing...
-                      </>
-                    ) : (
-                      <>
-                        <Search className="h-3 w-3 mr-1" /> Diagnose Sync
-                      </>
-                    )}
-                  </Button>
-                  
-                  {/* Fix CN-Invoice Sync Issues */}
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={() => fixCNSyncIssues(false)}
-                    disabled={isFixingCNSync}
-                    className="border-red-300 text-red-700 hover:bg-red-50"
-                    title="Fix invoices that are missing credit note adjustments"
-                  >
-                    {isFixingCNSync ? (
-                      <>
-                        <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle className="h-3 w-3 mr-1" /> Fix Sync Issues
-                      </>
-                    )}
-                  </Button>
+                  {/* ===== Admin-Only Buttons Start ===== */}
+                  {getCurrentUserRole() === 'admin' && (
+                    <>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={backfillCreditNoteDetails}
+                        disabled={isBackfillingCreditNotes}
+                        className="border-orange-300 text-orange-700 hover:bg-orange-50 flex-shrink-0"
+                        title="Fix credit notes that are missing product-level details"
+                      >
+                        {isBackfillingCreditNotes ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="h-3 w-3 mr-1" /> Fix Product Details
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={backfillMissingCreditNotes}
+                        disabled={isBackfillingMissingCNs}
+                        className="border-green-300 text-green-700 hover:bg-green-50 flex-shrink-0"
+                        title="Create credit notes for rejections that are missing them"
+                      >
+                        {isBackfillingMissingCNs ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Creating...
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="h-3 w-3 mr-1" /> Backfill Missing CNs
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={reconcile100UpfrontCNs}
+                        disabled={isReconciling100UpfrontCNs}
+                        className="border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100 flex-shrink-0"
+                        title="Create instant CNs for 100% upfront retailers with pending rejections"
+                      >
+                        {isReconciling100UpfrontCNs ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Reconciling...
+                          </>
+                        ) : (
+                          <>
+                            <CreditCard className="h-3 w-3 mr-1" /> Reconcile 100% Upfront CNs
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={cleanupBogusCreditNotes}
+                        disabled={isCleaningBogusCNs}
+                        className="border-red-500 bg-red-50 text-red-700 hover:bg-red-100 flex-shrink-0"
+                        title="ONE-TIME: Delete bogus CNs created on June 26 for Jai Bhawani & Savtamali"
+                      >
+                        {isCleaningBogusCNs ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Cleaning...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-3 w-3 mr-1" /> Cleanup Bogus CNs
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={setModelChangeDates}
+                        disabled={isSettingModelDates}
+                        className="border-orange-500 bg-orange-50 text-orange-700 hover:bg-orange-100 flex-shrink-0"
+                        title="ONE-TIME: Set June 18 as model switch date for Jai Bhawani & Savtamali"
+                      >
+                        {isSettingModelDates ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Setting...
+                          </>
+                        ) : (
+                          <>
+                            <Calendar className="h-3 w-3 mr-1" /> Set Model Switch Dates
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={fixOrphanedCreditNotes}
+                        disabled={isFixingOrphanedCNs}
+                        className="border-orange-300 text-orange-700 hover:bg-orange-50 flex-shrink-0"
+                        title="Reset credit notes that reference deleted invoices back to pending status"
+                      >
+                        {isFixingOrphanedCNs ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                          </>
+                        ) : (
+                          <>
+                            <Wrench className="h-3 w-3 mr-1" /> Fix Orphaned CNs
+                          </>
+                        )}
+                      </Button>
+                      
+                      {/* Diagnose CN-Invoice Sync Issues */}
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={diagnoseCNSyncIssues}
+                        disabled={isDiagnosingCNSync}
+                        className="border-blue-300 text-blue-700 hover:bg-blue-50 flex-shrink-0"
+                        title="Diagnose credit notes that show as 'adjusted' but invoice doesn't have the adjustment"
+                      >
+                        {isDiagnosingCNSync ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Diagnosing...
+                          </>
+                        ) : (
+                          <>
+                            <Search className="h-3 w-3 mr-1" /> Diagnose Sync
+                          </>
+                        )}
+                      </Button>
+                      
+                      {/* Fix CN-Invoice Sync Issues */}
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => fixCNSyncIssues(false)}
+                        disabled={isFixingCNSync}
+                        className="border-red-300 text-red-700 hover:bg-red-50 flex-shrink-0"
+                        title="Fix invoices that are missing credit note adjustments"
+                      >
+                        {isFixingCNSync ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Fixing...
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle className="h-3 w-3 mr-1" /> Fix Sync Issues
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  )}
+                  {/* ===== Admin-Only Buttons End ===== */}
                 </div>
                 
                 {/* Date and Retailer Filters */}

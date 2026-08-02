@@ -11056,26 +11056,26 @@ export default function RetailerOrders() {
           <Card>
             <CardHeader className="py-3 border-b">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle className="text-sm">Retailer Indents</CardTitle>
-                  <span className="text-xs text-gray-500">From:</span>
+                <div className="flex flex-wrap items-center gap-2 overflow-x-auto pb-1">
+                  <CardTitle className="text-sm flex-shrink-0">Retailer Indents</CardTitle>
+                  <span className="text-xs text-gray-500 flex-shrink-0">From:</span>
                   <Input
                     type="date"
                     value={indentDateFrom}
                     onChange={(e) => setIndentDateFrom(e.target.value)}
-                    className="h-8 w-36 text-xs"
+                    className="h-8 w-36 text-xs flex-shrink-0"
                     placeholder="From date"
                   />
-                  <span className="text-xs text-gray-500">To:</span>
+                  <span className="text-xs text-gray-500 flex-shrink-0">To:</span>
                   <Input
                     type="date"
                     value={indentDateTo}
                     onChange={(e) => setIndentDateTo(e.target.value)}
-                    className="h-8 w-36 text-xs"
+                    className="h-8 w-36 text-xs flex-shrink-0"
                     placeholder="To date"
                   />
                   {/* Searchable Retailer Dropdown */}
-                  <div className="relative">
+                  <div className="relative flex-shrink-0">
                     <Input
                       type="text"
                       value={indentRetailerSearch}
@@ -11125,7 +11125,7 @@ export default function RetailerOrders() {
                     size="sm" 
                     variant="default"
                     onClick={loadIndents}
-                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white"
+                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white flex-shrink-0"
                   >
                     Apply
                   </Button>
@@ -11146,28 +11146,28 @@ export default function RetailerOrders() {
                   )}
                   <span className="text-xs text-gray-500 ml-2">Showing {filteredIndents.length} indents</span>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center overflow-x-auto pb-1">
                   {/* Language Toggle for Indent */}
                   <select 
                     value={indentLanguage} 
                     onChange={(e) => setIndentLanguage(e.target.value)}
-                    className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                    className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white flex-shrink-0"
                     title="Language for expanded view & PDF"
                   >
                     <option value="en">English</option>
                     <option value="hi">हिंदी</option>
                     <option value="mr">मराठी</option>
                   </select>
-                  <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel">
+                  <Button size="sm" variant="outline" onClick={exportIndents} title="Export to Excel" className="flex-shrink-0">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
-                  <Button size="sm" variant="outline" onClick={printIndents} title="Print">
+                  <Button size="sm" variant="outline" onClick={printIndents} title="Print" className="flex-shrink-0">
                     <Printer size={14} className="mr-1" /> Print
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50">
+                  <Button size="sm" variant="outline" onClick={() => setShowAutoIndentModal(true)} className="border-purple-300 text-purple-600 hover:bg-purple-50 flex-shrink-0">
                     <Zap size={14} className="mr-1" /> Auto Indent
                   </Button>
-                  <Button size="sm" className="bg-[#14532D]" onClick={() => setShowIndentModal(true)}>
+                  <Button size="sm" className="bg-[#14532D] flex-shrink-0" onClick={() => setShowIndentModal(true)}>
                     <Plus size={14} className="mr-1" /> New Indent
                   </Button>
                 </div>
@@ -11580,26 +11580,26 @@ export default function RetailerOrders() {
           <Card>
             <CardHeader className="py-3 border-b">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle className="text-sm">Dispatches</CardTitle>
-                  <span className="text-xs text-gray-500">From:</span>
+                <div className="flex flex-wrap items-center gap-2 overflow-x-auto pb-1">
+                  <CardTitle className="text-sm flex-shrink-0">Dispatches</CardTitle>
+                  <span className="text-xs text-gray-500 flex-shrink-0">From:</span>
                   <Input
                     type="date"
                     value={dispatchDateFrom}
                     onChange={(e) => setDispatchDateFrom(e.target.value)}
-                    className="h-8 w-36 text-xs"
+                    className="h-8 w-36 text-xs flex-shrink-0"
                     placeholder="From date"
                   />
-                  <span className="text-xs text-gray-500">To:</span>
+                  <span className="text-xs text-gray-500 flex-shrink-0">To:</span>
                   <Input
                     type="date"
                     value={dispatchDateTo}
                     onChange={(e) => setDispatchDateTo(e.target.value)}
-                    className="h-8 w-36 text-xs"
+                    className="h-8 w-36 text-xs flex-shrink-0"
                     placeholder="To date"
                   />
                   {/* Searchable Retailer Dropdown */}
-                  <div className="relative">
+                  <div className="relative flex-shrink-0">
                     <Input
                       type="text"
                       value={dispatchRetailerSearch}
@@ -11649,7 +11649,7 @@ export default function RetailerOrders() {
                     size="sm" 
                     variant="default"
                     onClick={loadDispatches}
-                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white"
+                    className="h-8 px-3 bg-blue-600 hover:bg-blue-700 text-white flex-shrink-0"
                   >
                     Apply
                   </Button>
@@ -11663,26 +11663,26 @@ export default function RetailerOrders() {
                         setDispatchRetailerFilter('');
                         setDispatchRetailerSearch('');
                       }} 
-                      className="h-8 px-2"
+                      className="h-8 px-2 flex-shrink-0"
                     >
                       <X size={12} /> Clear
                     </Button>
                   )}
-                  <span className="text-xs text-gray-500 ml-2">Showing {filteredDispatches.length} dispatches</span>
+                  <span className="text-xs text-gray-500 ml-2 flex-shrink-0 whitespace-nowrap">Showing {filteredDispatches.length} dispatches</span>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center overflow-x-auto pb-1">
                   {/* Language Toggle for Dispatch */}
                   <select 
                     value={dispatchLanguage} 
                     onChange={(e) => setDispatchLanguage(e.target.value)}
-                    className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white"
+                    className="h-8 px-2 rounded-md border border-gray-200 text-xs bg-white flex-shrink-0"
                     title="Language for expanded view & export"
                   >
                     <option value="en">English</option>
                     <option value="hi">हिंदी</option>
                     <option value="mr">मराठी</option>
                   </select>
-                  <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel">
+                  <Button size="sm" variant="outline" onClick={exportDispatches} title="Export to Excel" className="flex-shrink-0">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
                 </div>
@@ -11995,9 +11995,9 @@ export default function RetailerOrders() {
           <Card>
             <CardHeader className="py-3 flex flex-col gap-3">
               <div className="flex flex-row items-center justify-between">
-                <CardTitle className="text-sm">Invoices</CardTitle>
-                <div className="flex gap-2 items-center">
-                  <Button size="sm" variant="outline" onClick={exportInvoices} title="Export to Excel">
+                <CardTitle className="text-sm flex-shrink-0">Invoices</CardTitle>
+                <div className="flex gap-2 items-center overflow-x-auto pb-1 ml-2">
+                  <Button size="sm" variant="outline" onClick={exportInvoices} title="Export to Excel" className="flex-shrink-0">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
                   <Button 
@@ -12006,7 +12006,7 @@ export default function RetailerOrders() {
                     onClick={() => {
                       loadFinalSummary(invoiceForm.retailer_id, finalSummaryStartDate, finalSummaryEndDate);
                     }}
-                    className="text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                    className="text-emerald-700 border-emerald-300 hover:bg-emerald-50 flex-shrink-0"
                     disabled={finalSummaryLoading}
                   >
                     <FileSpreadsheet size={14} className="mr-1" /> Final Summary
@@ -12023,7 +12023,7 @@ export default function RetailerOrders() {
                       setSelectedRetailer(invoiceForm.retailer_id);
                       loadUnpaidInvoices(invoiceForm.retailer_id);
                     }}
-                    className="text-purple-700 border-purple-300 hover:bg-purple-50"
+                    className="text-purple-700 border-purple-300 hover:bg-purple-50 flex-shrink-0"
                     disabled={paymentSummaryLoading}
                   >
                     <FileText size={14} className="mr-1" /> Payment Summary
@@ -12039,7 +12039,7 @@ export default function RetailerOrders() {
                       setSelectedRetailer(invoiceForm.retailer_id);
                       openPaymentLedgerModal();
                     }}
-                    className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                    className="text-blue-700 border-blue-300 hover:bg-blue-50 flex-shrink-0"
                     disabled={paymentLedgerLoading}
                   >
                     <FileText size={14} className="mr-1" /> Payment Ledger
@@ -12055,7 +12055,7 @@ export default function RetailerOrders() {
                       setPaymentAuditRetailerId(invoiceForm.retailer_id);
                       loadPaymentAudit(invoiceForm.retailer_id);
                     }}
-                    className="text-red-700 border-red-300 hover:bg-red-50"
+                    className="text-red-700 border-red-300 hover:bg-red-50 flex-shrink-0"
                     disabled={paymentAuditLoading}
                   >
                     <AlertTriangle size={14} className="mr-1" /> Payment Audit
@@ -12077,7 +12077,7 @@ export default function RetailerOrders() {
                           toast.error('Failed to fix statuses');
                         }
                       }}
-                      className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                      className="text-orange-700 border-orange-300 hover:bg-orange-50 flex-shrink-0"
                       title="Recalculate invoice statuses from payment records"
                     >
                       <RefreshCw size={14} className="mr-1" /> Fix Statuses
@@ -12086,14 +12086,14 @@ export default function RetailerOrders() {
                   <select
                     value={invoiceForm.retailer_id}
                     onChange={(e) => setInvoiceForm(prev => ({ ...prev, retailer_id: e.target.value }))}
-                    className="h-8 px-2 rounded border text-sm"
+                    className="h-8 px-2 rounded border text-sm flex-shrink-0"
                   >
                     <option value="">Select Retailer</option>
                     {activeRetailers.map(r => (
                       <option key={r.id} value={r.id}>{r.company_name || r.name}</option>
                     ))}
                   </select>
-                  <Button size="sm" className="bg-[#14532D]" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
+                  <Button size="sm" className="bg-[#14532D] flex-shrink-0" onClick={openInvoiceModal} disabled={!invoiceForm.retailer_id}>
                     <Plus size={14} className="mr-1" /> Create Invoice
                   </Button>
                   <Button 
@@ -12101,7 +12101,7 @@ export default function RetailerOrders() {
                     variant="outline" 
                     onClick={fixInvoiceRejectionData}
                     disabled={isFixingRejectionData}
-                    className="border-red-300 text-red-700 hover:bg-red-50"
+                    className="border-red-300 text-red-700 hover:bg-red-50 flex-shrink-0"
                     title="Fix invoices with incorrect rejection amounts by recalculating from actual rejections"
                   >
                     {isFixingRejectionData ? (
@@ -12815,11 +12815,11 @@ export default function RetailerOrders() {
         {activeTab === 'rejections' && (
           <Card>
             <CardHeader className="py-3 flex flex-col gap-3">
-              <div className="flex flex-row items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="text-sm">Rejections</CardTitle>
+              <div className="flex flex-row items-center justify-between gap-2">
+                <div className="flex items-center gap-3 overflow-x-auto pb-1 flex-1">
+                  <CardTitle className="text-sm flex-shrink-0">Rejections</CardTitle>
                   {/* View Mode Toggle */}
-                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
                     <button
                       onClick={() => setRejectionViewMode('by-invoice')}
                       className={`px-2 py-1 text-xs rounded-md transition-colors ${
@@ -12845,22 +12845,22 @@ export default function RetailerOrders() {
                     </button>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 overflow-x-auto pb-1">
                   <Button 
                     size="sm" 
                     variant="outline" 
                     onClick={syncRejectionsToInvoices} 
                     disabled={syncingRejections}
                     title="Sync rejection amounts to invoices for Payment Summary"
-                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                    className="text-blue-600 border-blue-300 hover:bg-blue-50 flex-shrink-0"
                   >
                     <RefreshCw size={14} className={`mr-1 ${syncingRejections ? 'animate-spin' : ''}`} />
                     {syncingRejections ? 'Syncing...' : 'Sync to Invoices'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={exportRejections} title="Export to Excel">
+                  <Button size="sm" variant="outline" onClick={exportRejections} title="Export to Excel" className="flex-shrink-0">
                     <FileSpreadsheet size={14} className="mr-1" /> Export
                   </Button>
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={() => { resetRecordRejectionWizard(); setShowRejectionModal(true); }}>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 flex-shrink-0" onClick={() => { resetRecordRejectionWizard(); setShowRejectionModal(true); }}>
                     <Plus size={14} className="mr-1" /> Record Rejection
                   </Button>
                 </div>

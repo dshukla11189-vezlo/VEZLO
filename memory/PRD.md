@@ -2,6 +2,16 @@
 
 ## Changelog (August 2026)
 
+### August 2, 2026 - Mobile Horizontal Scroll Fix for Retailer Portal Header Buttons ✅
+- **BUG FIX**: Staff/Admin on mobile can now horizontally scroll header buttons in Retailer Orders
+  - Problem: Buttons like "Auto Indent", "New Indent", "Select Retailer", "Record Rejection" were cut off on mobile
+  - Solution: Added `overflow-x-auto` and `flex-shrink-0` to button containers in `/app/frontend/src/pages/admin/RetailerOrders.js`:
+    - **Indents tab**: Date filters + action buttons now scrollable
+    - **Dispatches tab**: Date filters + language/export buttons now scrollable
+    - **Invoices tab**: All action buttons (Export, Final Summary, Payment Summary, etc.) now scrollable
+    - **Rejections tab**: View mode toggle + action buttons now scrollable
+  - Line items (data rows) continue to scroll horizontally as before
+
 ### August 2, 2026 - Retailer P&L Variable Expense Date Filtering Fix ✅
 - **BUG FIX**: Variable expenses now properly exclude retailers who weren't active on the expense date
   - Problem: Retailers were being allocated expense shares for dates before they started working

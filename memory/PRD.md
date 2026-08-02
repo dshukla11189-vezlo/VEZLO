@@ -2,6 +2,28 @@
 
 ## Changelog (August 2026)
 
+### August 2, 2026 - Dozen Unit Tracking on Wastage Dashboard ✅
+- **FEATURE**: Track products purchased in "Dozen" in their native unit without converting to Kg
+  - Backend changes in `/app/backend/routes/dashboard_analytics.py`:
+    - Modified `derive_fresh_wastage_for_date()` to exclude "Dozen" from Kg conversion
+    - Dozen items now tracked in native unit, not converted to 1200 grams
+    - Added `unit` field ("Kg" or "Dozen") to product wastage records
+    - Added `total_wastage_dozen` and `total_dozen_value` to daily totals
+    - Updated `fix-all-purchase-quantities` endpoint to handle Dozen separately
+  - API Response changes (`/api/stock-status/wastage-by-date`):
+    - Each product now includes `unit` field
+    - Kg and Dozen totals are tracked separately
+    - `total_wastage_kg` excludes Dozen items
+    - New fields: `total_wastage_dozen`, `all_wastage_dozen`
+  - Frontend changes in `/app/frontend/src/pages/admin/WastageDashboard.js`:
+    - Added "Unit" column to wastage table
+    - Dozen rows highlighted with amber background
+    - Unit badge shows "Kg" (gray) or "Dozen" (amber)
+    - Table footer shows Kg total + Dozen total when applicable
+    - Print function updated with Unit column and separated totals
+  - Summary tiles remain Kg-only (Dozen shown only in table rows)
+  - Monetary calculations unchanged (value = quantity × rate per dozen)
+
 ### August 1, 2026 - Field Team Dashboard ✅
 - **FEATURE**: Built complete Field Team Dashboard for portfolio management
   - Backend endpoints in `/app/backend/routes/field_team.py`:

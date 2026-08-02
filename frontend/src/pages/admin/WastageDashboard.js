@@ -484,8 +484,11 @@ export default function WastageDashboard() {
     const products = [...selectedDateWastage.products]
       .sort((a, b) => (b.wastage_percent || 0) - (a.wastage_percent || 0));
 
-    // Calculate totals
-    const totalWastageKg = products.reduce((sum, p) => sum + (p.wastage_qty || 0), 0);
+    // Calculate totals - separate Kg and Dozen
+    const kgProducts = products.filter(p => (p.unit || 'Kg') !== 'Dozen');
+    const dozenProducts = products.filter(p => (p.unit || 'Kg') === 'Dozen');
+    const totalWastageKg = kgProducts.reduce((sum, p) => sum + (p.wastage_qty || 0), 0);
+    const totalWastageDozen = dozenProducts.reduce((sum, p) => sum + (p.wastage_qty || 0), 0);
     const totalWastageValue = products.reduce((sum, p) => sum + (p.wastage_value || 0), 0);
     const totalClosingValue = products.reduce((sum, p) => sum + ((p.closing_qty || 0) * (p.cogs_price || 0)), 0);
 
@@ -502,10 +505,16 @@ export default function WastageDashboard() {
           table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
           th { background-color: #fef2f2; color: #b91c1c; padding: 8px; text-align: right; border: 1px solid #fecaca; }
           th:first-child { text-align: left; }
+          th:nth-child(2) { text-align: center; }
           td { padding: 8px; border: 1px solid #e5e7eb; text-align: right; }
           td:first-child { text-align: left; font-weight: 500; }
+          td:nth-child(2) { text-align: center; }
           .positive { color: #16a34a; }
           .negative { color: #dc2626; }
+          .dozen-row { background-color: #fffbeb; }
+          .unit-badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; }
+          .unit-kg { background-color: #f3f4f6; color: #4b5563; }
+          .unit-dozen { background-color: #fef3c7; color: #b45309; }
           .total-row { background-color: #fef2f2; font-weight: bold; }
           .summary { display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; background: #f9fafb; border-radius: 8px; }
           .summary-item { text-align: center; }
@@ -523,9 +532,15 @@ export default function WastageDashboard() {
         
         <div class="summary">
           <div class="summary-item">
-            <div class="summary-label">Total Wastage</div>
+            <div class="summary-label">Total Wastage (Kg)</div>
             <div class="summary-value">${totalWastageKg.toFixed(2)} Kg</div>
           </div>
+          ${totalWastageDozen > 0 ? `
+          <div class="summary-item">
+            <div class="summary-label">Total Wastage (Dozen)</div>
+            <div class="summary-value" style="color: #b45309;">${totalWastageDozen.toFixed(1)} Dzn</div>
+          </div>
+          ` : ''}
           <div class="summary-item">
             <div class="summary-label">Total Value Lost</div>
             <div class="summary-value">₹${totalWastageValue.toLocaleString()}</div>
@@ -544,12 +559,13 @@ export default function WastageDashboard() {
           <thead>
             <tr>
               <th>Product</th>
+              <th>Unit</th>
               <th>Opening</th>
               <th>Purchase</th>
               <th>Dispatch</th>
               <th>Closing</th>
               <th>Closing Value</th>
-              <th>Wastage (Kg)</th>
+              <th>Wastage</th>
               <th>Value (₹)</th>
               <th>%</th>
             </tr>
@@ -557,15 +573,18 @@ export default function WastageDashboard() {
           <tbody>
             ${products.map(product => {
               const closingValue = (product.closing_qty || 0) * (product.cogs_price || 0);
+              const unit = product.unit || 'Kg';
+              const isDozen = unit === 'Dozen';
               return `
-                <tr>
+                <tr class="${isDozen ? 'dozen-row' : ''}">
                   <td>${product.product_name || 'Unknown'}</td>
+                  <td><span class="unit-badge ${isDozen ? 'unit-dozen' : 'unit-kg'}">${unit}</span></td>
                   <td>${(product.opening_qty || 0).toFixed(1)}</td>
                   <td class="positive">+${(product.purchase_qty || 0).toFixed(1)}</td>
                   <td class="negative">${(product.dispatch_qty || 0) > 0 ? '-' : ''}${(product.dispatch_qty || 0).toFixed(1)}</td>
                   <td>${(product.closing_qty || 0).toFixed(1)}</td>
                   <td>₹${Math.round(closingValue).toLocaleString()}</td>
-                  <td class="negative">${(product.wastage_qty || 0).toFixed(2)}</td>
+                  <td class="negative">${(product.wastage_qty || 0).toFixed(2)}${isDozen ? ' Dzn' : ''}</td>
                   <td class="negative">₹${Math.round(product.wastage_value || 0).toLocaleString()}</td>
                   <td class="negative">${(product.wastage_percent || 0).toFixed(1)}%</td>
                 </tr>
@@ -577,8 +596,9 @@ export default function WastageDashboard() {
               <td>-</td>
               <td>-</td>
               <td>-</td>
+              <td>-</td>
               <td>₹${Math.round(totalClosingValue).toLocaleString()}</td>
-              <td>${totalWastageKg.toFixed(2)} Kg</td>
+              <td>${totalWastageKg.toFixed(2)} Kg${totalWastageDozen > 0 ? ` + ${totalWastageDozen.toFixed(1)} Dzn` : ''}</td>
               <td>₹${Math.round(totalWastageValue).toLocaleString()}</td>
               <td>-</td>
             </tr>
@@ -927,6 +947,9 @@ export default function WastageDashboard() {
                         }}>
                       Product {wastageSortField === 'product_name' && (wastageSortAsc ? '▲' : '▼')}
                     </th>
+                    <th className="p-2 text-center font-medium text-red-700 w-16">
+                      Unit
+                    </th>
                     <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
                         onClick={() => {
                           if (wastageSortField === 'opening_qty') setWastageSortAsc(!wastageSortAsc);
@@ -967,7 +990,7 @@ export default function WastageDashboard() {
                           if (wastageSortField === 'wastage_qty') setWastageSortAsc(!wastageSortAsc);
                           else { setWastageSortField('wastage_qty'); setWastageSortAsc(true); }
                         }}>
-                      Wastage (Kg) {wastageSortField === 'wastage_qty' && (wastageSortAsc ? '▲' : '▼')}
+                      Wastage {wastageSortField === 'wastage_qty' && (wastageSortAsc ? '▲' : '▼')}
                     </th>
                     <th className="p-2 text-right font-medium text-red-700 cursor-pointer hover:bg-red-100"
                         onClick={() => {
@@ -986,33 +1009,50 @@ export default function WastageDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedWastageProducts.map((product, idx) => (
-                    <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                      <td className="p-2 font-medium">{getProductName(product)}</td>
-                      <td className="p-2 text-right">{product.opening_qty?.toFixed(1)}</td>
-                      <td className="p-2 text-right text-green-600">+{product.purchase_qty?.toFixed(1)}</td>
-                      <td className="p-2 text-right text-blue-600">-{product.dispatch_qty?.toFixed(1)}</td>
-                      <td className="p-2 text-right">{product.closing_qty?.toFixed(1)}</td>
-                      <td className="p-2 text-right text-purple-600">₹{(product.closing_value || (product.closing_qty * (product.cogs_price || 0)))?.toFixed(0)}</td>
-                      <td className="p-2 text-right text-red-600 font-semibold">{product.wastage_qty?.toFixed(2)}</td>
-                      <td className="p-2 text-right text-red-600">₹{product.wastage_value?.toFixed(0)}</td>
-                      <td className="p-2 text-right">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getWastageColor(product.wastage_percent)}`}>
-                          {product.wastage_percent?.toFixed(1)}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {sortedWastageProducts.map((product, idx) => {
+                    const unit = product.unit || 'Kg';
+                    const isDozen = unit === 'Dozen';
+                    return (
+                      <tr key={idx} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${isDozen ? 'bg-amber-50' : ''}`}>
+                        <td className="p-2 font-medium">{getProductName(product)}</td>
+                        <td className="p-2 text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${isDozen ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {unit}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right">{product.opening_qty?.toFixed(1)}</td>
+                        <td className="p-2 text-right text-green-600">+{product.purchase_qty?.toFixed(1)}</td>
+                        <td className="p-2 text-right text-blue-600">-{product.dispatch_qty?.toFixed(1)}</td>
+                        <td className="p-2 text-right">{product.closing_qty?.toFixed(1)}</td>
+                        <td className="p-2 text-right text-purple-600">₹{(product.closing_value || (product.closing_qty * (product.cogs_price || 0)))?.toFixed(0)}</td>
+                        <td className="p-2 text-right text-red-600 font-semibold">
+                          {product.wastage_qty?.toFixed(2)} {isDozen ? 'Dzn' : ''}
+                        </td>
+                        <td className="p-2 text-right text-red-600">₹{product.wastage_value?.toFixed(0)}</td>
+                        <td className="p-2 text-right">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${getWastageColor(product.wastage_percent)}`}>
+                            {product.wastage_percent?.toFixed(1)}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-red-100 font-semibold">
                   <tr>
                     <td className="p-2">Total ({selectedDateWastage.products.length} products)</td>
+                    <td className="p-2 text-center">-</td>
                     <td className="p-2 text-right">-</td>
                     <td className="p-2 text-right">-</td>
                     <td className="p-2 text-right">-</td>
                     <td className="p-2 text-right">-</td>
                     <td className="p-2 text-right text-purple-700">₹{selectedDateWastage.products.reduce((sum, p) => sum + (p.closing_value || (p.closing_qty * (p.cogs_price || 0)) || 0), 0).toFixed(0)}</td>
-                    <td className="p-2 text-right text-red-700">{selectedDateWastage.total_wastage_kg?.toFixed(2)} Kg</td>
+                    <td className="p-2 text-right text-red-700">
+                      {selectedDateWastage.total_wastage_kg?.toFixed(2)} Kg
+                      {(selectedDateWastage.total_wastage_dozen || 0) > 0 && (
+                        <span className="ml-1 text-amber-700">+ {selectedDateWastage.total_wastage_dozen?.toFixed(1)} Dzn</span>
+                      )}
+                    </td>
                     <td className="p-2 text-right text-red-700">₹{selectedDateWastage.total_wastage_value?.toFixed(0)}</td>
                     <td className="p-2 text-right">-</td>
                   </tr>

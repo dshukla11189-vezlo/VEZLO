@@ -433,7 +433,9 @@ async def derive_fresh_wastage_for_date(
             product_id_to_name[pid] = pname
     
     # ===== 1. FRESH PURCHASE DATA from procurements =====
-    purchases_by_product = {}  # product_id -> {"qty": float, "value": float}
+    # Track purchases by product with unit info: {"qty": float, "value": float, "unit": str}
+    # For "Dozen" items, keep native unit and don't convert to Kg
+    purchases_by_product = {}  # product_id -> {"qty": float, "value": float, "unit": str}
     
     if prefetched_data and "procurements_by_date" in prefetched_data:
         # Use pre-fetched procurements for this date
@@ -446,9 +448,14 @@ async def derive_fresh_wastage_for_date(
             rate = item.get("rate", 0) or 0
             total_value = item.get("total", qty * rate)
             
-            # Convert to Kg for Bunch/Piece/Pack/Packet/Box/Crate/Dozen/Pcs
             unit_lower = unit.lower().strip()
-            if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+            
+            # DOZEN: Keep in native unit, do NOT convert to Kg
+            if unit_lower == "dozen":
+                qty_final = qty
+                unit_final = "Dozen"
+            # Convert other units to Kg for Bunch/Piece/Pack/Packet/Box/Crate/Pcs
+            elif unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "pcs"]:
                 weight_gm = None
                 if unit_size:
                     try:
@@ -456,20 +463,25 @@ async def derive_fresh_wastage_for_date(
                     except (ValueError, TypeError):
                         pass
                 if not weight_gm:
-                    defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000, 'dozen': 1200}
+                    defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000}
                     weight_gm = defaults.get(unit_lower)
                 
                 if weight_gm:
-                    qty_kg = (qty * weight_gm) / 1000
+                    qty_final = (qty * weight_gm) / 1000
                 else:
-                    qty_kg = qty
+                    qty_final = qty
+                unit_final = "Kg"
             else:
-                qty_kg = qty
+                qty_final = qty
+                unit_final = "Kg"
             
             if product_id not in purchases_by_product:
-                purchases_by_product[product_id] = {"qty": 0, "value": 0}
-            purchases_by_product[product_id]["qty"] += qty_kg
+                purchases_by_product[product_id] = {"qty": 0, "value": 0, "unit": unit_final}
+            purchases_by_product[product_id]["qty"] += qty_final
             purchases_by_product[product_id]["value"] += total_value
+            # If any purchase for this product is in Dozen, mark unit as Dozen
+            if unit_final == "Dozen":
+                purchases_by_product[product_id]["unit"] = "Dozen"
     else:
         # Standalone mode: fetch from DB
         procurements = await db_ref.procurements.find({}, {"_id": 0}).to_list(10000)
@@ -492,7 +504,13 @@ async def derive_fresh_wastage_for_date(
                 total_value = item.get("total", qty * rate)
                 
                 unit_lower = unit.lower().strip()
-                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                
+                # DOZEN: Keep in native unit, do NOT convert to Kg
+                if unit_lower == "dozen":
+                    qty_final = qty
+                    unit_final = "Dozen"
+                # Convert other units to Kg for Bunch/Piece/Pack/Packet/Box/Crate/Pcs
+                elif unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "pcs"]:
                     weight_gm = None
                     if unit_size:
                         try:
@@ -500,20 +518,25 @@ async def derive_fresh_wastage_for_date(
                         except (ValueError, TypeError):
                             pass
                     if not weight_gm:
-                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000, 'dozen': 1200}
+                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100, 'box': 5000, 'crate': 20000}
                         weight_gm = defaults.get(unit_lower)
                     
                     if weight_gm:
-                        qty_kg = (qty * weight_gm) / 1000
+                        qty_final = (qty * weight_gm) / 1000
                     else:
-                        qty_kg = qty
+                        qty_final = qty
+                    unit_final = "Kg"
                 else:
-                    qty_kg = qty
+                    qty_final = qty
+                    unit_final = "Kg"
                 
                 if product_id not in purchases_by_product:
-                    purchases_by_product[product_id] = {"qty": 0, "value": 0}
-                purchases_by_product[product_id]["qty"] += qty_kg
+                    purchases_by_product[product_id] = {"qty": 0, "value": 0, "unit": unit_final}
+                purchases_by_product[product_id]["qty"] += qty_final
                 purchases_by_product[product_id]["value"] += total_value
+                # If any purchase for this product is in Dozen, mark unit as Dozen
+                if unit_final == "Dozen":
+                    purchases_by_product[product_id]["unit"] = "Dozen"
     
     # ===== 2. FRESH DISPATCH DATA with combo ingredient decomposition =====
     dispatches_by_product = {}  # product_id -> float (qty in kg)
@@ -625,9 +648,12 @@ async def derive_fresh_wastage_for_date(
     
     # ===== 6. COMPUTE FRESH WASTAGE =====
     product_wastage = {}  # product_id -> {...}
-    total_wastage_kg = 0
+    total_wastage_kg = 0  # Only Kg-tracked items
     total_wastage_value = 0
     total_input = 0
+    # Separate tracking for Dozen items
+    total_wastage_dozen = 0
+    total_dozen_value = 0
     
     for record in day_records:
         product_name = record.get("product_name", "Unknown")
@@ -638,10 +664,12 @@ async def derive_fresh_wastage_for_date(
         opening_qty = record.get("opening_qty", 0) or 0
         closing_qty = record.get("closing_qty", 0) or 0
         
-        # Use FRESH purchase data from procurements
-        fresh_purchase = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
+        # Use FRESH purchase data from procurements (includes unit info)
+        fresh_purchase = purchases_by_product.get(product_id, {"qty": 0, "value": 0, "unit": "Kg"})
         purchase_qty = round(fresh_purchase["qty"], 2)
         purchase_value = round(fresh_purchase["value"], 2)
+        # Get unit from procurement data; default to "Kg"
+        product_unit = fresh_purchase.get("unit", "Kg")
         
         # Use FRESH dispatch data including combo ingredient decomposition
         fresh_dispatch_data = dispatches_by_product.get(product_id, {"total": 0, "qc": 0, "retail": 0})
@@ -714,10 +742,11 @@ async def derive_fresh_wastage_for_date(
         qc_wastage_value = round(qc_wastage_qty * cogs_price, 2)
         retail_wastage_value = round(retail_wastage_qty * cogs_price, 2)
         
-        # Store result with QC/Retail breakdown
+        # Store result with QC/Retail breakdown and unit
         product_wastage[product_id] = {
             "product_id": product_id,
             "product_name": product_name,
+            "unit": product_unit,  # "Kg" or "Dozen"
             "opening_qty": round(opening_qty, 2),
             "purchase_qty": purchase_qty,
             "purchase_value": round(purchase_value, 2),
@@ -736,8 +765,14 @@ async def derive_fresh_wastage_for_date(
         }
         
         # Accumulate totals (skip combo products)
+        # For Kg items: add to total_wastage_kg
+        # For Dozen items: add to total_wastage_dozen (separate tracking)
         if not is_combo_product(product_name):
-            total_wastage_kg += wastage_qty
+            if product_unit == "Dozen":
+                total_wastage_dozen += wastage_qty
+                total_dozen_value += wastage_value
+            else:
+                total_wastage_kg += wastage_qty
             total_wastage_value += wastage_value
             total_input += opening_qty + purchase_qty
     
@@ -746,7 +781,10 @@ async def derive_fresh_wastage_for_date(
         "daily_totals": {
             "total_wastage_kg": round(total_wastage_kg, 2),
             "total_wastage_value": round(total_wastage_value, 2),
-            "total_input": round(total_input, 2)
+            "total_input": round(total_input, 2),
+            # Separate Dozen totals
+            "total_wastage_dozen": round(total_wastage_dozen, 2),
+            "total_dozen_value": round(total_dozen_value, 2)
         }
     }
 
@@ -4644,7 +4682,10 @@ async def fix_all_purchase_quantities(
         packaging_weight_map['pcs'] = 100
         
         def calculate_qty_kg_with_fallback(item):
-            """Convert quantity to Kg based on unit type with fallback lookup."""
+            """Convert quantity to Kg based on unit type with fallback lookup.
+            NOTE: Dozen items are kept in native unit (not converted to Kg).
+            Returns tuple: (qty, unit) where unit is 'Kg' or 'Dozen'
+            """
             try:
                 qty = float(item.get('quantity', 0) or 0)
             except (ValueError, TypeError):
@@ -4654,8 +4695,12 @@ async def fix_all_purchase_quantities(
             
             unit_lower = unit.lower().strip()
             
+            # DOZEN: Keep in native unit, do NOT convert to Kg
+            if unit_lower == 'dozen':
+                return (qty, 'Dozen')
+            
             # Convert Bunch, Packet, Piece, Box etc. to kg using unit_size (in grams)
-            if unit_lower in ['bunch', 'packet', 'piece', 'box', 'crate', 'dozen', 'pack', 'pcs']:
+            if unit_lower in ['bunch', 'packet', 'piece', 'box', 'crate', 'pack', 'pcs']:
                 weight_gm = None
                 
                 # First try unit_size from item
@@ -4670,11 +4715,11 @@ async def fix_all_purchase_quantities(
                     weight_gm = packaging_weight_map.get(unit_lower, None)
                 
                 if weight_gm:
-                    return (qty * weight_gm) / 1000  # Convert to kg
+                    return ((qty * weight_gm) / 1000, 'Kg')  # Convert to kg
             
-            return qty
+            return (qty, 'Kg')
         
-        # Build lookup: date -> product_id -> {qty_kg, total_value}
+        # Build lookup: date -> product_id -> {qty_kg, total_value, unit}
         purchases_by_date_product = {}
         
         for proc in all_procurements:
@@ -4695,7 +4740,7 @@ async def fix_all_purchase_quantities(
                     if not product_id:
                         continue
                     
-                    qty_kg = calculate_qty_kg_with_fallback(item)
+                    qty_result, unit_result = calculate_qty_kg_with_fallback(item)
                     
                     try:
                         total_value = float(item.get('total', 0) or 0)
@@ -4705,11 +4750,15 @@ async def fix_all_purchase_quantities(
                     if product_id not in purchases_by_date_product[proc_date]:
                         purchases_by_date_product[proc_date][product_id] = {
                             'qty_kg': 0,
-                            'total_value': 0
+                            'total_value': 0,
+                            'unit': unit_result
                         }
                     
-                    purchases_by_date_product[proc_date][product_id]['qty_kg'] += qty_kg
+                    purchases_by_date_product[proc_date][product_id]['qty_kg'] += qty_result
                     purchases_by_date_product[proc_date][product_id]['total_value'] += total_value
+                    # If any item for this product is Dozen, mark it as Dozen
+                    if unit_result == 'Dozen':
+                        purchases_by_date_product[proc_date][product_id]['unit'] = 'Dozen'
             except Exception as proc_error:
                 print(f"Error processing procurement {proc.get('id')}: {proc_error}")
                 continue
@@ -5925,10 +5974,10 @@ async def get_wastage_by_date(
     
     # Build response from helper output
     wastage_products = []
-    total_wastage_kg = 0
+    total_wastage_kg = 0  # Only Kg-tracked items
     total_wastage_value = 0
     
-    # Track totals for all tabs
+    # Track totals for all tabs (Kg only, Dozen excluded from Kg totals)
     all_wastage_kg = 0
     all_wastage_value = 0
     qc_wastage_kg = 0
@@ -5936,8 +5985,12 @@ async def get_wastage_by_date(
     retail_wastage_kg = 0
     retail_wastage_value = 0
     
+    # Separate Dozen tracking
+    all_wastage_dozen = 0
+    
     for product_id, pdata in fresh_data["products"].items():
         product_name = pdata.get("product_name", "Unknown")
+        product_unit = pdata.get("unit", "Kg")  # Get unit from helper output
         
         # Skip combo products from wastage-by-date
         if is_combo_product(product_name):
@@ -5952,11 +6005,15 @@ async def get_wastage_by_date(
         retail_wv = pdata.get("retail_wastage_value", 0)
         
         # Accumulate overall totals
-        all_wastage_kg += total_wastage_qty
+        # For Dozen products, track separately from Kg totals
+        if product_unit == "Dozen":
+            all_wastage_dozen += total_wastage_qty
+        else:
+            all_wastage_kg += total_wastage_qty
+            qc_wastage_kg += qc_wq
+            retail_wastage_kg += retail_wq
         all_wastage_value += total_wastage_val
-        qc_wastage_kg += qc_wq
         qc_wastage_value += qc_wv
-        retail_wastage_kg += retail_wq
         retail_wastage_value += retail_wv
         
         # Determine which wastage to show based on tab
@@ -5987,6 +6044,7 @@ async def get_wastage_by_date(
             wastage_products.append({
                 "product_name": product_name,
                 "product_id": product_id,
+                "unit": product_unit,  # Include unit for frontend rendering
                 "opening_qty": round(opening_qty, 2),
                 "purchase_qty": round(purchase_qty, 2),
                 "dispatch_qty": round(dispatch_qty, 2),
@@ -6004,7 +6062,11 @@ async def get_wastage_by_date(
                 "retail_wastage_value": round(retail_wv, 2)
             })
             
-            total_wastage_kg += wastage_qty
+            # Accumulate response totals (only Kg items, Dozen excluded from Kg)
+            if product_unit == "Dozen":
+                pass  # Dozen not included in total_wastage_kg
+            else:
+                total_wastage_kg += wastage_qty
             total_wastage_value += wastage_value
     
     # Sort by wastage percent descending
@@ -6013,11 +6075,14 @@ async def get_wastage_by_date(
     return {
         "date": date,
         "tab": tab,
-        "total_wastage_kg": round(total_wastage_kg, 2),
+        "total_wastage_kg": round(total_wastage_kg, 2),  # Kg items only
         "total_wastage_value": round(total_wastage_value, 2),
-        # Include totals for all tabs (for tab headers)
+        # Separate Dozen totals
+        "total_wastage_dozen": round(all_wastage_dozen, 2),
+        # Include totals for all tabs (for tab headers) - Kg only
         "all_wastage_kg": round(all_wastage_kg, 2),
         "all_wastage_value": round(all_wastage_value, 2),
+        "all_wastage_dozen": round(all_wastage_dozen, 2),
         "qc_wastage_kg": round(qc_wastage_kg, 2),
         "qc_wastage_value": round(qc_wastage_value, 2),
         "retail_wastage_kg": round(retail_wastage_kg, 2),

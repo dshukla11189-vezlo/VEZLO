@@ -399,6 +399,25 @@ async def get_variable_expenses_by_retailer(
     # Fetch all retailers for "all_equal" split type
     all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
     
+    # Fetch first dispatch date for each retailer using aggregation (more efficient)
+    first_dispatch_pipeline = [
+        {"$group": {
+            "_id": "$retailer_id",
+            "first_dispatch_date": {"$min": "$date"}
+        }}
+    ]
+    first_dispatch_results = await db.retailer_dispatches.aggregate(first_dispatch_pipeline).to_list(500)
+    retailer_first_dispatch = {
+        r["_id"]: str(r["first_dispatch_date"])[:10] if r.get("first_dispatch_date") else None
+        for r in first_dispatch_results
+    }
+    
+    # Enrich retailers with first_dispatch_date
+    for r in all_retailers:
+        rid = r.get("id")
+        if rid and rid in retailer_first_dispatch:
+            r["first_dispatch_date"] = retailer_first_dispatch[rid]
+    
     # Note: get_active_retailers_on_date is imported from utils.retailers
     
     # Build retailer shares

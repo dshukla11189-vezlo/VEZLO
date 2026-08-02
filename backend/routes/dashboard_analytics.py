@@ -1214,6 +1214,24 @@ async def get_pnl_report(
     all_retailers = await db.users.find({"role": "retailer"}, {"_id": 0}).to_list(500)
     retailer_company_map = {r.get("id"): r.get("company_name", r.get("name", "Unknown")) for r in all_retailers}
     
+    # Fetch first dispatch date for each retailer (for VE allocation filtering)
+    first_dispatch_pipeline = [
+        {"$group": {
+            "_id": "$retailer_id",
+            "first_dispatch_date": {"$min": "$date"}
+        }}
+    ]
+    first_dispatch_results = await db.retailer_dispatches.aggregate(first_dispatch_pipeline).to_list(500)
+    retailer_first_dispatch = {
+        r["_id"]: str(r["first_dispatch_date"])[:10] if r.get("first_dispatch_date") else None
+        for r in first_dispatch_results
+    }
+    # Enrich retailers with first_dispatch_date
+    for r in all_retailers:
+        rid = r.get("id")
+        if rid and rid in retailer_first_dispatch:
+            r["first_dispatch_date"] = retailer_first_dispatch[rid]
+    
     # Fetch packagings to resolve UUID variant names
     all_packagings = await db.qc_packaging.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
     packaging_id_to_name = {p.get("id"): p.get("name", "") for p in all_packagings}

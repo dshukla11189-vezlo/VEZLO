@@ -2,6 +2,18 @@
 
 ## Changelog (August 2026)
 
+### August 2, 2026 - Retailer P&L Variable Expense Date Filtering Fix ✅
+- **BUG FIX**: Variable expenses are now only allocated to retailers from their first dispatch date
+  - Problem: Retailers were being allocated expense shares for dates before they started working with the business
+  - Example: Anjali Supermarket started July 26, but was being allocated expenses from July 24
+  - Solution: Updated `get_active_retailers_on_date()` in `/app/backend/utils/retailers.py` to check:
+    1. Expense date >= retailer's first_dispatch_date (when they became active)
+    2. Expense date <= retailer's churned_at date (if churned)
+  - Added `first_dispatch_date` enrichment in:
+    - `/app/backend/routes/expenses_new.py` (by-retailer endpoint)
+    - `/app/backend/routes/dashboard_analytics.py` (P&L calculations)
+  - Uses MongoDB aggregation to get min dispatch date per retailer for efficiency
+
 ### August 2, 2026 - Variable Expense Vendor Management ✅
 - **FEATURE**: Added vendor management system and copy expense functionality
   - Backend endpoints in `/app/backend/routes/expenses_new.py`:

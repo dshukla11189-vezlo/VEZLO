@@ -2,6 +2,25 @@
 
 ## Changelog (August 2026)
 
+### August 2, 2026 - Variable Expense Vendor Management ✅
+- **FEATURE**: Added vendor management system and copy expense functionality
+  - Backend endpoints in `/app/backend/routes/expenses_new.py`:
+    - `GET /api/vendors` - List all vendors
+    - `POST /api/vendors` - Create new vendor
+    - `PUT /api/vendors/{vendor_id}` - Update vendor
+    - `DELETE /api/vendors/{vendor_id}` - Delete/deactivate vendor
+    - `POST /api/vendors/migrate-from-expenses` - One-time migration to create vendors from existing expense `paid_to` values
+  - New `vendors` collection with fields: `id`, `name`, `contact`, `phone`, `notes`, `is_active`, `created_at`, `created_by`
+  - Frontend changes in `/app/frontend/src/pages/admin/VariableExpenses.js`:
+    - **Manage Vendors button** in header opens vendor management dialog
+    - **Vendor Management dialog**: Table view of all vendors with Add/Edit/Delete actions
+    - **"Paid To (Vendor)"** field changed from free text to **dropdown** selecting from vendor list
+    - **"Add New"** quick button next to vendor dropdown to add new vendor inline
+    - **Copy button** (purple icon) in ACTIONS column to duplicate an expense line item
+      - Copies all fields except receipt_no and payment_reference
+      - Sets date to today and payment_status to pending
+    - **Import from Expenses** button to migrate existing vendor names (ran once, created 60 vendors)
+
 ### August 2, 2026 - Dozen Unit Tracking on Wastage Dashboard ✅
 - **FEATURE**: Track products purchased in "Dozen" in their native unit without converting to Kg
   - Backend changes in `/app/backend/routes/dashboard_analytics.py`:

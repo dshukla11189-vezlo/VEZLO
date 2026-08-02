@@ -458,3 +458,130 @@ async def get_variable_expenses_by_retailer(
 
 # ==================== RETAILER PORTAL APIs ====================
 
+
+# ==================== VENDOR MANAGEMENT ====================
+
+@router.get("/vendors")
+async def get_vendors(current_user: dict = Depends(get_current_user)):
+    """Get all vendors"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    vendors = await db.vendors.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    return vendors
+
+@router.post("/vendors")
+async def create_vendor(vendor: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new vendor"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Validate required fields
+    if not vendor.get("name"):
+        raise HTTPException(status_code=400, detail="Vendor name is required")
+    
+    # Check for duplicate name (case-insensitive)
+    existing = await db.vendors.find_one({"name": {"$regex": f"^{vendor.get('name')}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail="Vendor with this name already exists")
+    
+    vendor["id"] = str(uuid.uuid4())
+    vendor["created_at"] = datetime.now(timezone.utc).isoformat()
+    vendor["created_by"] = current_user["email"]
+    vendor["is_active"] = True
+    
+    await db.vendors.insert_one(vendor.copy())
+    if "_id" in vendor:
+        del vendor["_id"]
+    
+    return vendor
+
+@router.put("/vendors/{vendor_id}")
+async def update_vendor(vendor_id: str, updates: dict, current_user: dict = Depends(get_current_user)):
+    """Update a vendor"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check for duplicate name if name is being updated
+    if updates.get("name"):
+        existing = await db.vendors.find_one({
+            "name": {"$regex": f"^{updates.get('name')}$", "$options": "i"},
+            "id": {"$ne": vendor_id}
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail="Vendor with this name already exists")
+    
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updates["updated_by"] = current_user["email"]
+    
+    result = await db.vendors.update_one(
+        {"id": vendor_id},
+        {"$set": updates}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    return {"message": "Vendor updated"}
+
+@router.delete("/vendors/{vendor_id}")
+async def delete_vendor(vendor_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a vendor"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Check if vendor is used in any expenses
+    expense_with_vendor = await db.variable_expenses.find_one({"vendor_id": vendor_id})
+    if expense_with_vendor:
+        # Soft delete - mark as inactive
+        result = await db.vendors.update_one(
+            {"id": vendor_id},
+            {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        return {"message": "Vendor deactivated (has associated expenses)"}
+    
+    result = await db.vendors.delete_one({"id": vendor_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    return {"message": "Vendor deleted"}
+
+@router.post("/vendors/migrate-from-expenses")
+async def migrate_vendors_from_expenses(current_user: dict = Depends(get_current_user)):
+    """One-time migration to create vendors from existing expense paid_to values"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    # Get all unique paid_to values from variable_expenses
+    pipeline = [
+        {"$match": {"paid_to": {"$exists": True, "$nin": [None, ""]}}},
+        {"$group": {"_id": "$paid_to"}},
+        {"$sort": {"_id": 1}}
+    ]
+    paid_to_values = await db.variable_expenses.aggregate(pipeline).to_list(1000)
+    
+    created_count = 0
+    for item in paid_to_values:
+        vendor_name = item["_id"]
+        if not vendor_name or not vendor_name.strip():
+            continue
+        
+        # Check if vendor already exists
+        existing = await db.vendors.find_one({"name": {"$regex": f"^{vendor_name}$", "$options": "i"}})
+        if not existing:
+            new_vendor = {
+                "id": str(uuid.uuid4()),
+                "name": vendor_name.strip(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": current_user["email"],
+                "is_active": True,
+                "migrated": True
+            }
+            await db.vendors.insert_one(new_vendor)
+            created_count += 1
+    
+    return {"message": f"Created {created_count} vendors from existing expenses"}
+

@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Receipt, Filter, Calendar, Edit2, Trash2, RefreshCw, 
-  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search, Eye, IndianRupee
+  CheckCircle, Clock, AlertCircle, DollarSign, Users, Search, Eye, IndianRupee,
+  Copy, Building2, UserPlus
 } from 'lucide-react';
 
 const EXPENSE_CATEGORIES = [
@@ -67,6 +68,7 @@ export default function VariableExpenses() {
     quantity: '',
     amount: '',
     paid_to: '',
+    vendor_id: '', // Add vendor_id for linking
     payment_mode: 'Cash',
     receipt_no: '',
     paid_by_type: 'company', // 'company' or 'employee'
@@ -130,6 +132,13 @@ export default function VariableExpenses() {
   const [selectedVendorForPayment, setSelectedVendorForPayment] = useState(null);
   const [vendorsWithPending, setVendorsWithPending] = useState([]);
 
+  // Vendor Management state
+  const [vendors, setVendors] = useState([]);
+  const [showVendorDialog, setShowVendorDialog] = useState(false);
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [vendorForm, setVendorForm] = useState({ name: '', contact: '', phone: '', notes: '' });
+  const [showVendorManagement, setShowVendorManagement] = useState(false);
+
   const loadExpenses = useCallback(async () => {
     setLoading(true);
     try {
@@ -186,11 +195,23 @@ export default function VariableExpenses() {
     }
   };
 
+  // Load Vendors for dropdown
+  const loadVendors = async () => {
+    try {
+      const response = await api.get('/api/vendors');
+      setVendors(response.data || []);
+    } catch (error) {
+      console.error('Failed to load vendors:', error);
+      setVendors([]);
+    }
+  };
+
   useEffect(() => {
     loadExpenses();
     loadEmployees();
     loadStaffUsers();
     loadRetailers();
+    loadVendors();
   }, [loadExpenses]);
 
   const resetForm = () => {
@@ -202,6 +223,7 @@ export default function VariableExpenses() {
       quantity: '',
       amount: '',
       paid_to: '',
+      vendor_id: '',
       payment_mode: 'Cash',
       receipt_no: '',
       paid_by_type: 'company',
@@ -227,9 +249,9 @@ export default function VariableExpenses() {
       return;
     }
     
-    // Validate Paid To is mandatory
-    if (!formData.paid_to?.trim()) {
-      toast.error('Paid To (Vendor/Person name) is required');
+    // Validate Vendor is selected
+    if (!formData.vendor_id) {
+      toast.error('Please select a vendor from the dropdown');
       return;
     }
     
@@ -284,6 +306,7 @@ export default function VariableExpenses() {
         payment_date: formData.payment_date,
         payment_reference: formData.payment_reference,
         settlement_status: settlementStatus,
+        vendor_id: formData.vendor_id || null,
         // New split fields for retail vertical
         split_type: formData.vertical === 'retail' ? formData.split_type : null,
         retailer_ids: formData.vertical === 'retail' && formData.split_type === 'selected' ? formData.retailer_ids : []
@@ -392,6 +415,7 @@ export default function VariableExpenses() {
       quantity: expense.quantity?.toString() || '',
       amount: expense.amount?.toString() || '',
       paid_to: expense.paid_to || '',
+      vendor_id: expense.vendor_id || '',
       payment_mode: expense.payment_mode || 'Cash',
       receipt_no: expense.receipt_no || '',
       paid_by_type: expense.paid_by_type || (isPaidByEmployee ? 'employee' : 'company'),
@@ -766,6 +790,105 @@ export default function VariableExpenses() {
     }
   };
 
+  // ==================== VENDOR MANAGEMENT ====================
+  
+  const resetVendorForm = () => {
+    setVendorForm({ name: '', contact: '', phone: '', notes: '' });
+    setEditingVendor(null);
+  };
+
+  const handleVendorSubmit = async () => {
+    if (!vendorForm.name?.trim()) {
+      toast.error('Vendor name is required');
+      return;
+    }
+
+    try {
+      if (editingVendor) {
+        await api.put(`/api/vendors/${editingVendor.id}`, vendorForm);
+        toast.success('Vendor updated successfully');
+      } else {
+        await api.post('/api/vendors', vendorForm);
+        toast.success('Vendor added successfully');
+      }
+      setShowVendorDialog(false);
+      resetVendorForm();
+      loadVendors();
+    } catch (error) {
+      console.error('Save vendor error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to save vendor');
+    }
+  };
+
+  const handleEditVendor = (vendor) => {
+    setEditingVendor(vendor);
+    setVendorForm({
+      name: vendor.name || '',
+      contact: vendor.contact || '',
+      phone: vendor.phone || '',
+      notes: vendor.notes || ''
+    });
+    setShowVendorDialog(true);
+  };
+
+  const handleDeleteVendor = async (vendorId) => {
+    if (!window.confirm('Are you sure you want to delete this vendor?')) return;
+
+    try {
+      await api.delete(`/api/vendors/${vendorId}`);
+      toast.success('Vendor deleted');
+      loadVendors();
+    } catch (error) {
+      console.error('Delete vendor error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to delete vendor');
+    }
+  };
+
+  const migrateVendorsFromExpenses = async () => {
+    try {
+      const response = await api.post('/api/vendors/migrate-from-expenses');
+      toast.success(response.data.message);
+      loadVendors();
+    } catch (error) {
+      console.error('Migration error:', error);
+      toast.error('Failed to migrate vendors');
+    }
+  };
+
+  // ==================== COPY EXPENSE ====================
+  
+  const handleCopyExpense = (expense) => {
+    // Create a copy of the expense with today's date
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      category: expense.category || '',
+      description: expense.description || '',
+      rate: expense.rate?.toString() || '',
+      quantity: expense.quantity?.toString() || '',
+      amount: expense.amount?.toString() || '',
+      paid_to: expense.paid_to || '',
+      vendor_id: expense.vendor_id || '',
+      payment_mode: expense.payment_mode || 'Cash',
+      receipt_no: '', // Clear receipt for new entry
+      paid_by_type: expense.paid_by_type || 'company',
+      paid_by: expense.paid_by || 'Company',
+      paid_by_employee_id: expense.paid_by_employee_id || '',
+      payment_status: 'pending', // Reset to pending for new entry
+      paid_amount: '',
+      payment_date: new Date().toISOString().split('T')[0],
+      payment_reference: '',
+      settlement_status: 'settled',
+      settlement_date: '',
+      settlement_remarks: '',
+      vertical: expense.vertical || 'all',
+      split_type: expense.split_type || 'all_equal',
+      retailer_ids: expense.retailer_ids || [],
+    });
+    setEditingExpense(null); // Not editing - creating a copy
+    setShowAddDialog(true);
+    toast.info('Expense copied - adjust values and save as new');
+  };
+
   const employeesWithPendingReimbursements = getEmployeesWithPendingReimbursements();
 
   const unsettledExpenses = expenses.filter(e => e.payment_status !== 'paid' && !e.is_settled);
@@ -820,6 +943,14 @@ export default function VariableExpenses() {
                 {selectedExpenses.length > 0 ? `Settle ${selectedExpenses.length} Selected` : 'Settle'}
               </Button>
             )}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowVendorManagement(true)}
+              className="text-gray-600"
+            >
+              <Building2 size={14} className="mr-1" /> Manage Vendors
+            </Button>
             <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">
               <Plus size={14} className="mr-1" /> Add Expense
             </Button>
@@ -1156,6 +1287,9 @@ export default function VariableExpenses() {
                                   <Eye size={12} className="text-green-600" />
                                 </Button>
                               )}
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleCopyExpense(expense)} title="Copy Expense">
+                                <Copy size={12} className="text-purple-600" />
+                              </Button>
                               <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleEdit(expense)}>
                                 <Edit2 size={12} className="text-blue-600" />
                               </Button>
@@ -1333,14 +1467,41 @@ export default function VariableExpenses() {
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-700 mb-1 block">Paid To (Vendor) *</label>
-                  <Input
-                    placeholder="Vendor/Person name"
-                    value={formData.paid_to}
-                    onChange={(e) => setFormData(prev => ({ ...prev, paid_to: e.target.value }))}
-                    className={`h-8 text-sm ${!formData.paid_to?.trim() ? 'border-orange-300' : ''}`}
-                    data-testid="paid-to-input"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-700">Paid To (Vendor) *</label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 text-xs text-blue-600 hover:text-blue-800 p-0"
+                      onClick={() => { setShowVendorDialog(true); resetVendorForm(); }}
+                    >
+                      <UserPlus size={12} className="mr-0.5" /> Add New
+                    </Button>
+                  </div>
+                  <Select 
+                    value={formData.vendor_id || ''} 
+                    onValueChange={(v) => {
+                      const vendor = vendors.find(vnd => vnd.id === v);
+                      setFormData(prev => ({ 
+                        ...prev, 
+                        vendor_id: v,
+                        paid_to: vendor?.name || ''
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className={`h-8 text-sm ${!formData.vendor_id ? 'border-orange-300' : ''}`} data-testid="paid-to-select">
+                      <SelectValue placeholder="Select Vendor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vendors.filter(v => v.is_active !== false).map(vendor => (
+                        <SelectItem key={vendor.id} value={vendor.id}>{vendor.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {vendors.length === 0 && (
+                    <p className="text-[10px] text-orange-500 mt-0.5">No vendors yet. Click "Add New" or use "Manage Vendors" to add.</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-700 mb-1 block">
@@ -2325,6 +2486,154 @@ export default function VariableExpenses() {
             </div>
           </div>
         )}
+
+        {/* Vendor Management Dialog */}
+        <Dialog open={showVendorManagement} onOpenChange={setShowVendorManagement}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 size={20} /> Vendor Management
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              {/* Actions */}
+              <div className="flex justify-between items-center">
+                <p className="text-sm text-gray-500">{vendors.length} vendors</p>
+                <div className="flex gap-2">
+                  {vendors.length === 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={migrateVendorsFromExpenses}
+                      className="text-orange-600"
+                    >
+                      <RefreshCw size={14} className="mr-1" /> Import from Expenses
+                    </Button>
+                  )}
+                  <Button 
+                    size="sm" 
+                    onClick={() => { resetVendorForm(); setShowVendorDialog(true); }}
+                    className="bg-[#14532D] hover:bg-[#166534]"
+                  >
+                    <Plus size={14} className="mr-1" /> Add Vendor
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Vendor List */}
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">VENDOR NAME</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">CONTACT</th>
+                      <th className="p-2 text-left text-xs font-medium text-gray-500">PHONE</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">STATUS</th>
+                      <th className="p-2 text-center text-xs font-medium text-gray-500">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendors.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-gray-500">
+                          No vendors added yet. Click "Add Vendor" to create your first vendor, or "Import from Expenses" to migrate existing vendor names.
+                        </td>
+                      </tr>
+                    ) : (
+                      vendors.map(vendor => (
+                        <tr key={vendor.id} className={`border-t hover:bg-gray-50 ${vendor.is_active === false ? 'opacity-50' : ''}`}>
+                          <td className="p-2 font-medium">{vendor.name}</td>
+                          <td className="p-2 text-gray-600">{vendor.contact || '-'}</td>
+                          <td className="p-2 text-gray-600">{vendor.phone || '-'}</td>
+                          <td className="p-2 text-center">
+                            <span className={`px-2 py-0.5 rounded text-xs ${vendor.is_active === false ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}`}>
+                              {vendor.is_active === false ? 'Inactive' : 'Active'}
+                            </span>
+                          </td>
+                          <td className="p-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleEditVendor(vendor)}>
+                                <Edit2 size={12} className="text-blue-600" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleDeleteVendor(vendor.id)}>
+                                <Trash2 size={12} className="text-red-600" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            <DialogFooter className="mt-4">
+              <Button variant="outline" onClick={() => setShowVendorManagement(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add/Edit Vendor Dialog */}
+        <Dialog open={showVendorDialog} onOpenChange={setShowVendorDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>{editingVendor ? 'Edit Vendor' : 'Add New Vendor'}</DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-3 py-2">
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Vendor Name *</label>
+                <Input
+                  placeholder="Enter vendor name"
+                  value={vendorForm.name}
+                  onChange={(e) => setVendorForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="h-8 text-sm"
+                  data-testid="vendor-name-input"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Contact Person</label>
+                <Input
+                  placeholder="Contact person name"
+                  value={vendorForm.contact}
+                  onChange={(e) => setVendorForm(prev => ({ ...prev, contact: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Phone Number</label>
+                <Input
+                  placeholder="Phone number"
+                  value={vendorForm.phone}
+                  onChange={(e) => setVendorForm(prev => ({ ...prev, phone: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Notes</label>
+                <Input
+                  placeholder="Additional notes (optional)"
+                  value={vendorForm.notes}
+                  onChange={(e) => setVendorForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+            
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setShowVendorDialog(false); resetVendorForm(); }}>
+                Cancel
+              </Button>
+              <Button onClick={handleVendorSubmit} className="bg-[#14532D] hover:bg-[#166534]">
+                {editingVendor ? 'Update' : 'Add Vendor'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

@@ -734,7 +734,8 @@ export default function FieldTeamDashboard() {
       date: row.date,
       quantity: row.rejection_qty,
       reason: row.reason || '',
-      remarks: row.remarks || ''
+      remarks: row.remarks || '',
+      mrp: row.mrp || 0  // Include MRP for rejection value calculation
     }));
     
     const newDraft = {
@@ -820,6 +821,8 @@ export default function FieldTeamDashboard() {
       const rejections = [];
       recordRejectionDrafts.forEach(draft => {
         draft.entries.forEach(entry => {
+          const mrp = entry.mrp || 0;
+          const quantity = entry.quantity || 0;
           rejections.push({
             retailer_id: recordRejectionRetailer.id,
             product_id: draft.product_id,
@@ -827,7 +830,9 @@ export default function FieldTeamDashboard() {
             variant_id: draft.variant_id || null,
             variant_name: draft.variant_name || '',
             rejection_date: entry.date,
-            quantity: entry.quantity,
+            quantity: quantity,
+            mrp: mrp,
+            rejection_value: mrp * quantity,  // Calculate rejection value
             reason: entry.reason || '',
             remarks: entry.remarks || ''
           });

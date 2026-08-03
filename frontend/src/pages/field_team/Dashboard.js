@@ -81,6 +81,7 @@ export default function FieldTeamDashboard() {
   const [recordRejectionEditingDraftKey, setRecordRejectionEditingDraftKey] = useState(null);
   const [retailerDispatchesForRejection, setRetailerDispatchesForRejection] = useState([]);
   const [retailerRejectionsForRejection, setRetailerRejectionsForRejection] = useState([]);
+  const [rejectionHistoryMap, setRejectionHistoryMap] = useState({}); // For detailed rejection history
   
   // Helper function to get IST date string
   const getLocalDateString = (date = new Date()) => {
@@ -557,6 +558,7 @@ export default function FieldTeamDashboard() {
     setRecordRejectionEditingDraftKey(null);
     setRetailerDispatchesForRejection([]);
     setRetailerRejectionsForRejection([]);
+    setRejectionHistoryMap({});
   };
 
   // Fetch dispatches and rejections for selected retailer
@@ -571,6 +573,22 @@ export default function FieldTeamDashboard() {
     } catch (error) {
       console.error('Error fetching retailer data for rejection:', error);
       toast.error('Failed to load retailer dispatch data');
+    }
+  };
+
+  // Fetch rejection history for a product (batch API) - same as Admin Portal
+  const fetchRejectionHistoryForProduct = async (retailerId, productId, variantId) => {
+    try {
+      const response = await api.post('/api/retailer-rejections/history-batch', {
+        retailer_id: retailerId,
+        product_ids: [productId],
+        variant_ids: variantId ? [variantId] : []
+      });
+      const history = response.data?.history || {};
+      setRejectionHistoryMap(history);
+    } catch (err) {
+      console.error('Failed to fetch rejection history:', err);
+      setRejectionHistoryMap({});
     }
   };
 
@@ -617,6 +635,20 @@ export default function FieldTeamDashboard() {
     const pid = recordRejectionProduct.product_id;
     const vid = recordRejectionProduct.variant_id || null;
     
+    // Get rejection history from batch API response
+    const compositeKey = vid ? `${pid}|${vid}` : pid;
+    const rejectionHistory = rejectionHistoryMap[compositeKey] || rejectionHistoryMap[pid] || { rejections: [], total_quantity: 0 };
+    
+    // Group rejections by date for quick lookup
+    const rejectionsByDate = {};
+    (rejectionHistory.rejections || []).forEach(rej => {
+      const rejDate = (rej.rejection_date || '').split('T')[0];
+      if (!rejectionsByDate[rejDate]) {
+        rejectionsByDate[rejDate] = [];
+      }
+      rejectionsByDate[rejDate].push(rej);
+    });
+    
     const dateMap = new Map();
     
     (retailerDispatchesForRejection || []).forEach(disp => {
@@ -637,14 +669,14 @@ export default function FieldTeamDashboard() {
       if (suppliedForRow <= 0) return;
       
       if (!dateMap.has(dateKey)) {
-        dateMap.set(dateKey, { supplied_qty: 0, existing_rejection: 0, mrp: 0 });
+        dateMap.set(dateKey, { supplied_qty: 0, existing_rejection: 0, mrp: 0, previous_rejections: [] });
       }
       const entry = dateMap.get(dateKey);
       entry.supplied_qty += suppliedForRow;
       if (mrpForRow > 0 && entry.mrp === 0) entry.mrp = mrpForRow;
     });
     
-    // Subtract existing rejections
+    // Subtract existing rejections and attach detailed history
     (retailerRejectionsForRejection || []).forEach(rej => {
       if (rej.product_id !== pid) return;
       if ((rej.variant_id || null) !== vid) return;
@@ -652,6 +684,11 @@ export default function FieldTeamDashboard() {
       if (dateMap.has(rejDate)) {
         dateMap.get(rejDate).existing_rejection += (rej.quantity || 0);
       }
+    });
+    
+    // Attach detailed previous rejections from history API
+    dateMap.forEach((data, dateKey) => {
+      data.previous_rejections = rejectionsByDate[dateKey] || [];
     });
     
     // Convert to array
@@ -663,11 +700,13 @@ export default function FieldTeamDashboard() {
         available_qty: Math.max(0, data.supplied_qty - data.existing_rejection),
         mrp: data.mrp,
         rejection_qty: 0,
-        selected: false
+        selected: false,
+        previous_rejections: data.previous_rejections,
+        total_previous_qty: data.existing_rejection
       }))
       .filter(row => row.available_qty > 0)
       .sort((a, b) => b.date.localeCompare(a.date));
-  }, [recordRejectionRetailer, recordRejectionProduct, retailerDispatchesForRejection, retailerRejectionsForRejection]);
+  }, [recordRejectionRetailer, recordRejectionProduct, retailerDispatchesForRejection, retailerRejectionsForRejection, rejectionHistoryMap]);
 
   // Update date rows when available dates change
   useEffect(() => {
@@ -741,7 +780,7 @@ export default function FieldTeamDashboard() {
     setRecordRejectionStep(2);
   };
 
-  const handleEditDraft = (draftKey) => {
+  const handleEditDraft = async (draftKey) => {
     const draft = recordRejectionDrafts.find(d => d.key === draftKey);
     if (!draft) return;
     
@@ -752,6 +791,14 @@ export default function FieldTeamDashboard() {
       variant_name: draft.variant_name
     });
     setRecordRejectionEditingDraftKey(draftKey);
+    
+    // Fetch rejection history for this product when editing
+    await fetchRejectionHistoryForProduct(
+      recordRejectionRetailer.id,
+      draft.product_id,
+      draft.variant_id
+    );
+    
     setRecordRejectionStep(3);
   };
 
@@ -1673,9 +1720,15 @@ export default function FieldTeamDashboard() {
                           .map((p, idx) => (
                             <div
                               key={idx}
-                              onClick={() => {
+                              onClick={async () => {
                                 setRecordRejectionProduct(p);
                                 setRecordRejectionProductSearch('');
+                                // Fetch rejection history for this product (same as Admin Panel)
+                                await fetchRejectionHistoryForProduct(
+                                  recordRejectionRetailer.id,
+                                  p.product_id,
+                                  p.variant_id
+                                );
                                 setRecordRejectionStep(3);
                               }}
                               className="p-3 hover:bg-red-50 cursor-pointer border-b last:border-b-0 text-sm flex justify-between"
@@ -1700,7 +1753,7 @@ export default function FieldTeamDashboard() {
                       <div className="text-center py-8 text-gray-400">No available dates for rejection (all dispatched quantity already rejected)</div>
                     ) : (
                       <div className="border rounded overflow-x-auto">
-                        <table className="w-full text-sm min-w-[600px]">
+                        <table className="w-full text-sm min-w-[650px]">
                           <thead className="bg-gray-50">
                             <tr>
                               <th className="p-2 text-left w-8">
@@ -1713,17 +1766,18 @@ export default function FieldTeamDashboard() {
                                 />
                               </th>
                               <th className="p-2 text-left">Date</th>
-                              <th className="p-2 text-right">Supplied</th>
-                              <th className="p-2 text-right">Already Rej.</th>
-                              <th className="p-2 text-right">Available</th>
-                              <th className="p-2 text-right">Reject Qty</th>
-                              <th className="p-2 text-left">Reason</th>
-                              <th className="p-2 text-left">Remarks</th>
+                              <th className="p-2 text-center">Supplied</th>
+                              <th className="p-2 text-center">Existing Rej.</th>
+                              <th className="p-2 text-center">New Qty</th>
+                              <th className="p-2 text-left min-w-[100px]">Reason</th>
+                              <th className="p-2 text-left min-w-[80px]">Remarks</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {recordRejectionDateRows.map((row, idx) => (
-                              <tr key={row.date} className="border-t hover:bg-gray-50">
+                            {recordRejectionDateRows.map((row, idx) => {
+                              const maxAllowed = (row.supplied_qty || 0) - (row.total_previous_qty || 0);
+                              return (
+                              <tr key={row.date} className={`border-t ${row.selected ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
                                 <td className="p-2">
                                   <input
                                     type="checkbox"
@@ -1731,31 +1785,62 @@ export default function FieldTeamDashboard() {
                                     onChange={(e) => {
                                       setRecordRejectionDateRows(prev => {
                                         const updated = [...prev];
-                                        updated[idx] = { ...updated[idx], selected: e.target.checked };
+                                        updated[idx] = { 
+                                          ...updated[idx], 
+                                          selected: e.target.checked,
+                                          rejection_qty: e.target.checked ? updated[idx].rejection_qty : 0,
+                                          reason: e.target.checked ? updated[idx].reason : ''
+                                        };
                                         return updated;
                                       });
                                     }}
                                   />
                                 </td>
-                                <td className="p-2 whitespace-nowrap">{row.date}</td>
-                                <td className="p-2 text-right">{row.supplied_qty}</td>
-                                <td className="p-2 text-right text-red-500">{row.existing_rejection}</td>
-                                <td className="p-2 text-right text-green-600 font-semibold">{row.available_qty}</td>
-                                <td className="p-2 text-right">
+                                <td className="p-2 whitespace-nowrap text-sm">
+                                  {new Date(row.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                </td>
+                                <td className="p-2 text-center text-gray-600">{row.supplied_qty}</td>
+                                <td className="p-2 text-center">
+                                  {(row.total_previous_qty || 0) > 0 ? (
+                                    <div className="relative group inline-block">
+                                      <span className="font-medium text-red-600 cursor-help">{row.total_previous_qty}</span>
+                                      <div className="absolute z-20 hidden group-hover:block bg-white border shadow-lg p-2 rounded text-xs w-48 left-0 top-full mt-1">
+                                        <div className="font-medium text-gray-700 mb-1">Previous Rejections:</div>
+                                        {(row.previous_rejections || []).map((pr, prIdx) => (
+                                          <div key={prIdx} className="text-gray-600 py-0.5 border-b last:border-0">
+                                            {pr.quantity} - {pr.reason || 'No reason'}
+                                            {pr.created_at && (
+                                              <div className="text-[10px] text-gray-400">
+                                                {new Date(pr.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                        {(!row.previous_rejections || row.previous_rejections.length === 0) && (
+                                          <div className="text-gray-400 text-xs">Details loading...</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-400">—</span>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center">
                                   <Input
                                     type="number"
                                     min="0"
-                                    max={row.available_qty}
+                                    max={maxAllowed}
                                     value={row.rejection_qty || ''}
                                     onChange={(e) => {
-                                      const val = Math.min(parseFloat(e.target.value) || 0, row.available_qty);
+                                      const val = Math.min(parseFloat(e.target.value) || 0, maxAllowed);
                                       setRecordRejectionDateRows(prev => {
                                         const updated = [...prev];
-                                        updated[idx] = { ...updated[idx], rejection_qty: val, selected: val > 0 };
+                                        updated[idx] = { ...updated[idx], rejection_qty: val, selected: val > 0 ? true : updated[idx].selected };
                                         return updated;
                                       });
                                     }}
-                                    className="w-16 h-7 text-right text-sm"
+                                    disabled={!row.selected}
+                                    className="w-16 h-7 text-center text-sm disabled:bg-gray-100"
                                   />
                                 </td>
                                 <td className="p-2">
@@ -1796,7 +1881,8 @@ export default function FieldTeamDashboard() {
                                   />
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

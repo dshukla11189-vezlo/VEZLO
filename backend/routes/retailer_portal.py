@@ -1783,7 +1783,7 @@ async def get_rejection_daily_summary(
     - Per retailer: list of products rejected with qty, value, reason
     - Daily totals
     """
-    if current_user["role"] not in ["admin", "staff", "retailer"]:
+    if current_user["role"] not in ["admin", "staff", "retailer", "field_team"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # Build query
@@ -1920,7 +1920,7 @@ async def get_rejection_history(
     NOTE: dispatch_id is IGNORED to fetch all rejections for this product/retailer
     regardless of which dispatch date the rejection was originally recorded against.
     """
-    if current_user["role"] not in ["admin", "staff", "retailer"]:
+    if current_user["role"] not in ["admin", "staff", "retailer", "field_team"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = {}
@@ -1973,7 +1973,7 @@ async def get_rejection_history_batch(
     Note: Returns BOTH product-level and product+variant level aggregations.
     Frontend should prefer the more specific product+variant key when available.
     """
-    if current_user["role"] not in ["admin", "staff", "retailer"]:
+    if current_user["role"] not in ["admin", "staff", "retailer", "field_team"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     retailer_id = input.get("retailer_id")
@@ -4563,7 +4563,7 @@ async def get_invoice_final_summary(
     Uses invoice's stored rejection data for accurate linking.
     Includes item-level details for expandable rows showing supply vs rejection.
     """
-    if current_user["role"] not in ["admin", "staff", "retailer"]:
+    if current_user["role"] not in ["admin", "staff", "retailer", "field_team"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # For retailer role, restrict to own data
@@ -5762,7 +5762,7 @@ async def get_retailer_statement(
     
     Returns date-wise sorted entries with running balance.
     """
-    if current_user["role"] not in ["admin", "staff", "retailer"]:
+    if current_user["role"] not in ["admin", "staff", "retailer", "field_team"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # For retailer role, restrict to own data

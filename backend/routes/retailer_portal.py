@@ -1227,9 +1227,9 @@ async def get_retailer_rejections(
 
 @router.post("/retailer-rejections")
 async def create_retailer_rejection(input: RetailerRejectionCreate, current_user: dict = Depends(get_current_user)):
-    # Only admin/staff can create rejections
-    if current_user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="Only admin/staff can record rejections")
+    # Admin, staff, and field_team can create rejections
+    if current_user["role"] not in ["admin", "staff", "field_team"]:
+        raise HTTPException(status_code=403, detail="Only admin/staff/field_team can record rejections")
     
     # Get retailer info
     retailer = await db.users.find_one({"id": input.retailer_id, "role": "retailer"}, {"_id": 0})

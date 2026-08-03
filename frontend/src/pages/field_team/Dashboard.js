@@ -682,10 +682,20 @@ export default function FieldTeamDashboard() {
       return;
     }
     
+    // Validate reason is selected for all entries
+    for (const row of selected) {
+      if (!row.reason) {
+        toast.error(`Please select a reason for the entry on ${row.date}`);
+        return;
+      }
+    }
+    
     const draftKey = `${recordRejectionProduct.product_id}__${recordRejectionProduct.variant_id || ''}`;
     const entries = selected.map(row => ({
       date: row.date,
-      quantity: row.rejection_qty
+      quantity: row.rejection_qty,
+      reason: row.reason || '',
+      remarks: row.remarks || ''
     }));
     
     const newDraft = {
@@ -770,7 +780,9 @@ export default function FieldTeamDashboard() {
             variant_id: draft.variant_id || null,
             variant_name: draft.variant_name || '',
             rejection_date: entry.date,
-            quantity: entry.quantity
+            quantity: entry.quantity,
+            reason: entry.reason || '',
+            remarks: entry.remarks || ''
           });
         });
       });
@@ -1687,8 +1699,8 @@ export default function FieldTeamDashboard() {
                     {recordRejectionDateRows.length === 0 ? (
                       <div className="text-center py-8 text-gray-400">No available dates for rejection (all dispatched quantity already rejected)</div>
                     ) : (
-                      <div className="border rounded overflow-hidden">
-                        <table className="w-full text-sm">
+                      <div className="border rounded overflow-x-auto">
+                        <table className="w-full text-sm min-w-[600px]">
                           <thead className="bg-gray-50">
                             <tr>
                               <th className="p-2 text-left w-8">
@@ -1702,9 +1714,11 @@ export default function FieldTeamDashboard() {
                               </th>
                               <th className="p-2 text-left">Date</th>
                               <th className="p-2 text-right">Supplied</th>
-                              <th className="p-2 text-right">Already Rejected</th>
+                              <th className="p-2 text-right">Already Rej.</th>
                               <th className="p-2 text-right">Available</th>
                               <th className="p-2 text-right">Reject Qty</th>
+                              <th className="p-2 text-left">Reason</th>
+                              <th className="p-2 text-left">Remarks</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1723,7 +1737,7 @@ export default function FieldTeamDashboard() {
                                     }}
                                   />
                                 </td>
-                                <td className="p-2">{row.date}</td>
+                                <td className="p-2 whitespace-nowrap">{row.date}</td>
                                 <td className="p-2 text-right">{row.supplied_qty}</td>
                                 <td className="p-2 text-right text-red-500">{row.existing_rejection}</td>
                                 <td className="p-2 text-right text-green-600 font-semibold">{row.available_qty}</td>
@@ -1741,7 +1755,44 @@ export default function FieldTeamDashboard() {
                                         return updated;
                                       });
                                     }}
-                                    className="w-20 h-8 text-right"
+                                    className="w-16 h-7 text-right text-sm"
+                                  />
+                                </td>
+                                <td className="p-2">
+                                  <select
+                                    value={row.reason || ''}
+                                    onChange={(e) => {
+                                      setRecordRejectionDateRows(prev => {
+                                        const updated = [...prev];
+                                        updated[idx] = { ...updated[idx], reason: e.target.value };
+                                        return updated;
+                                      });
+                                    }}
+                                    disabled={!row.selected}
+                                    className="w-full min-w-[90px] h-7 px-1 rounded border text-sm disabled:bg-gray-100"
+                                  >
+                                    <option value="">Select</option>
+                                    <option value="Rotten">Rotten</option>
+                                    <option value="Damaged">Damaged</option>
+                                    <option value="Quality Issue">Quality Issue</option>
+                                    <option value="Expired">Expired</option>
+                                    <option value="Other">Other</option>
+                                  </select>
+                                </td>
+                                <td className="p-2">
+                                  <input
+                                    type="text"
+                                    value={row.remarks || ''}
+                                    onChange={(e) => {
+                                      setRecordRejectionDateRows(prev => {
+                                        const updated = [...prev];
+                                        updated[idx] = { ...updated[idx], remarks: e.target.value };
+                                        return updated;
+                                      });
+                                    }}
+                                    disabled={!row.selected}
+                                    placeholder="Optional"
+                                    className="w-full min-w-[70px] h-7 px-2 rounded border text-sm disabled:bg-gray-100"
                                   />
                                 </td>
                               </tr>

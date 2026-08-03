@@ -10,10 +10,15 @@
 - **Password**: staff123
 - **Role**: Staff
 
+## Staff Account (Samrath Salunke)
+- **Email**: samrathsalunke2@gmail.com
+- **Password**: staff123
+- **Role**: Staff
+
 ## Field Team Accounts
 | Name | Email | Password | Assigned Retailers |
 |------|-------|----------|-------------------|
-| Ayaz Md Rafik Shaikh | ayaz.shaikh2026@gmail.com | fieldteam123 | Anjali Supermarket |
+| Ayaz Md Rafik Shaikh | ayaz.shaikh2026@gmail.com | fieldteam123 | Tamanna Mart |
 
 ## Retailer Portal
 - **URL**: https://harvest-hub-384.preview.emergentagent.com/login
@@ -35,7 +40,8 @@
 | Narang Super Mart | Narangsupermart@gmail.com |
 
 ## Notes
-- **August 1, 2026**: Field Team Dashboard implemented. Gaurav has 2 retailers assigned.
+- **August 3, 2026**: Fixed Field Team backend queries to use `assigned_to` array instead of Staff model
+- **August 1, 2026**: Field Team Dashboard implemented. Ayaz has 1 retailer assigned (Tamanna Mart)
 - **July 13, 2026**: Retailer passwords set to 'retailer123' for Tamanna Mart and Bagwan
 - Production credentials may differ - this file is for preview/testing only
 - Database: `test_database`

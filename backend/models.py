@@ -97,7 +97,7 @@ class UserResponse(BaseModel):
     category: Optional[str] = None
     shop_type: Optional[str] = None
     shop_type_remark: Optional[str] = None
-    assigned_to: Optional[str] = None
+    assigned_to: Optional[Union[str, List[str]]] = None  # String for staff, List for field_team
     commission_percentage: Optional[float] = 0
 
 class AuthResponse(BaseModel):

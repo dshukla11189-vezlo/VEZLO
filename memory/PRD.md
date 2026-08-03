@@ -2,6 +2,28 @@
 
 ## Changelog (August 2026)
 
+### August 3, 2026 - Field Team Record Rejection Flow Fix ✅
+- **BUG FIX**: Fixed Field Team Dashboard showing "No retailers assigned to you"
+  - **Root Cause**: Backend was querying retailers with `assigned_to: field_team_id` (Staff model)
+  - **Actual Data Model**: Field Team users have `assigned_to` as an ARRAY of retailer IDs they manage
+  - Backend fixes in `/app/backend/routes/field_team.py`:
+    - Added `get_field_team_assigned_retailer_ids()` helper function
+    - Added `verify_retailer_assigned_to_field_team()` helper function
+    - Updated `GET /api/field-team/assigned-retailers` - now queries FT user's assigned_to array
+    - Updated `GET /api/field-team/portfolio-summary` - same fix
+    - Updated all retailer authorization checks to use new helpers
+  - Model fix in `/app/backend/models.py`:
+    - Changed `UserResponse.assigned_to` from `Optional[str]` to `Optional[Union[str, List[str]]]`
+    - Allows both string (Staff) and array (Field Team) data types
+
+- **VERIFIED**: Field Team Record Rejection flow now works identically to Admin panel:
+  - Step 1: Select Retailer (ONLY assigned retailers shown)
+  - Step 2: Select Product (products dispatched to selected retailer)
+  - Step 3: Select Dates with **Reason dropdown** and **Remarks text input** columns
+  - Add to Draft functionality working
+  - Submit All functionality working
+  - Drafts panel displays: Product, Variant, # Entries, Total Qty, Actions (edit/delete)
+
 ### August 2, 2026 - Mobile Horizontal Scroll Fix for Retailer Portal Header Buttons ✅
 - **BUG FIX**: Staff/Admin on mobile can now horizontally scroll header buttons in Retailer Orders
   - Problem: Buttons like "Auto Indent", "New Indent", "Select Retailer", "Record Rejection" were cut off on mobile

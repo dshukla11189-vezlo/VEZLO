@@ -25,20 +25,74 @@ def get_ist_today():
     return datetime.now(ist).date()
 
 
+async def get_field_team_assigned_retailer_ids(field_team_id: str) -> List[str]:
+    """
+    Get list of retailer IDs assigned to a field team member.
+    Field Team users have 'assigned_to' as an array of retailer IDs they manage.
+    """
+    ft_user = await db.users.find_one({"id": field_team_id}, {"_id": 0, "assigned_to": 1})
+    if not ft_user:
+        return []
+    
+    assigned_ids = ft_user.get("assigned_to", [])
+    # Handle both list and string (backward compatibility)
+    if isinstance(assigned_ids, str):
+        return [assigned_ids] if assigned_ids else []
+    return assigned_ids if assigned_ids else []
+
+
+async def verify_retailer_assigned_to_field_team(retailer_id: str, field_team_id: str) -> dict:
+    """
+    Verify a retailer is assigned to the field team member and return the retailer doc.
+    Raises HTTPException if not found or not assigned.
+    """
+    assigned_ids = await get_field_team_assigned_retailer_ids(field_team_id)
+    
+    if retailer_id not in assigned_ids:
+        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    
+    retailer = await db.users.find_one(
+        {"id": retailer_id, "role": "retailer"},
+        {"_id": 0, "password": 0}
+    )
+    
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    
+    return retailer
+
+
 @router.get("/field-team/assigned-retailers")
 async def get_assigned_retailers(current_user: dict = Depends(get_current_user)):
     """
     Get list of retailers assigned to the current Field Team member.
     Returns basic retailer info for dropdown selection.
+    
+    Note: Field Team users have 'assigned_to' as an array of retailer IDs they manage.
     """
     if current_user.get("role") != "field_team":
         raise HTTPException(status_code=403, detail="Only field team members can access this endpoint")
     
     field_team_id = current_user.get("user_id")
     
-    # Find all retailers assigned to this field team member
+    # Get the field team user to retrieve their assigned retailer IDs
+    ft_user = await db.users.find_one({"id": field_team_id}, {"_id": 0, "assigned_to": 1})
+    assigned_retailer_ids = ft_user.get("assigned_to", []) if ft_user else []
+    
+    # Handle both list and string (backward compatibility)
+    if isinstance(assigned_retailer_ids, str):
+        assigned_retailer_ids = [assigned_retailer_ids] if assigned_retailer_ids else []
+    
+    if not assigned_retailer_ids:
+        return {
+            "field_team_id": field_team_id,
+            "assigned_count": 0,
+            "retailers": []
+        }
+    
+    # Find retailers by their IDs
     retailers = await db.users.find(
-        {"role": "retailer", "assigned_to": field_team_id},
+        {"id": {"$in": assigned_retailer_ids}, "role": "retailer"},
         {"_id": 0, "password": 0}
     ).to_list(500)
     
@@ -56,6 +110,8 @@ async def get_field_team_portfolio_summary(
     """
     Get aggregated portfolio summary for Field Team member.
     Shows cumulative metrics across all assigned retailers.
+    
+    Note: Field Team users have 'assigned_to' as an array of retailer IDs they manage.
     """
     if current_user.get("role") != "field_team":
         raise HTTPException(status_code=403, detail="Only field team members can access this endpoint")
@@ -63,9 +119,34 @@ async def get_field_team_portfolio_summary(
     field_team_id = current_user.get("user_id")
     today = get_ist_today()
     
-    # Get all assigned retailers
+    # Get the field team user to retrieve their assigned retailer IDs
+    ft_user = await db.users.find_one({"id": field_team_id}, {"_id": 0, "assigned_to": 1})
+    assigned_retailer_ids = ft_user.get("assigned_to", []) if ft_user else []
+    
+    # Handle both list and string (backward compatibility)
+    if isinstance(assigned_retailer_ids, str):
+        assigned_retailer_ids = [assigned_retailer_ids] if assigned_retailer_ids else []
+    
+    if not assigned_retailer_ids:
+        return {
+            "field_team_id": field_team_id,
+            "total_retailers": 0,
+            "active_retailers": 0,
+            "churned_retailers": 0,
+            "summary": {
+                "total_outstanding": 0,
+                "immediately_payable": 0,
+                "overdue": 0,
+                "pending_indents": 0,
+                "today_dispatches": 0,
+                "today_dispatch_value": 0
+            },
+            "retailer_summaries": []
+        }
+    
+    # Get all assigned retailers by their IDs
     retailers = await db.users.find(
-        {"role": "retailer", "assigned_to": field_team_id},
+        {"id": {"$in": assigned_retailer_ids}, "role": "retailer"},
         {"_id": 0, "id": 1, "name": 1, "company_name": 1, "upfront_collection_percentage": 1, "commission_percentage": 1, "status": 1}
     ).to_list(500)
     
@@ -265,13 +346,7 @@ async def get_retailer_dashboard_for_field_team(
     field_team_id = current_user.get("user_id")
     
     # Verify this retailer is assigned to the field team member
-    retailer = await db.users.find_one(
-        {"id": retailer_id, "role": "retailer", "assigned_to": field_team_id},
-        {"_id": 0, "password": 0}
-    )
-    
-    if not retailer:
-        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    retailer = await verify_retailer_assigned_to_field_team(retailer_id, field_team_id)
     
     today = get_ist_today()
     today_str = today.isoformat()
@@ -445,13 +520,7 @@ async def create_indent_for_retailer(
     field_team_id = current_user.get("user_id")
     
     # Verify this retailer is assigned to the field team member
-    retailer = await db.users.find_one(
-        {"id": retailer_id, "role": "retailer", "assigned_to": field_team_id},
-        {"_id": 0, "password": 0}
-    )
-    
-    if not retailer:
-        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    retailer = await verify_retailer_assigned_to_field_team(retailer_id, field_team_id)
     
     # Get packagings for variant lookup
     all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(200)
@@ -524,13 +593,7 @@ async def get_retailer_payment_details_for_field_team(
     field_team_id = current_user.get("user_id")
     
     # Verify this retailer is assigned to the field team member
-    retailer = await db.users.find_one(
-        {"id": retailer_id, "role": "retailer", "assigned_to": field_team_id},
-        {"_id": 0}
-    )
-    
-    if not retailer:
-        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    retailer = await verify_retailer_assigned_to_field_team(retailer_id, field_team_id)
     
     today = get_ist_today()
     upfront_pct = retailer.get("upfront_collection_percentage", 50)
@@ -672,13 +735,7 @@ async def verify_field_team_retailer_access(current_user: dict, retailer_id: str
     field_team_id = current_user.get("user_id")
     
     # Verify this retailer is assigned to the field team member
-    retailer = await db.users.find_one(
-        {"id": retailer_id, "role": "retailer", "assigned_to": field_team_id},
-        {"_id": 0, "password": 0}
-    )
-    
-    if not retailer:
-        raise HTTPException(status_code=404, detail="Retailer not found or not assigned to you")
+    retailer = await verify_retailer_assigned_to_field_team(retailer_id, field_team_id)
     
     return retailer
 

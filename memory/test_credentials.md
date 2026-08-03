@@ -18,7 +18,7 @@
 ## Field Team Accounts
 | Name | Email | Password | Assigned Retailers |
 |------|-------|----------|-------------------|
-| Ayaz Md Rafik Shaikh | ayaz.shaikh2025@gmail.com | fieldteam123 | Tamanna Mart |
+| Ayaz Md Rafik Shaikh | ayaz.shaikh2025@gmail.com | fieldteam123 | 16 retailers including Tamanna Mart, Anjali Supermarket |
 
 ## Retailer Portal
 - **URL**: https://harvest-hub-384.preview.emergentagent.com/login

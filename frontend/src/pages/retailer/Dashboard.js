@@ -803,12 +803,17 @@ export default function RetailerDashboard({
 
   // Load Daily Rejection Summary (grouped by recorded date)
   const loadDailyRejectionSummary = useCallback(async () => {
-    if (!dashboardData?.retailer?.id) return;
+    // Get retailer ID - use selectedRetailerId in fieldTeamMode, otherwise use dashboardData
+    const retailerId = fieldTeamMode ? selectedRetailerId : dashboardData?.retailer?.id;
+    if (!retailerId) return;
+    
     setLoadingDailySummary(true);
     try {
       const params = new URLSearchParams();
       params.append('start_date', rejectionDateFrom);
       params.append('end_date', rejectionDateTo);
+      // Always pass retailer_id to ensure filtering by specific retailer
+      params.append('retailer_id', retailerId);
       const response = await api.get(`/api/retailer-rejections/daily-summary?${params.toString()}`);
       setDailyRejectionSummary(response.data?.daily_summary || []);
     } catch (error) {
@@ -817,7 +822,7 @@ export default function RetailerDashboard({
     } finally {
       setLoadingDailySummary(false);
     }
-  }, [dashboardData?.retailer?.id, rejectionDateFrom, rejectionDateTo]);
+  }, [fieldTeamMode, selectedRetailerId, dashboardData?.retailer?.id, rejectionDateFrom, rejectionDateTo]);
 
   // Open Payment Summary Modal
   const openPaymentSummaryModal = () => {

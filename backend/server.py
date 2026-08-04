@@ -1321,7 +1321,7 @@ async def reconcile_missing_credit_notes_scheduled():
                     from routes.retailer_portal import normalize_dispatch_ids
                     potential_invoices = await db.retailer_invoices.find({
                         "retailer_id": retailer_id
-                    }, {"_id": 0}).to_list(500)
+                    }, {"_id": 0}).to_list(2000)
                     
                     for inv in potential_invoices:
                         raw_dispatch_ids = inv.get("dispatch_ids")
@@ -1521,7 +1521,7 @@ async def get_retailer_inventory(
     if date:
         query["date"] = date
     
-    inventory = await db.retailer_inventory.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    inventory = await db.retailer_inventory.find(query, {"_id": 0}).sort("date", -1).to_list(2000)
     return inventory
 
 @app.post("/api/retailer-inventory/generate/{retailer_id}")
@@ -1551,7 +1551,7 @@ async def generate_retailer_inventory(
     prev_date = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
     prev_inventory = await db.retailer_inventory.find(
         {"retailer_id": retailer_id, "date": prev_date}, {"_id": 0}
-    ).to_list(500)
+    ).to_list(2000)
     prev_closing = {(i["product_id"], i.get("variant_name", "")): i.get("closing_qty", 0) for i in prev_inventory}
     
     # Aggregate items from all dispatches
@@ -1770,7 +1770,7 @@ async def get_retailer_product_variants(
     
     dispatches = await db.retailer_dispatches.find({
         "retailer_id": retailer_id
-    }, {"_id": 0}).to_list(500)
+    }, {"_id": 0}).to_list(5000)
     
     # Build product -> variants mapping from dispatch items
     # Note: Field names are variant_id and variant_name (not packaging_id/packaging_name)
@@ -1950,7 +1950,7 @@ async def get_retailer_closing_inventory(
         query["closing_date"] = date
     
     # Get closing inventory records
-    closing_records = await db.retailer_closing_inventory.find(query, {"_id": 0}).sort("closing_date", -1).to_list(500)
+    closing_records = await db.retailer_closing_inventory.find(query, {"_id": 0}).sort("closing_date", -1).to_list(2000)
     return closing_records
 
 @app.get("/api/retailer-closing-inventory/dates/{retailer_id}")
@@ -2046,7 +2046,7 @@ async def record_retailer_closing_inventory(
         next_day_records = await db.retailer_daily_sales.find(
             {"retailer_id": retailer_id, "date": next_date},
             {"_id": 0}
-        ).to_list(500)
+        ).to_list(1000)
         
         if next_day_records:
             # Recompute next day's records since D's closing (their opening) just changed
@@ -2112,7 +2112,7 @@ async def compute_and_upsert_daily_sales(
         prev_items = await db_ref.retailer_closing_inventory.find(
             {"retailer_id": retailer_id, "closing_date": prev_date},
             {"_id": 0}
-        ).to_list(500)
+        ).to_list(1000)
         
         # TIMING-BASED ADJUSTMENT (same as Change 1)
         closing_timestamps = [item.get("created_at", "") for item in prev_items if item.get("created_at")]
@@ -2380,7 +2380,7 @@ async def backfill_retailer_daily_sales(
         retailers = await db.users.find(
             {"role": "retailer"},
             {"_id": 0, "id": 1, "name": 1, "company_name": 1}
-        ).to_list(500)
+        ).to_list(1000)
     
     records_created = 0
     
@@ -2398,7 +2398,7 @@ async def backfill_retailer_daily_sales(
             closing_items = await db.retailer_closing_inventory.find(
                 {"retailer_id": ret_id, "closing_date": date_str},
                 {"_id": 0}
-            ).to_list(500)
+            ).to_list(1000)
             
             if closing_items:
                 # Convert to the format expected by compute_and_upsert_daily_sales
@@ -2451,7 +2451,7 @@ async def get_retailer_closing_summary(
     closing_items = await db.retailer_closing_inventory.find(
         {"retailer_id": retailer_id, "closing_date": date},
         {"_id": 0}
-    ).to_list(500)
+    ).to_list(1000)
     
     # Get previous day's closing (for opening qty)
     # Build multiple lookup maps: one with variant, one without (product-level)
@@ -2461,7 +2461,7 @@ async def get_retailer_closing_summary(
         prev_items = await db.retailer_closing_inventory.find(
             {"retailer_id": retailer_id, "closing_date": prev_date_str},
             {"_id": 0}
-        ).to_list(500)
+        ).to_list(1000)
         
         # TIMING-BASED ADJUSTMENT:
         # If closing was recorded BEFORE dispatch arrived on previous day,
@@ -2542,10 +2542,13 @@ async def get_retailer_closing_summary(
                             prev_closing_product_only[product_id] = 0
                         prev_closing_product_only[product_id] += supplied_qty
     
-    # Get dispatches for this date (received qty) and build variant name map from ALL dispatches
+    # Get dispatches for this date (received qty) and build variant name map from recent dispatches (last 90 days)
+    # Filter by date range to avoid unbounded growth
+    cutoff_date = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=90)).strftime("%Y-%m-%d")
     dispatches = await db.retailer_dispatches.find({
-        "retailer_id": retailer_id
-    }, {"_id": 0}).to_list(500)
+        "retailer_id": retailer_id,
+        "dispatch_date": {"$gte": cutoff_date}
+    }, {"_id": 0}).to_list(5000)
     
     received_qty = {}
     variant_name_map = {}  # Map to store best variant names from all dispatches
@@ -2594,7 +2597,7 @@ async def get_retailer_closing_summary(
     rejections = await db.retailer_rejections.find({
         "retailer_id": retailer_id,
         "rejection_date": {"$regex": f"^{date}"}
-    }, {"_id": 0}).to_list(500)
+    }, {"_id": 0}).to_list(1000)
     
     rejection_qty = {}
     for r in rejections:
@@ -2608,7 +2611,7 @@ async def get_retailer_closing_summary(
     seen_product_variants = {}  # Track by product_id + variant_name for deduplication
     
     # Get ALL products to include in the result
-    all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+    all_products = await db.products.find({}, {"_id": 0}).to_list(2000)
     
     # First: Add all products from the product list (even those without activity)
     for product in all_products:
@@ -2917,8 +2920,10 @@ async def calculate_daily_purchase_requirement(
         # Parse target date
         target = datetime.strptime(target_date, "%Y-%m-%d").date()
         
-        # Build indent query - match indents for the target date
-        indent_query = {}
+        # Build indent query - match indents for the target date directly in MongoDB
+        indent_query = {
+            "indent_date": {"$regex": f"^{target_date}"}  # Match dates starting with target_date (handles datetime strings)
+        }
         retailer_name = "All Retailers"
         
         if retailer_id:
@@ -2927,20 +2932,8 @@ async def calculate_daily_purchase_requirement(
             if retailer:
                 retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
         
-        # Fetch all indents for the target date
-        all_indents = await db.retailer_indents.find(indent_query, {"_id": 0}).to_list(500)
-        
-        # Filter indents for target date (handle both date string and datetime formats)
-        target_indents = []
-        for indent in all_indents:
-            indent_date_raw = indent.get("indent_date", "")
-            if isinstance(indent_date_raw, str):
-                indent_date_str = indent_date_raw[:10]
-            else:
-                indent_date_str = str(indent_date_raw)[:10]
-            
-            if indent_date_str == target_date:
-                target_indents.append(indent)
+        # Fetch indents directly filtered by date in MongoDB (no Python filtering needed)
+        target_indents = await db.retailer_indents.find(indent_query, {"_id": 0}).to_list(10000)
         
         if not target_indents:
             return {
@@ -2952,8 +2945,8 @@ async def calculate_daily_purchase_requirement(
                 "indent_count": 0
             }
         
-        # Get all products for category lookup
-        all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+        # Get all products for category lookup (reference data, increase limit)
+        all_products = await db.products.find({}, {"_id": 0}).to_list(2000)
         product_info_map = {}
         for p in all_products:
             product_info_map[p.get("id")] = {
@@ -2964,8 +2957,8 @@ async def calculate_daily_purchase_requirement(
                 "variants": p.get("variants", [])
             }
         
-        # Get catalogue items for purchase variant info
-        all_catalogue = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(500)
+        # Get catalogue items for purchase variant info (reference data, increase limit)
+        all_catalogue = await db.retailer_catalogue.find({}, {"_id": 0}).to_list(5000)
         catalogue_map = {}
         for cat in all_catalogue:
             catalogue_map[cat.get("product_id")] = {
@@ -2977,7 +2970,7 @@ async def calculate_daily_purchase_requirement(
         # Build variant to weight mapping (variant_id -> weight_in_kg) and name mapping
         variant_weight_map = {}
         variant_name_map = {}  # variant_id -> name
-        all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(500)
+        all_packagings = await db.qc_packaging.find({}, {"_id": 0}).to_list(1000)
         for pkg in all_packagings:
             variant_id = pkg.get("id")
             variant_name = pkg.get("name", "").lower()
@@ -2999,7 +2992,7 @@ async def calculate_daily_purchase_requirement(
         ).to_list(5000)
         
         # Get all products for product_id mapping
-        all_products = await db.products.find({}, {"_id": 0}).to_list(500)
+        all_products = await db.products.find({}, {"_id": 0}).to_list(2000)
         product_name_to_id = {}
         for p in all_products:
             product_name_to_id[p.get("name", "").strip().lower()] = p.get("id")

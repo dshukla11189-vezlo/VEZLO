@@ -66,7 +66,7 @@ export default function StockStatus() {
   const [fixingPurchases, setFixingPurchases] = useState(false);
   
   // Auto-refresh interval (30 seconds)
-  const AUTO_REFRESH_INTERVAL = 30000;
+  const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds - reduced from 30s for better performance
 
   const loadProducts = useCallback(async () => {
     try {

@@ -1080,6 +1080,25 @@ async def startup_event():
             # QC Orders
             await db.qc_orders.create_index("order_date")
             
+            # Additional compound indexes for performance (date-range queries)
+            # Retailer rejections - compound for daily-summary queries
+            await db.retailer_rejections.create_index([("created_at", -1)])
+            await db.retailer_rejections.create_index([("retailer_id", 1), ("product_id", 1), ("rejection_date", -1)])
+            
+            # Daily COGS - for historical queries
+            await db.daily_cogs.create_index([("date", -1)])
+            await db.daily_cogs.create_index([("date", -1), ("product_id", 1)])
+            
+            # Variable expenses - for date-range P&L queries
+            await db.variable_expenses.create_index([("date", -1)])
+            await db.variable_expenses.create_index([("date", -1), ("vendor_id", 1)])
+            
+            # Users - for role-based queries
+            await db.users.create_index([("role", 1), ("assigned_to", 1)])
+            
+            # Vendors
+            await db.vendors.create_index([("is_active", 1)])
+            
             logger.info("Database indexes created successfully")
         except Exception as idx_error:
             logger.warning(f"Index creation warning (may already exist): {idx_error}")

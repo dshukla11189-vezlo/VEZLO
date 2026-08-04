@@ -25,7 +25,7 @@ Document structure:
 }
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime, timedelta
 import logging
@@ -385,15 +385,43 @@ async def save_daily_cogs(db: AsyncIOMotorDatabase, cogs_data: dict):
 
 @router.get("")
 async def get_all_daily_cogs(
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = Query(default=1000, le=5000, description="Max records to return (max 5000)"),
+    skip: int = Query(default=0, ge=0, description="Records to skip for pagination"),
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """Get all daily_cogs records for sync purposes."""
+    """
+    Get daily_cogs records with pagination and optional date filtering.
+    Default limit is 1000, max is 5000 per request.
+    Use start_date and end_date for date range filtering (YYYY-MM-DD).
+    """
     if current_user.get("role") not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    records = await db.daily_cogs.find({}, {"_id": 0}).to_list(50000)
-    return records
+    query = {}
+    if start_date or end_date:
+        date_filter = {}
+        if start_date:
+            date_filter["$gte"] = start_date
+        if end_date:
+            date_filter["$lte"] = end_date
+        if date_filter:
+            query["date"] = date_filter
+    
+    # Get total count for pagination info
+    total_count = await db.daily_cogs.count_documents(query)
+    
+    records = await db.daily_cogs.find(query, {"_id": 0}).sort("date", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return {
+        "records": records,
+        "total": total_count,
+        "limit": limit,
+        "skip": skip,
+        "has_more": (skip + len(records)) < total_count
+    }
 
 
 @router.post("/backfill")

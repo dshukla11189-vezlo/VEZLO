@@ -80,9 +80,8 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
       {/* Sidebar */}
       <div className={sidebarClasses} data-testid="sidebar">
         <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-[#14532D]" data-testid="app-title">{t('app.title')}</h1>
-            <p className="text-sm text-gray-500 mt-1">{user?.role?.toUpperCase()}</p>
+          <div className="flex items-center gap-2">
+            <img src="/vezlo-logo.png" alt="Vezlo Logo" className="h-10 w-auto" />
           </div>
           {/* X close button - always visible for accessibility */}
           <button

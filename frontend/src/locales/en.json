@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Mr Organix",
+    "title": "Vezlo",
     "dashboard": "Dashboard",
     "products": "Products",
     "retailPlans": "Retail Plans",
@@ -27,7 +27,7 @@
     "pendingPayments": "Pending Payments",
     "todayWastage": "Today Wastage (Kg)",
     "overview": "Overview",
-    "welcomeMessage": "Welcome to Mr Organix dashboard. Track your daily operations, manage inventory, and monitor business performance.",
+    "welcomeMessage": "Welcome to Vezlo dashboard. Track your daily operations, manage inventory, and monitor business performance.",
     "status": "Status",
     "allSystemsOperational": "All Systems Operational",
     "quickActions": "Quick Actions",

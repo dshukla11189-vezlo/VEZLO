@@ -43,8 +43,8 @@ export default function Login() {
     <div className="login-container" data-testid="login-page">
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="text-center">
-          <div className="mb-4">
-            <h1 className="text-3xl font-bold text-[#14532D]" data-testid="login-title">Mr Organix</h1>
+          <div className="mb-4 flex items-center justify-center gap-3">
+            <img src="/vezlo-logo.png" alt="Vezlo Logo" className="h-16 w-auto" />
           </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
           <CardDescription>Sign in to your account to continue</CardDescription>

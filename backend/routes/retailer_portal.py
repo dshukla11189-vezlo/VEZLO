@@ -2876,23 +2876,88 @@ async def update_credit_note(credit_note_id: str, input: dict, current_user: dic
 
 @router.get("/retailer-credit-notes/summary/{retailer_id}")
 async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Depends(get_current_user)):
-    """Get credit note summary for a retailer"""
+    """Get credit note summary for a retailer grouped by INVOICE (supply date)
+    Returns the same structure as /retailer-credit-notes/my-summary for parity.
+    """
     # Allow admin, staff, and field_team roles
     if current_user.get("role") not in ["admin", "staff", "field_team"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    all_cns = await db.retailer_credit_notes.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(50000)
+    # Fetch all credit notes for this retailer
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
     
-    total_credit_issued = sum(cn.get("amount", 0) for cn in all_cns)
-    total_adjusted = sum(cn.get("adjusted_amount", 0) for cn in all_cns)
-    total_pending = sum(cn.get("pending_amount", cn.get("amount", 0)) for cn in all_cns if cn.get("status") in ["pending", "partial"])
+    # Calculate summary totals
+    total_issued = sum(cn.get("amount", 0) or 0 for cn in credit_notes)
+    total_adjusted = sum(cn.get("adjusted_amount", 0) or 0 for cn in credit_notes)
+    # Calculate pending properly: amount - adjusted_amount (not using stored pending_amount which may be stale)
+    total_pending = sum((cn.get("amount", 0) or 0) - (cn.get("adjusted_amount", 0) or 0) for cn in credit_notes)
+    
+    # Group credit notes by INVOICE (original_invoice_number)
+    # This shows all rejections for a particular supply/invoice together
+    from collections import defaultdict
+    invoice_groups = defaultdict(lambda: {"credit_notes": [], "total_credit": 0, "invoice_date": None})
+    
+    for cn in credit_notes:
+        invoice_num = cn.get("original_invoice_number") or "Unknown Invoice"
+        invoice_groups[invoice_num]["credit_notes"].append(cn)
+        invoice_groups[invoice_num]["total_credit"] += cn.get("amount", 0)
+        
+        # Extract invoice date from invoice number (format: XXX-INV-DDMMMYYYY-NNN)
+        # e.g., SAV-INV-01JUN2026-001 -> 2026-06-01
+        if not invoice_groups[invoice_num]["invoice_date"]:
+            try:
+                # Try to extract date from invoice number
+                parts = invoice_num.split('-')
+                if len(parts) >= 3:
+                    date_part = parts[2]  # e.g., "01JUN2026"
+                    if len(date_part) >= 9:
+                        day = date_part[:2]
+                        month_str = date_part[2:5].upper()
+                        year = date_part[5:9]
+                        month_map = {'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04', 
+                                     'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
+                                     'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'}
+                        month = month_map.get(month_str, '01')
+                        invoice_groups[invoice_num]["invoice_date"] = f"{year}-{month}-{day}"
+            except:
+                pass
+    
+    # Convert to sorted list (newest invoice first)
+    invoices_list = []
+    for invoice_num, group in sorted(invoice_groups.items(), key=lambda x: x[1].get("invoice_date") or "0000-00-00", reverse=True):
+        # Enhance each credit note with calculated pending amount
+        enhanced_credit_notes = []
+        for cn in group["credit_notes"]:
+            # Calculate actual pending amount
+            cn_amount = cn.get("amount", 0) or 0
+            cn_adjusted = cn.get("adjusted_amount", 0) or 0
+            cn_pending = cn_amount - cn_adjusted
+            
+            # Add calculated pending to the CN data
+            enhanced_cn = dict(cn)
+            enhanced_cn["pending_amount"] = round(cn_pending, 2)
+            enhanced_cn["is_fully_adjusted"] = cn_pending <= 0
+            enhanced_credit_notes.append(enhanced_cn)
+        
+        invoices_list.append({
+            "invoice_number": invoice_num,
+            "invoice_date": group["invoice_date"],
+            "credit_amount": round(group["total_credit"], 2),
+            "credit_note_count": len(group["credit_notes"]),
+            "credit_notes": enhanced_credit_notes
+        })
     
     return {
-        "total_credit_issued": round(total_credit_issued, 2),
-        "total_adjusted": round(total_adjusted, 2),
-        "total_pending": round(total_pending, 2),
-        "pending_count": len([cn for cn in all_cns if cn.get("status") in ["pending", "partial"]]),
-        "adjusted_count": len([cn for cn in all_cns if cn.get("status") == "adjusted"])
+        "summary": {
+            "total_issued": round(total_issued, 2),
+            "total_adjusted": round(total_adjusted, 2),
+            "total_pending": round(max(0, total_pending), 2),
+            "total_count": len(credit_notes)
+        },
+        "invoices": invoices_list
     }
 
 

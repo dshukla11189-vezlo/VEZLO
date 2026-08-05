@@ -849,17 +849,10 @@ export default function RetailerDashboard({
     if (!effectiveRetailerId) return;
     setLedgerLoading(true);
     try {
-      // Use field-team endpoint when in fieldTeamMode
-      let url;
-      if (fieldTeamMode) {
-        url = `/api/field-team/retailer/${effectiveRetailerId}/payment-ledger`;
-        if (startDate) url += `?start_date=${startDate}`;
-        if (endDate) url += `${startDate ? '&' : '?'}end_date=${endDate}`;
-      } else {
-        url = `/api/retailer-payment-ledger?retailer_id=${effectiveRetailerId}`;
-        if (startDate) url += `&start_date=${startDate}`;
-        if (endDate) url += `&end_date=${endDate}`;
-      }
+      // Always use the generic endpoint - it accepts field_team users
+      let url = `/api/retailer-payment-ledger?retailer_id=${effectiveRetailerId}`;
+      if (startDate) url += `&start_date=${startDate}`;
+      if (endDate) url += `&end_date=${endDate}`;
       const response = await api.get(url);
       setLedgerData(response.data);
     } catch (error) {

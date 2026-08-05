@@ -84,12 +84,6 @@ export default function Login() {
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
-          <div className="mt-4 text-center text-sm">
-            <span className="text-gray-600">Don't have an account? </span>
-            <Link to="/register" className="text-[#14532D] font-medium hover:underline" data-testid="register-link">
-              Register here
-            </Link>
-          </div>
         </CardContent>
       </Card>
     </div>

@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from './components/ui/sonner';
 import { isAuthenticated, getUser } from './utils/auth';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import AdminDashboard from './pages/admin/Dashboard';
 import Products from './pages/admin/Products';
 import RetailPlans from './pages/admin/RetailPlans';
@@ -63,7 +62,6 @@ function App() {
       <div className="App">
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
           
           <Route path="/" element={<Navigate to={getDefaultRoute()} replace />} />
           

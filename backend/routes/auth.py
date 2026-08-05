@@ -28,21 +28,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=AuthResponse)
 async def register(input: RegisterRequest):
-    existing = await db.users.find_one({"email": input.email}, {"_id": 0})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    user_dict = input.model_dump()
-    user_dict["password"] = hash_password(user_dict.pop("password"))
-    user = User(**user_dict)
-    
-    doc = user.model_dump()
-    doc['created_at'] = doc['created_at'].isoformat()
-    
-    await db.users.insert_one(doc)
-    
-    token = create_token(user.id, user.email, user.role)
-    return AuthResponse(token=token, user=UserResponse(**user.model_dump()))
+    """Public registration is disabled. Use admin panel to create users."""
+    raise HTTPException(status_code=403, detail="Public registration is disabled. Please contact an administrator.")
 
 
 @router.post("/login", response_model=AuthResponse)

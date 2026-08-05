@@ -5787,7 +5787,7 @@ export default function RetailerDashboard({
                                         {rejection.credit_note_status === 'adjusted' ? 'Adjusted' : rejection.credit_note_status === 'partial' ? 'Partial' : 'Pending'}
                                       </span>
                                       {(rejection.credit_note_status === 'adjusted' || rejection.credit_note_status === 'partial') && rejection.adjusted_invoice_numbers && (
-                                        <span className="text-[9px] text-green-600 mt-0.5 max-w-[100px] truncate" title={rejection.adjusted_invoice_numbers}>
+                                        <span className="text-[9px] text-green-600 mt-0.5 break-all text-center" title={rejection.adjusted_invoice_numbers}>
                                           → {rejection.adjusted_invoice_numbers}
                                         </span>
                                       )}
@@ -5913,7 +5913,7 @@ export default function RetailerDashboard({
                                         {item.credit_note_status === 'adjusted' ? 'Adjusted' : item.credit_note_status === 'partial' ? 'Partial' : 'Pending'}
                                       </span>
                                       {(item.credit_note_status === 'adjusted' || item.credit_note_status === 'partial') && item.adjusted_invoice_numbers && (
-                                        <span className="text-[9px] text-green-600 mt-0.5 max-w-[100px] truncate" title={item.adjusted_invoice_numbers}>
+                                        <span className="text-[9px] text-green-600 mt-0.5 break-all text-center" title={item.adjusted_invoice_numbers}>
                                           → {item.adjusted_invoice_numbers}
                                         </span>
                                       )}

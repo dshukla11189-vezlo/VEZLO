@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend-only mobile viewport (375x667) test of Field Team side-menu drawer scroll fix in /app/frontend/src/pages/field_team/Dashboard.js. Logged in as ayaz.shaikh2025@gmail.com, opened side menu via hamburger, verified drawer classes, scroll behavior, retailer list, Logout reachability, pinned Menu header and close via X. All 5 acceptance criteria pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Non-blocking: Recharts warnings 'The width(-1) and height(-1) of chart should be greater than 0' appear on the Field Team dashboard at 375x667. Consider setting minWidth/minHeight on ResponsiveContainer parents to eliminate console noise."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "test_credentials": "Field Team: ayaz.shaikh2025@gmail.com / fieldteam123 (worked)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Field Team drawer scroll fix verified. Drawer outer div has 'flex flex-col overflow-hidden' and nav has 'p-2 flex-1 overflow-y-auto'. Measured on mobile 375x667: drawerHeight=667, nav clientHeight=602, nav scrollHeight=962 (scrollable), overflow-y: auto. 17 retailers render. Logout button (data-testid='logout-btn') reaches y=611 after scroll (within viewport). Menu header stays pinned at top=18 after nav scroll. Hamburger opens drawer (translate-x-0); X closes it (translated off to x=-256).",
+  "verification_details": {
+    "drawer_class": "fixed top-0 left-0 h-full w-64 bg-white shadow-xl z-50 transform transition-transform duration-300 flex flex-col overflow-hidden translate-x-0",
+    "nav_class": "p-2 flex-1 overflow-y-auto",
+    "drawer_height_px": 667,
+    "nav_client_height_px": 602,
+    "nav_scroll_height_px": 962,
+    "retailers_rendered": 17,
+    "logout_reachable_after_scroll": true,
+    "menu_header_pinned_after_scroll": true,
+    "drawer_closes_on_x": true
+  }
+}

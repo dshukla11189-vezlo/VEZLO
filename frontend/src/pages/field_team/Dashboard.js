@@ -905,7 +905,7 @@ export default function FieldTeamDashboard() {
         )}
         
         {/* Side Menu */}
-        <div className={`fixed top-0 left-0 h-full w-64 bg-white shadow-xl z-50 transform transition-transform duration-300 ${sideMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className={`fixed top-0 left-0 h-full w-64 bg-white shadow-xl z-50 transform transition-transform duration-300 flex flex-col overflow-hidden ${sideMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="p-4 border-b bg-[#14532D]">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-white">Menu</h2>
@@ -914,7 +914,7 @@ export default function FieldTeamDashboard() {
               </Button>
             </div>
           </div>
-          <nav className="p-2">
+          <nav className="p-2 flex-1 overflow-y-auto">
             {menuItems.map(item => {
               const Icon = item.icon;
               return (

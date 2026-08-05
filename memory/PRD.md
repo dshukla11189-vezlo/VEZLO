@@ -2,6 +2,17 @@
 
 ## Changelog (August 2026)
 
+### August 5, 2026 - Cart Auto-Save (Draft) Feature ✅
+- **FEATURE**: Cart draft persistence for order/indent flow
+  - Cart state now persists across page reloads and browser sessions
+  - **localStorage key**: `orderDraft:${retailerId || 'self'}` - scoped per retailer
+  - **On mount/retailer change**: Loads saved draft back into cart state
+  - **On cart change**: Auto-saves with 500ms debounce to avoid excessive writes
+  - **On successful submit**: Clears the draft from localStorage
+  - **Field Team support**: Each retailer gets their own draft key when switching
+  - **User feedback**: Toast notification "Cart draft restored from previous session" when draft is loaded
+  - No backend changes needed - all localStorage based
+
 ### August 5, 2026 - Field Team Payment Block Fixes ✅
 - **FIX 1: Total Payable shows gross pending in fieldTeamMode**
   - In `Dashboard.js` for `fieldTeamMode=true`:

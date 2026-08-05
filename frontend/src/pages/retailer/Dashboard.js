@@ -282,6 +282,58 @@ export default function RetailerDashboard({
   const [showCart, setShowCart] = useState(false);
   const [expandedCatalogueCategories, setExpandedCatalogueCategories] = useState({}); // Categories collapsed by default
   const [mrpData, setMrpData] = useState({}); // MRP lookup: "productId_variantId" -> { mrp, date }
+  const [draftLoaded, setDraftLoaded] = useState(false); // Track if we've loaded the draft for this retailer
+  
+  // Get localStorage key for cart draft scoped to retailer
+  const getCartDraftKey = useCallback((retailerId) => {
+    return `orderDraft:${retailerId || 'self'}`;
+  }, []);
+  
+  // Load cart draft from localStorage
+  const loadCartDraft = useCallback((retailerId) => {
+    try {
+      const key = getCartDraftKey(retailerId);
+      const savedDraft = localStorage.getItem(key);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        if (parsedDraft && typeof parsedDraft === 'object' && Object.keys(parsedDraft).length > 0) {
+          setCart(parsedDraft);
+          console.log(`[Draft] Loaded saved cart draft for ${retailerId || 'self'}:`, Object.keys(parsedDraft).length, 'items');
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error('[Draft] Failed to load cart draft:', error);
+    }
+    return false;
+  }, [getCartDraftKey]);
+  
+  // Save cart draft to localStorage
+  const saveCartDraft = useCallback((cartData, retailerId) => {
+    try {
+      const key = getCartDraftKey(retailerId);
+      if (cartData && Object.keys(cartData).length > 0) {
+        localStorage.setItem(key, JSON.stringify(cartData));
+        console.log(`[Draft] Saved cart draft for ${retailerId || 'self'}:`, Object.keys(cartData).length, 'items');
+      } else {
+        // Remove empty draft
+        localStorage.removeItem(key);
+      }
+    } catch (error) {
+      console.error('[Draft] Failed to save cart draft:', error);
+    }
+  }, [getCartDraftKey]);
+  
+  // Clear cart draft from localStorage
+  const clearCartDraft = useCallback((retailerId) => {
+    try {
+      const key = getCartDraftKey(retailerId);
+      localStorage.removeItem(key);
+      console.log(`[Draft] Cleared cart draft for ${retailerId || 'self'}`);
+    } catch (error) {
+      console.error('[Draft] Failed to clear cart draft:', error);
+    }
+  }, [getCartDraftKey]);
   
   // Catalogue language preference (stored in localStorage)
   const [catalogueLanguage, setCatalogueLanguage] = useState(() => {
@@ -516,6 +568,51 @@ export default function RetailerDashboard({
   // Use this everywhere instead of dashboardData?.retailer?.id
   // In fieldTeamMode, use selectedRetailerId; otherwise use the retailer's own ID from dashboardData
   const effectiveRetailerId = fieldTeamMode ? selectedRetailerId : dashboardData?.retailer?.id;
+
+  // ========== CART DRAFT AUTO-SAVE ==========
+  // Load cart draft on mount and when retailer changes
+  useEffect(() => {
+    // Only load draft when we have a valid retailer ID (or 'self' for regular retailer mode)
+    const retailerIdForDraft = fieldTeamMode ? selectedRetailerId : (dashboardData?.retailer?.id || 'self');
+    
+    // Skip if we haven't loaded dashboard data yet (for non-fieldTeam mode)
+    if (!fieldTeamMode && !dashboardData) return;
+    
+    // Skip if we've already loaded draft for this retailer
+    if (draftLoaded && retailerIdForDraft) return;
+    
+    // Load the draft
+    const hasData = loadCartDraft(retailerIdForDraft);
+    setDraftLoaded(true);
+    
+    if (hasData) {
+      // Show toast notification that draft was restored
+      toast.info('Cart draft restored from previous session', { duration: 3000 });
+    }
+  }, [fieldTeamMode, selectedRetailerId, dashboardData, draftLoaded, loadCartDraft]);
+
+  // Reset draftLoaded flag when retailer changes (for Field Team switching between retailers)
+  useEffect(() => {
+    if (fieldTeamMode) {
+      setDraftLoaded(false);
+      setCart({}); // Clear cart when switching retailers
+    }
+  }, [selectedRetailerId, fieldTeamMode]);
+
+  // Auto-save cart to localStorage whenever it changes
+  useEffect(() => {
+    // Only save if we've already loaded the draft (prevents overwriting on initial load)
+    if (!draftLoaded) return;
+    
+    const retailerIdForDraft = fieldTeamMode ? selectedRetailerId : (dashboardData?.retailer?.id || 'self');
+    
+    // Debounce the save to avoid excessive writes
+    const timeoutId = setTimeout(() => {
+      saveCartDraft(cart, retailerIdForDraft);
+    }, 500);
+    
+    return () => clearTimeout(timeoutId);
+  }, [cart, draftLoaded, fieldTeamMode, selectedRetailerId, dashboardData, saveCartDraft]);
 
   const loadData = useCallback(async (retryCount = 0) => {
     setLoading(true);
@@ -1344,6 +1441,11 @@ export default function RetailerDashboard({
       }
 
       toast.success('Order placed successfully!');
+      
+      // Clear the cart draft from localStorage
+      const retailerIdForDraft = fieldTeamMode ? selectedRetailerId : (dashboardData?.retailer?.id || 'self');
+      clearCartDraft(retailerIdForDraft);
+      
       setCart({});
       setShowCart(false);
       await loadData(); // Reload to show new indent

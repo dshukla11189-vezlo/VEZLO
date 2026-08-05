@@ -2877,6 +2877,10 @@ async def update_credit_note(credit_note_id: str, input: dict, current_user: dic
 @router.get("/retailer-credit-notes/summary/{retailer_id}")
 async def get_retailer_credit_summary(retailer_id: str, current_user: dict = Depends(get_current_user)):
     """Get credit note summary for a retailer"""
+    # Allow admin, staff, and field_team roles
+    if current_user.get("role") not in ["admin", "staff", "field_team"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
     all_cns = await db.retailer_credit_notes.find({"retailer_id": retailer_id}, {"_id": 0}).to_list(50000)
     
     total_credit_issued = sum(cn.get("amount", 0) for cn in all_cns)
@@ -9557,6 +9561,10 @@ async def get_retailer_payment_ledger(
     # Determine retailer_id based on role
     if current_user.get("role") == "retailer":
         retailer_id = current_user.get("user_id")
+    elif current_user.get("role") == "field_team":
+        # Field team must provide retailer_id
+        if not retailer_id:
+            raise HTTPException(status_code=400, detail="retailer_id is required for field team")
     elif not retailer_id:
         raise HTTPException(status_code=400, detail="retailer_id is required for admin")
     

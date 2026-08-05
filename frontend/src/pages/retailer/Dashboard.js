@@ -152,6 +152,9 @@ export default function RetailerDashboard({
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   
+  // Canonical retailer ID resolver - use this everywhere instead of dashboardData?.retailer?.id
+  const activeRetailerId = fieldTeamMode ? selectedRetailerId : null; // Will be set from dashboardData once loaded
+  
   const [activeTab, setActiveTab] = useState('dashboard');
   const [ordersSubTab, setOrdersSubTab] = useState('pending'); // pending, dispatched, invoiced
   const [sideMenuOpen, setSideMenuOpen] = useState(false);
@@ -509,6 +512,11 @@ export default function RetailerDashboard({
   const [grnItems, setGrnItems] = useState([]);
   const [confirmedGrns, setConfirmedGrns] = useState({}); // Track which dispatches have confirmed GRNs
 
+  // ========== CANONICAL RETAILER ID RESOLVER ==========
+  // Use this everywhere instead of dashboardData?.retailer?.id
+  // In fieldTeamMode, use selectedRetailerId; otherwise use the retailer's own ID from dashboardData
+  const effectiveRetailerId = fieldTeamMode ? selectedRetailerId : dashboardData?.retailer?.id;
+
   const loadData = useCallback(async (retryCount = 0) => {
     setLoading(true);
     setCatalogueError(false); // Reset error state
@@ -838,12 +846,20 @@ export default function RetailerDashboard({
 
   // Load Payment Ledger Data
   const loadLedgerData = async (startDate, endDate) => {
-    if (!dashboardData?.retailer?.id) return;
+    if (!effectiveRetailerId) return;
     setLedgerLoading(true);
     try {
-      let url = `/api/retailer-payment-ledger?retailer_id=${dashboardData.retailer.id}`;
-      if (startDate) url += `&start_date=${startDate}`;
-      if (endDate) url += `&end_date=${endDate}`;
+      // Use field-team endpoint when in fieldTeamMode
+      let url;
+      if (fieldTeamMode) {
+        url = `/api/field-team/retailer/${effectiveRetailerId}/payment-ledger`;
+        if (startDate) url += `?start_date=${startDate}`;
+        if (endDate) url += `${startDate ? '&' : '?'}end_date=${endDate}`;
+      } else {
+        url = `/api/retailer-payment-ledger?retailer_id=${effectiveRetailerId}`;
+        if (startDate) url += `&start_date=${startDate}`;
+        if (endDate) url += `&end_date=${endDate}`;
+      }
       const response = await api.get(url);
       setLedgerData(response.data);
     } catch (error) {
@@ -856,7 +872,7 @@ export default function RetailerDashboard({
 
   // Initialize ledger when tab becomes active
   useEffect(() => {
-    if (activeTab === 'ledger' && dashboardData?.retailer?.id && !ledgerData) {
+    if (activeTab === 'ledger' && effectiveRetailerId && !ledgerData) {
       // Set default date range to last 60 days
       const today = new Date();
       const sixtyDaysAgo = new Date();
@@ -865,13 +881,15 @@ export default function RetailerDashboard({
       setLedgerEndDate(today.toISOString().split('T')[0]);
       loadLedgerData(sixtyDaysAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]);
     }
-  }, [activeTab, dashboardData?.retailer?.id]);
+  }, [activeTab, effectiveRetailerId]);
 
   // Load Credit Notes Data
   const loadCreditNotesData = async () => {
+    if (!effectiveRetailerId) return;
     setCreditNotesLoading(true);
     try {
-      const response = await api.get('/api/retailer-credit-notes/my-summary');
+      // Use retailer-specific endpoint (works for both retailer and field-team with retailer_id)
+      const response = await api.get(`/api/retailer-credit-notes/summary/${effectiveRetailerId}`);
       setCreditNotesData(response.data);
     } catch (error) {
       console.error('Failed to load credit notes:', error);
@@ -883,19 +901,19 @@ export default function RetailerDashboard({
 
   // Initialize credit notes when tab becomes active
   useEffect(() => {
-    if (activeTab === 'creditnotes' && !creditNotesData) {
+    if (activeTab === 'creditnotes' && effectiveRetailerId && !creditNotesData) {
       loadCreditNotesData();
     }
-  }, [activeTab]);
+  }, [activeTab, effectiveRetailerId]);
 
   // Load Statement Data
   const loadStatementData = async (startDate, endDate) => {
-    if (!dashboardData?.retailer?.id) return;
+    if (!effectiveRetailerId) return;
     setStatementLoading(true);
     setExpandedStatementGroups({});
     try {
       const params = new URLSearchParams({
-        retailer_id: dashboardData.retailer.id,
+        retailer_id: effectiveRetailerId,
         start_date: startDate,
         end_date: endDate
       });
@@ -966,19 +984,19 @@ export default function RetailerDashboard({
 
   // Initialize statement when tab becomes active
   useEffect(() => {
-    if (activeTab === 'statement' && dashboardData?.retailer?.id && !statementData) {
+    if (activeTab === 'statement' && effectiveRetailerId && !statementData) {
       loadStatementData(statementStartDate, statementEndDate);
     }
-  }, [activeTab, dashboardData?.retailer?.id]);
+  }, [activeTab, effectiveRetailerId]);
 
   // Load Final Summary Data
   const loadFinalSummaryData = async (startDate, endDate) => {
-    if (!dashboardData?.retailer?.id) return;
+    if (!effectiveRetailerId) return;
     setFinalSummaryLoading(true);
     setExpandedFinalSummaryRows({});
     try {
       const params = new URLSearchParams({
-        retailer_id: dashboardData.retailer.id,
+        retailer_id: effectiveRetailerId,
         start_date: startDate,
         end_date: endDate
       });
@@ -994,10 +1012,10 @@ export default function RetailerDashboard({
 
   // Initialize final summary when tab becomes active
   useEffect(() => {
-    if (activeTab === 'finalsummary' && dashboardData?.retailer?.id && !finalSummaryData) {
+    if (activeTab === 'finalsummary' && effectiveRetailerId && !finalSummaryData) {
       loadFinalSummaryData(finalSummaryStartDate, finalSummaryEndDate);
     }
-  }, [activeTab, dashboardData?.retailer?.id]);
+  }, [activeTab, effectiveRetailerId]);
 
   const formatDate = (date) => {
     if (!date) return '-';
@@ -1319,10 +1337,18 @@ export default function RetailerDashboard({
       // Use local date string to avoid timezone issues (YYYY-MM-DD format)
       const tomorrowDateStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
 
-      await api.post('/api/retailer-indents', {
-        indent_date: tomorrowDateStr,
-        items
-      });
+      // Use field-team endpoint when in fieldTeamMode, regular retailer endpoint otherwise
+      if (fieldTeamMode && effectiveRetailerId) {
+        await api.post(`/api/field-team/retailer/${effectiveRetailerId}/indent`, {
+          indent_date: tomorrowDateStr,
+          items
+        });
+      } else {
+        await api.post('/api/retailer-indents', {
+          indent_date: tomorrowDateStr,
+          items
+        });
+      }
 
       toast.success('Order placed successfully!');
       setCart({});
@@ -2050,7 +2076,7 @@ export default function RetailerDashboard({
   
   // Load inventory data for a specific date (combines opening, received, sold, rejection, closing)
   const loadInventoryData = useCallback(async (date) => {
-    if (!dashboardData?.retailer?.id) return;
+    if (!effectiveRetailerId) return;
     setLoadingClosing(true);
     
     try {
@@ -2062,7 +2088,7 @@ export default function RetailerDashboard({
       // Load previous day closing (for opening qty) - now includes variant
       let prevClosingMap = {};
       try {
-        const prevRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${prevDateStr}`);
+        const prevRes = await api.get(`/api/retailer-closing-inventory/summary/${effectiveRetailerId}?date=${prevDateStr}`);
         (prevRes.data.items || []).forEach(item => {
           if (item.closing_qty !== null && item.closing_qty !== undefined) {
             const key = `${item.product_id}_${item.variant_id || 'default'}`;
@@ -2080,7 +2106,7 @@ export default function RetailerDashboard({
       // Load current day closing
       let currentClosingMap = {};
       try {
-        const curRes = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}`);
+        const curRes = await api.get(`/api/retailer-closing-inventory/summary/${effectiveRetailerId}?date=${date}`);
         (curRes.data.items || []).forEach(item => {
           const key = `${item.product_id}_${item.variant_id || 'default'}`;
           currentClosingMap[key] = {
@@ -2320,20 +2346,20 @@ export default function RetailerDashboard({
     } finally {
       setLoadingClosing(false);
     }
-  }, [dashboardData, dispatches, rejections, products]);
+  }, [effectiveRetailerId, fieldTeamMode, dispatches, rejections, products]);
 
   // Load inventory when date or tab changes or when dispatches are loaded
   useEffect(() => {
-    if ((activeTab === 'closing' && closingSubTab === 'daily-inventory') && dashboardData?.retailer?.id && products.length > 0) {
+    if ((activeTab === 'closing' && closingSubTab === 'daily-inventory') && effectiveRetailerId && products.length > 0) {
       loadInventoryData(inventoryDate);
     }
-  }, [activeTab, closingSubTab, inventoryDate, dashboardData, products.length, dispatches.length, loadInventoryData]);
+  }, [activeTab, closingSubTab, inventoryDate, effectiveRetailerId, products.length, dispatches.length, loadInventoryData]);
   
   // Load recorded dates
   const loadRecordedDates = async () => {
-    if (!dashboardData?.retailer?.id) return;
+    if (!effectiveRetailerId) return;
     try {
-      const res = await api.get(`/api/retailer-closing-inventory/dates/${dashboardData.retailer.id}`);
+      const res = await api.get(`/api/retailer-closing-inventory/dates/${effectiveRetailerId}`);
       setRecordedDates(res.data || []);
     } catch (error) {
       console.error('Failed to load recorded dates:', error);
@@ -2342,7 +2368,7 @@ export default function RetailerDashboard({
 
   // Load closing history for a specific date
   const loadClosingHistory = async (date) => {
-    if (!dashboardData?.retailer?.id) return;
+    if (!effectiveRetailerId) return;
     setLoadingClosing(true);
     try {
       // For historical dates, use filter_inactive to only show products with non-zero opening OR closing
@@ -2350,7 +2376,7 @@ export default function RetailerDashboard({
       const isHistorical = date !== today;
       const filterParam = isHistorical ? '&filter_inactive=true' : '';
       
-      const res = await api.get(`/api/retailer-closing-inventory/summary/${dashboardData.retailer.id}?date=${date}${filterParam}`);
+      const res = await api.get(`/api/retailer-closing-inventory/summary/${effectiveRetailerId}?date=${date}${filterParam}`);
       // Filter to only show items that have a closing qty recorded
       const recordedItems = (res.data.items || []).filter(item => item.closing_qty !== null && item.closing_qty !== undefined);
       setClosingHistory(recordedItems);
@@ -2366,7 +2392,7 @@ export default function RetailerDashboard({
   // Open Record Closing modal - show only variants with opening qty OR in today's dispatch
   // Open closing modal for a specific date (used for yesterday's closing)
   const openRecordClosingModalForDate = async (targetDate) => {
-    if (!dashboardData?.retailer?.id) {
+    if (!effectiveRetailerId) {
       toast.error('Retailer ID not found');
       return;
     }
@@ -3053,11 +3079,11 @@ export default function RetailerDashboard({
 
   // Load closing history when date changes or tab switches
   useEffect(() => {
-    if (activeTab === 'inventory' && dashboardData?.retailer?.id) {
+    if (activeTab === 'inventory' && effectiveRetailerId) {
       loadClosingHistory(closingHistoryDate);
       loadRecordedDates();
     }
-  }, [activeTab, closingHistoryDate, dashboardData?.retailer?.id]);
+  }, [activeTab, closingHistoryDate, effectiveRetailerId]);
 
   // Logout handler
   const handleLogout = () => {

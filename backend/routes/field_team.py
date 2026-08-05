@@ -668,9 +668,113 @@ async def get_retailer_payment_details_for_field_team(
         "retailer_id": retailer_id,
         "retailer_name": retailer.get("company_name") or retailer.get("name"),
         "upfront_percentage": upfront_pct,
+        "commission_percentage": retailer.get("commission_percentage", 0),
+        "is_full_upfront": is_full_upfront,
         "date_range": {"start": start_date, "end": end_date},
         "totals": totals,
         "dates": dates_list
+    }
+
+
+@router.get("/field-team/retailer/{retailer_id}/payment-ledger")
+async def get_retailer_payment_ledger_for_field_team(
+    retailer_id: str,
+    start_date: str = None,
+    end_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get payment ledger for a specific retailer (for Field Team view).
+    Shows all payments received date-wise with invoice adjustments.
+    """
+    retailer = await verify_field_team_retailer_access(current_user, retailer_id)
+    
+    # Build query for payments
+    query = {"retailer_id": retailer_id}
+    
+    # Date filtering on payment_date
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date + "T23:59:59"
+        query["payment_date"] = date_query
+    
+    # Fetch all payments for this retailer
+    payments = await db.retailer_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    
+    # Also fetch credit note adjustments
+    credit_notes = await db.retailer_credit_notes.find(
+        {"retailer_id": retailer_id, "status": {"$in": ["adjusted", "partial"]}},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Fetch all invoices for this retailer to get invoice numbers
+    invoices = await db.retailer_invoices.find(
+        {"retailer_id": retailer_id},
+        {"_id": 0, "id": 1, "invoice_number": 1, "invoice_date": 1, "net_payable": 1}
+    ).to_list(1000)
+    invoice_map = {inv["id"]: inv for inv in invoices}
+    
+    # Group payments by date and then by reference number
+    date_groups = {}
+    
+    for payment in payments:
+        payment_date = payment.get("payment_date", "")[:10] if payment.get("payment_date") else "Unknown"
+        ref_num = payment.get("reference_number") or payment.get("remarks") or "No Reference"
+        
+        if payment_date not in date_groups:
+            date_groups[payment_date] = {
+                "date": payment_date,
+                "total_amount": 0,
+                "payment_groups": {},
+                "credit_notes": []
+            }
+        
+        # Group by reference number
+        if ref_num not in date_groups[payment_date]["payment_groups"]:
+            date_groups[payment_date]["payment_groups"][ref_num] = {
+                "reference_number": ref_num,
+                "payment_mode": payment.get("payment_mode", ""),
+                "total_amount": 0,
+                "payments": [],
+                "invoice_adjustments": []
+            }
+        
+        group = date_groups[payment_date]["payment_groups"][ref_num]
+        group["total_amount"] += payment.get("amount", 0)
+        date_groups[payment_date]["total_amount"] += payment.get("amount", 0)
+        
+        # Add invoice adjustment info
+        adjusted_invoices = payment.get("adjusted_invoices", [])
+        for adj in adjusted_invoices:
+            inv_id = adj.get("invoice_id")
+            inv_info = invoice_map.get(inv_id, {})
+            group["invoice_adjustments"].append({
+                "invoice_id": inv_id,
+                "invoice_number": inv_info.get("invoice_number", ""),
+                "invoice_date": inv_info.get("invoice_date", ""),
+                "amount": adj.get("amount", 0)
+            })
+    
+    # Convert to list format
+    result = []
+    for date_key in sorted(date_groups.keys(), reverse=True):
+        date_data = date_groups[date_key]
+        payment_list = list(date_data["payment_groups"].values())
+        result.append({
+            "date": date_data["date"],
+            "total_amount": round(date_data["total_amount"], 2),
+            "payments": payment_list
+        })
+    
+    return {
+        "retailer_id": retailer_id,
+        "retailer_name": retailer.get("company_name") or retailer.get("name"),
+        "date_range": {"start": start_date, "end": end_date},
+        "entries": result,
+        "total_payments": round(sum(p.get("amount", 0) for p in payments), 2)
     }
 
 

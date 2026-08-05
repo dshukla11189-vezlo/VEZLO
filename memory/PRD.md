@@ -2,6 +2,41 @@
 
 ## Changelog (August 2026)
 
+### August 5, 2026 - Fixed Expenses Module Enhancements ✅
+- **FEATURE: Date Range Filter**
+  - Added toggle between "By Month" (default) and "Date Range" filter modes
+  - New `from_date` and `to_date` query params added to `GET /api/expenses/fixed`
+  - Frontend shows date inputs with Apply button when in Date Range mode
+  
+- **FEATURE: View Details Dialog**
+  - Added eye icon button on each expense row
+  - Read-only modal displays all expense info: category, description, amount, date, status
+  - Shows **Vendor Details** section (vendor, invoice_number) when available
+  - Shows **Payment Details** section (payment_mode, payment_date, payment_reference, paid_by) for Paid expenses
+  - Edit button in dialog for quick access to editing
+  
+- **FEATURE: Corporate Expenses Management**
+  - New "Corporate Expenses" button opens management dialog
+  - **Corporate Employees tab**: CRUD for `corporate_employees` collection (name, role, department, notes)
+  - **Recurring Templates tab**: CRUD for `recurring_expense_templates` collection
+    - Fields: category, description, amount, due_date, vendor, invoice_number, expense_type, linked_employee
+    - Templates auto-generate expenses when "Generate Recurring" is clicked
+  - Backend endpoints: `/api/corporate-employees`, `/api/recurring-expense-templates`
+  
+- **FEATURE: Extended Generate Recurring**
+  - `POST /api/expenses/fixed/generate-recurring` now uses both:
+    1. Active `recurring_expense_templates`
+    2. Previous month's recurring entries
+  - Fixed January edge case (prev_month calculation for month=1)
+  - Returns stats: `from_templates`, `from_prev_month` counts
+  
+- **FEATURE: Vendor/Invoice Fields in Add Dialog**
+  - Added "Vendor Details (Optional)" section with vendor and invoice_number inputs
+  - These fields persist with expenses and show in View Details
+
+- **BUG FIX**: Fixed Radix SelectItem crash with empty-string value
+  - Changed `<SelectItem value="">None</SelectItem>` to use `__none__` sentinel value
+  - Mapped sentinel to empty string in state setter
 
 ### August 5, 2026 - Expenses Payment Modal Focus Trap Bug Fix ✅
 - **BUG FIX**: Fixed Payment Details modal being unclickable in Fixed/Variable Expenses

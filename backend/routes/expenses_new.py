@@ -340,13 +340,13 @@ async def generate_recurring_expenses(data: dict, current_user: dict = Depends(g
     target_month = data.get("month", datetime.now().month)
     target_year = data.get("year", datetime.now().year)
     
-    # Calculate previous month
-    if target_month == 0:
-        prev_month = 11
+    # Calculate previous month (months are 1-12)
+    if target_month == 1:
+        prev_month = 12
         prev_year = target_year - 1
     else:
-        prev_month = target_month - 1 if target_month > 0 else 11
-        prev_year = target_year if target_month > 0 else target_year - 1
+        prev_month = target_month - 1
+        prev_year = target_year
     
     # Get recurring expenses from previous month
     prev_expenses = await db.fixed_expenses.find({

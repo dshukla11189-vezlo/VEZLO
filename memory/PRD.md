@@ -6,11 +6,13 @@
 - **FEATURE**: Show credit note info against each rejection in both Retailer and Field Team portals
   - **Backend**: Created shared helper `attach_credit_notes_to_rejections()` in `retailer_portal.py`
     - Bulk fetches credit notes for rejection IDs and attaches: `credit_note_id`, `credit_note_number`, `credit_note_amount`, `credit_note_status`
-    - Used by both `/api/retailer-rejections` and `/api/field-team/retailer/{id}-rejections`
-  - **Frontend** (`Dashboard.js` rejections table):
-    - Added "CREDIT NOTE" column header
+    - Also fetches `adjusted_invoice_number` for adjusted credit notes by joining with retailer_invoices
+    - Used by `/api/retailer-rejections`, `/api/field-team/retailer/{id}-rejections`, and `/api/retailer-rejections/daily-summary`
+  - **Frontend** (`Dashboard.js` rejections tables):
+    - Added "CREDIT NOTE" column to BOTH "By Invoice Date" and "By Recorded Date" views
     - Date summary row shows count of credit notes and how many are adjusted
     - Expanded row shows credit note number, amount, and status badge (green "Adjusted" / yellow "Pending")
+    - For adjusted credit notes, shows "→ INV-XXX" to indicate which invoice it was adjusted against
     - Footer shows total count of credit notes and adjusted count
 
 ### August 5, 2026 - Cart Auto-Save (Draft) Feature ✅

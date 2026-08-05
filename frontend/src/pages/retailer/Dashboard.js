@@ -5784,6 +5784,11 @@ export default function RetailerDashboard({
                                       }`}>
                                         {rejection.credit_note_status === 'adjusted' ? 'Adjusted' : 'Pending'}
                                       </span>
+                                      {rejection.credit_note_status === 'adjusted' && rejection.adjusted_invoice_number && (
+                                        <span className="text-[9px] text-gray-500 mt-0.5">
+                                          → {rejection.adjusted_invoice_number}
+                                        </span>
+                                      )}
                                     </div>
                                   ) : (
                                     <span className="text-xs text-gray-400">-</span>
@@ -5835,6 +5840,7 @@ export default function RetailerDashboard({
                         <th className="p-3 text-center font-medium text-gray-500">QTY</th>
                         <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
                         <th className="p-3 text-left font-medium text-gray-500">DETAILS</th>
+                        <th className="p-3 text-center font-medium text-gray-500">CREDIT NOTE</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5857,6 +5863,21 @@ export default function RetailerDashboard({
                               <td className="p-3 text-center text-orange-600 font-semibold">{dayData.total_qty}</td>
                               <td className="p-3 text-right text-orange-600 font-semibold">{formatCurrency(dayData.total_value)}</td>
                               <td className="p-3 text-gray-500 text-xs">{dayData.rejection_count} rejection(s)</td>
+                              <td className="p-3 text-center">
+                                {/* Show count of credit notes for this date */}
+                                {(() => {
+                                  const items = retailerData.items || [];
+                                  const withCN = items.filter(r => r.credit_note_number);
+                                  const adjusted = items.filter(r => r.credit_note_status === 'adjusted').length;
+                                  if (withCN.length === 0) return <span className="text-xs text-gray-400">-</span>;
+                                  return (
+                                    <span className="text-xs">
+                                      {withCN.length} CN{withCN.length > 1 ? 's' : ''}
+                                      {adjusted > 0 && <span className="text-green-600 ml-1">({adjusted} adj)</span>}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
                             </tr>
                             
                             {/* Expanded: Individual Items */}
@@ -5875,6 +5896,28 @@ export default function RetailerDashboard({
                                 <td className="p-2 text-center text-red-500">{item.quantity}</td>
                                 <td className="p-2 text-right text-red-500">{formatCurrency(item.rejection_value)}</td>
                                 <td className="p-2 text-gray-500 text-xs">{item.reason || '-'}</td>
+                                <td className="p-2 text-center">
+                                  {item.credit_note_number ? (
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="text-xs font-mono text-blue-600">{item.credit_note_number}</span>
+                                      <span className="text-[10px] text-gray-500">{formatCurrency(item.credit_note_amount || 0)}</span>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                        item.credit_note_status === 'adjusted' 
+                                          ? 'bg-green-100 text-green-700' 
+                                          : 'bg-yellow-100 text-yellow-700'
+                                      }`}>
+                                        {item.credit_note_status === 'adjusted' ? 'Adjusted' : 'Pending'}
+                                      </span>
+                                      {item.credit_note_status === 'adjusted' && item.adjusted_invoice_number && (
+                                        <span className="text-[9px] text-gray-500 mt-0.5">
+                                          → {item.adjusted_invoice_number}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">-</span>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </React.Fragment>
@@ -5893,6 +5936,16 @@ export default function RetailerDashboard({
                             {formatCurrency(dailyRejectionSummary.reduce((sum, d) => sum + d.total_value, 0))}
                           </td>
                           <td></td>
+                          <td className="p-3 text-center text-xs">
+                            {(() => {
+                              // Collect all items from all days
+                              const allItems = dailyRejectionSummary.flatMap(d => d.retailers?.[0]?.items || []);
+                              const withCN = allItems.filter(r => r.credit_note_number);
+                              const adjusted = allItems.filter(r => r.credit_note_status === 'adjusted').length;
+                              if (withCN.length === 0) return '';
+                              return `${withCN.length} CN${withCN.length > 1 ? 's' : ''} (${adjusted} adjusted)`;
+                            })()}
+                          </td>
                         </tr>
                       </tfoot>
                     )}

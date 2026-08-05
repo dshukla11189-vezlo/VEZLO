@@ -250,6 +250,8 @@ async def attach_credit_notes_to_rejections(rejections: list) -> list:
         - credit_note_number: Human-readable credit note number
         - credit_note_amount: Amount of the credit note
         - credit_note_status: Status ('pending' or 'adjusted')
+        - adjusted_invoice_id: Invoice ID where credit was adjusted (if adjusted)
+        - adjusted_invoice_number: Invoice number where credit was adjusted (if adjusted)
     """
     if not rejections:
         return rejections
@@ -258,22 +260,40 @@ async def attach_credit_notes_to_rejections(rejections: list) -> list:
     if not rejection_ids:
         return rejections
     
-    # Bulk lookup credit notes for these rejections
+    # Bulk lookup credit notes for these rejections - include adjusted_to_invoice_id
     credit_notes = await db.retailer_credit_notes.find(
         {"rejection_id": {"$in": rejection_ids}},
-        {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1}
+        {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1, "adjusted_to_invoice_id": 1}
     ).to_list(len(rejection_ids))
     
-    # Create a map of rejection_id -> credit note info
-    cn_map = {
-        cn.get("rejection_id"): {
+    # Collect invoice IDs for adjusted credit notes
+    invoice_ids = [cn.get("adjusted_to_invoice_id") for cn in credit_notes if cn.get("adjusted_to_invoice_id")]
+    
+    # Bulk lookup invoice numbers
+    invoice_map = {}
+    if invoice_ids:
+        invoices = await db.retailer_invoices.find(
+            {"id": {"$in": invoice_ids}},
+            {"_id": 0, "id": 1, "invoice_number": 1}
+        ).to_list(len(invoice_ids))
+        invoice_map = {inv.get("id"): inv.get("invoice_number") for inv in invoices}
+    
+    # Create a map of rejection_id -> credit note info (including invoice details)
+    cn_map = {}
+    for cn in credit_notes:
+        rej_id = cn.get("rejection_id")
+        if not rej_id:
+            continue
+        
+        adjusted_invoice_id = cn.get("adjusted_to_invoice_id")
+        cn_map[rej_id] = {
             "credit_note_id": cn.get("id"),
             "credit_note_number": cn.get("credit_note_number"),
             "credit_note_amount": cn.get("amount"),
-            "credit_note_status": cn.get("status", "pending")
+            "credit_note_status": cn.get("status", "pending"),
+            "adjusted_invoice_id": adjusted_invoice_id,
+            "adjusted_invoice_number": invoice_map.get(adjusted_invoice_id) if adjusted_invoice_id else None
         }
-        for cn in credit_notes if cn.get("rejection_id")
-    }
     
     # Attach credit note info to rejections
     for rejection in rejections:
@@ -1837,6 +1857,9 @@ async def get_rejection_daily_summary(
     # Fetch rejections sorted by created_at
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     
+    # Attach credit note info to rejections
+    await attach_credit_notes_to_rejections(rejections)
+    
     # Get unique retailer IDs and fetch their company names
     retailer_ids = list(set(r.get("retailer_id") for r in rejections if r.get("retailer_id")))
     retailers_data = await db.users.find(
@@ -1895,7 +1918,14 @@ async def get_rejection_daily_summary(
             "reason": rej.get("reason", ""),
             "mrp": rej.get("mrp", 0),
             "invoice_date": rej.get("rejection_date", "")[:10] if rej.get("rejection_date") else "",
-            "recorded_by": rej.get("recorded_by")
+            "recorded_by": rej.get("recorded_by"),
+            # Credit note info (attached by helper)
+            "credit_note_id": rej.get("credit_note_id"),
+            "credit_note_number": rej.get("credit_note_number"),
+            "credit_note_amount": rej.get("credit_note_amount"),
+            "credit_note_status": rej.get("credit_note_status"),
+            "adjusted_invoice_id": rej.get("adjusted_invoice_id"),
+            "adjusted_invoice_number": rej.get("adjusted_invoice_number")
         })
         
         # Update retailer totals

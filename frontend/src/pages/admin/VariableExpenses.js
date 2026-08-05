@@ -262,6 +262,7 @@ export default function VariableExpenses() {
     }
     
     // If status is being set to "paid", show payment details modal first
+    // IMPORTANT: Close the Add Dialog FIRST to avoid focus-trap issues
     if (formData.payment_status === 'paid' && !formData.payment_date) {
       setPaymentDetailsForm({
         payment_mode: formData.payment_mode || 'Cash',
@@ -270,6 +271,7 @@ export default function VariableExpenses() {
         paid_by_type: formData.paid_by_type || 'company',
         paid_by_employee_id: formData.paid_by_employee_id || ''
       });
+      setShowAddDialog(false); // Close Add Dialog to release focus trap
       setShowPaymentDetailsModal(true);
       return;
     }
@@ -1756,7 +1758,7 @@ export default function VariableExpenses() {
 
         {/* Payment Details Modal - shown when marking expense as Paid */}
         {showPaymentDetailsModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-testid="variable-payment-details-modal">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
               <div className="p-4 border-b bg-green-50">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -1772,13 +1774,14 @@ export default function VariableExpenses() {
                     type="date"
                     value={paymentDetailsForm.payment_date}
                     onChange={(e) => setPaymentDetailsForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    data-testid="variable-payment-date-input"
                   />
                 </div>
                 
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
                   <Select value={paymentDetailsForm.payment_mode} onValueChange={(v) => setPaymentDetailsForm(prev => ({ ...prev, payment_mode: v }))}>
-                    <SelectTrigger>
+                    <SelectTrigger data-testid="variable-payment-mode-select">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1797,6 +1800,7 @@ export default function VariableExpenses() {
                     placeholder="Enter reference number"
                     value={paymentDetailsForm.payment_reference}
                     onChange={(e) => setPaymentDetailsForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                    data-testid="variable-payment-reference-input"
                   />
                 </div>
                 
@@ -1809,6 +1813,7 @@ export default function VariableExpenses() {
                         checked={paymentDetailsForm.paid_by_type === 'company'}
                         onChange={() => setPaymentDetailsForm(prev => ({ ...prev, paid_by_type: 'company', paid_by_employee_id: '' }))}
                         className="w-4 h-4 text-green-600"
+                        data-testid="variable-paid-by-company-radio"
                       />
                       <span className="text-sm">Company</span>
                     </label>
@@ -1818,6 +1823,7 @@ export default function VariableExpenses() {
                         checked={paymentDetailsForm.paid_by_type === 'employee'}
                         onChange={() => setPaymentDetailsForm(prev => ({ ...prev, paid_by_type: 'employee' }))}
                         className="w-4 h-4 text-green-600"
+                        data-testid="variable-paid-by-employee-radio"
                       />
                       <span className="text-sm">Employee</span>
                     </label>
@@ -1827,7 +1833,7 @@ export default function VariableExpenses() {
                       value={paymentDetailsForm.paid_by_employee_id} 
                       onValueChange={(v) => setPaymentDetailsForm(prev => ({ ...prev, paid_by_employee_id: v }))}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="variable-paid-by-employee-select">
                         <SelectValue placeholder="Select employee" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1840,10 +1846,22 @@ export default function VariableExpenses() {
                 </div>
               </div>
               <div className="p-4 border-t flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDetailsModal(false)}>
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => {
+                    setShowPaymentDetailsModal(false);
+                    setShowAddDialog(true); // Re-open Add Dialog to allow user to edit
+                  }}
+                  data-testid="variable-payment-cancel-btn"
+                >
                   Cancel
                 </Button>
-                <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handlePaymentDetailsSubmit}>
+                <Button 
+                  className="flex-1 bg-green-600 hover:bg-green-700" 
+                  onClick={handlePaymentDetailsSubmit}
+                  data-testid="variable-confirm-payment-btn"
+                >
                   <CheckCircle size={14} className="mr-1" /> Confirm Payment
                 </Button>
               </div>

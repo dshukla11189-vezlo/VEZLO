@@ -39,9 +39,10 @@ export default function FixedExpenses() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showSettlementDialog, setShowSettlementDialog] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [initialMonthLoaded, setInitialMonthLoaded] = useState(false);
   
-  // Filters
-  const [filterMonth, setFilterMonth] = useState(new Date().getMonth());
+  // Filters - Initialize with null to indicate "not yet determined"
+  const [filterMonth, setFilterMonth] = useState(null);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -98,7 +99,57 @@ export default function FixedExpenses() {
     loadStaffUsers();
   }, []);
 
+  // On mount, fetch the latest month that has fixed expense data
+  useEffect(() => {
+    const fetchLatestMonth = async () => {
+      try {
+        // Fetch all fixed expenses without date filter to find the latest month
+        const response = await api.get('/api/expenses/fixed?limit=100');
+        const allExpenses = response.data || [];
+        
+        if (allExpenses.length > 0) {
+          // Find the latest month/year from existing expenses
+          let latestYear = 0;
+          let latestMonth = 0;
+          
+          allExpenses.forEach(exp => {
+            const expYear = exp.year || new Date(exp.date).getFullYear();
+            const expMonth = exp.month || (new Date(exp.date).getMonth() + 1); // 1-indexed
+            
+            if (expYear > latestYear || (expYear === latestYear && expMonth > latestMonth)) {
+              latestYear = expYear;
+              latestMonth = expMonth;
+            }
+          });
+          
+          if (latestYear > 0 && latestMonth > 0) {
+            setFilterYear(latestYear);
+            setFilterMonth(latestMonth - 1); // Convert to 0-indexed for filter
+            setInitialMonthLoaded(true);
+            return;
+          }
+        }
+        
+        // Fallback to current month if no data found
+        setFilterMonth(new Date().getMonth());
+        setFilterYear(new Date().getFullYear());
+        setInitialMonthLoaded(true);
+      } catch (error) {
+        console.error('Failed to fetch latest month:', error);
+        // Fallback to current month on error
+        setFilterMonth(new Date().getMonth());
+        setFilterYear(new Date().getFullYear());
+        setInitialMonthLoaded(true);
+      }
+    };
+    
+    fetchLatestMonth();
+  }, []);
+
   const loadExpenses = useCallback(async () => {
+    // Wait until initial month is determined
+    if (filterMonth === null) return;
+    
     setLoading(true);
     try {
       let url = '/api/expenses/fixed';
@@ -121,8 +172,10 @@ export default function FixedExpenses() {
   }, [filterMonth, filterYear, filterCategory, filterStatus]);
 
   useEffect(() => {
-    loadExpenses();
-  }, [loadExpenses]);
+    if (filterMonth !== null) {
+      loadExpenses();
+    }
+  }, [loadExpenses, filterMonth]);
 
   const resetForm = () => {
     setFormData({
@@ -155,6 +208,7 @@ export default function FixedExpenses() {
     }
     
     // If status is Paid and no payment date, show payment details modal
+    // IMPORTANT: Close the Add Dialog FIRST to avoid focus-trap issues
     if (formData.status === 'Paid' && !formData.payment_date) {
       setPaymentDetailsForm({
         payment_mode: formData.payment_mode || 'Cash',
@@ -163,6 +217,7 @@ export default function FixedExpenses() {
         paid_by_type: formData.paid_by_type || 'company',
         paid_by_employee_id: formData.paid_by_employee_id || ''
       });
+      setShowAddDialog(false); // Close Add Dialog to release focus trap
       setShowPaymentDetailsModal(true);
       return;
     }
@@ -391,7 +446,7 @@ export default function FixedExpenses() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Fixed Expenses</h1>
-            <p className="text-sm text-gray-500">Monthly recurring costs - {MONTHS[filterMonth]} {filterYear}</p>
+            <p className="text-sm text-gray-500">Monthly recurring costs - {filterMonth !== null ? `${MONTHS[filterMonth]} ${filterYear}` : 'Loading...'}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={loadExpenses}>
@@ -470,7 +525,7 @@ export default function FixedExpenses() {
             <div className="flex flex-wrap gap-3 items-end">
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Month</label>
-                <Select value={filterMonth.toString()} onValueChange={(v) => setFilterMonth(parseInt(v))}>
+                <Select value={filterMonth !== null ? filterMonth.toString() : ''} onValueChange={(v) => setFilterMonth(parseInt(v))}>
                   <SelectTrigger className="w-32 h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
@@ -869,7 +924,7 @@ export default function FixedExpenses() {
 
         {/* Payment Details Modal */}
         {showPaymentDetailsModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" data-testid="payment-details-modal">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
               <div className="p-4 border-b bg-green-50">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -885,13 +940,14 @@ export default function FixedExpenses() {
                     type="date"
                     value={paymentDetailsForm.payment_date}
                     onChange={(e) => setPaymentDetailsForm(prev => ({ ...prev, payment_date: e.target.value }))}
+                    data-testid="payment-date-input"
                   />
                 </div>
                 
                 <div>
                   <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Mode *</label>
                   <Select value={paymentDetailsForm.payment_mode} onValueChange={(v) => setPaymentDetailsForm(prev => ({ ...prev, payment_mode: v }))}>
-                    <SelectTrigger>
+                    <SelectTrigger data-testid="payment-mode-select">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -909,6 +965,7 @@ export default function FixedExpenses() {
                     placeholder="Enter reference number"
                     value={paymentDetailsForm.payment_reference}
                     onChange={(e) => setPaymentDetailsForm(prev => ({ ...prev, payment_reference: e.target.value }))}
+                    data-testid="payment-reference-input"
                   />
                 </div>
                 
@@ -921,6 +978,7 @@ export default function FixedExpenses() {
                         checked={paymentDetailsForm.paid_by_type === 'company'}
                         onChange={() => setPaymentDetailsForm(prev => ({ ...prev, paid_by_type: 'company', paid_by_employee_id: '' }))}
                         className="w-4 h-4 text-green-600"
+                        data-testid="paid-by-company-radio"
                       />
                       <span className="text-sm">Company</span>
                     </label>
@@ -930,6 +988,7 @@ export default function FixedExpenses() {
                         checked={paymentDetailsForm.paid_by_type === 'employee'}
                         onChange={() => setPaymentDetailsForm(prev => ({ ...prev, paid_by_type: 'employee' }))}
                         className="w-4 h-4 text-green-600"
+                        data-testid="paid-by-employee-radio"
                       />
                       <span className="text-sm">Employee</span>
                     </label>
@@ -939,7 +998,7 @@ export default function FixedExpenses() {
                       value={paymentDetailsForm.paid_by_employee_id} 
                       onValueChange={(v) => setPaymentDetailsForm(prev => ({ ...prev, paid_by_employee_id: v }))}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger data-testid="paid-by-employee-select">
                         <SelectValue placeholder="Select employee" />
                       </SelectTrigger>
                       <SelectContent>
@@ -952,10 +1011,22 @@ export default function FixedExpenses() {
                 </div>
               </div>
               <div className="p-4 border-t flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDetailsModal(false)}>
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => {
+                    setShowPaymentDetailsModal(false);
+                    setShowAddDialog(true); // Re-open Add Dialog to allow user to edit
+                  }}
+                  data-testid="payment-cancel-btn"
+                >
                   Cancel
                 </Button>
-                <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={handlePaymentDetailsSubmit}>
+                <Button 
+                  className="flex-1 bg-green-600 hover:bg-green-700" 
+                  onClick={handlePaymentDetailsSubmit}
+                  data-testid="confirm-payment-btn"
+                >
                   <CheckCircle size={14} className="mr-1" /> Confirm Payment
                 </Button>
               </div>

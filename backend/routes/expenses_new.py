@@ -5,7 +5,7 @@ Extracted from server.py for modular organization.
 Handles variable expenses, fixed expenses, and expense categories.
 """
 from fastapi import APIRouter, HTTPException, Depends
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import uuid
 
@@ -30,19 +30,29 @@ async def get_variable_expenses(
     paid_to: str = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get variable expenses with optional filters"""
+    """Get variable expenses with optional filters.
+    
+    If no date filter is provided, defaults to last 90 days to prevent
+    unbounded result sets. Use explicit from_date/to_date for different ranges.
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = {}
     
-    if from_date:
-        query["date"] = {"$gte": from_date}
-    if to_date:
-        if "date" in query:
-            query["date"]["$lte"] = to_date + "T23:59:59"
-        else:
-            query["date"] = {"$lte": to_date + "T23:59:59"}
+    # Apply default date filter (last 90 days) if no date filter provided
+    if not from_date and not to_date:
+        default_from = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+        query["date"] = {"$gte": default_from}
+    else:
+        if from_date:
+            query["date"] = {"$gte": from_date}
+        if to_date:
+            if "date" in query:
+                query["date"]["$lte"] = to_date + "T23:59:59"
+            else:
+                query["date"] = {"$lte": to_date + "T23:59:59"}
+    
     if category:
         query["category"] = category
     if settled:
@@ -53,7 +63,8 @@ async def get_variable_expenses(
         # Case-insensitive partial match for paid_to (vendor name)
         query["paid_to"] = {"$regex": paid_to, "$options": "i"}
     
-    expenses = await db.variable_expenses.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    # Increased limit from 500 to 2000 for date-bounded queries
+    expenses = await db.variable_expenses.find(query, {"_id": 0}).sort("date", -1).to_list(2000)
     return expenses
 
 @router.post("/expenses/variable")
@@ -223,22 +234,34 @@ async def get_fixed_expenses(
     status: str = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get fixed expenses with optional filters"""
+    """Get fixed expenses with optional filters.
+    
+    If no month/year filter is provided, defaults to current month and year
+    to prevent unbounded result sets. Use explicit month/year for different periods.
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = {}
     
-    if month is not None:
-        query["month"] = month
-    if year is not None:
-        query["year"] = year
+    # Apply default month/year filter (current month) if neither is provided
+    if month is None and year is None:
+        now = datetime.now(timezone.utc)
+        query["month"] = now.month
+        query["year"] = now.year
+    else:
+        if month is not None:
+            query["month"] = month
+        if year is not None:
+            query["year"] = year
+    
     if category:
         query["category"] = category
     if status:
         query["status"] = status
     
-    expenses = await db.fixed_expenses.find(query, {"_id": 0}).sort([("due_date", 1)]).to_list(500)
+    # Increased limit from 500 to 2000 for filtered queries
+    expenses = await db.fixed_expenses.find(query, {"_id": 0}).sort([("due_date", 1)]).to_list(2000)
     return expenses
 
 @router.post("/expenses/fixed")

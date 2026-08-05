@@ -235,6 +235,55 @@ def compute_invoice_payment_buckets(
     }
 
 
+async def attach_credit_notes_to_rejections(rejections: list) -> list:
+    """
+    Shared helper to attach credit note info to a list of rejections.
+    
+    Used by both retailer portal and field team endpoints for consistent credit note display.
+    
+    Args:
+        rejections: List of rejection documents from retailer_rejections
+    
+    Returns:
+        The same list with credit note fields added:
+        - credit_note_id: ID of the credit note
+        - credit_note_number: Human-readable credit note number
+        - credit_note_amount: Amount of the credit note
+        - credit_note_status: Status ('pending' or 'adjusted')
+    """
+    if not rejections:
+        return rejections
+    
+    rejection_ids = [r.get("id") for r in rejections if r.get("id")]
+    if not rejection_ids:
+        return rejections
+    
+    # Bulk lookup credit notes for these rejections
+    credit_notes = await db.retailer_credit_notes.find(
+        {"rejection_id": {"$in": rejection_ids}},
+        {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1}
+    ).to_list(len(rejection_ids))
+    
+    # Create a map of rejection_id -> credit note info
+    cn_map = {
+        cn.get("rejection_id"): {
+            "credit_note_id": cn.get("id"),
+            "credit_note_number": cn.get("credit_note_number"),
+            "credit_note_amount": cn.get("amount"),
+            "credit_note_status": cn.get("status", "pending")
+        }
+        for cn in credit_notes if cn.get("rejection_id")
+    }
+    
+    # Attach credit note info to rejections
+    for rejection in rejections:
+        rej_id = rejection.get("id")
+        if rej_id and rej_id in cn_map:
+            rejection.update(cn_map[rej_id])
+    
+    return rejections
+
+
 # SECTION: RETAILER PORTAL ROUTES (Lines ~3368-4100)
 # Includes: Retailers, Indents, Dispatches, GRN, Rejections, Payments, Invoices
 # ============================================================================
@@ -1114,34 +1163,12 @@ async def get_retailer_rejections(
     
     rejections = await db.retailer_rejections.find(query, {"_id": 0}).sort("rejection_date", -1).to_list(limit)
     
-    # Bulk lookup credit notes for these rejections
-    if rejections:
-        rejection_ids = [r.get("id") for r in rejections if r.get("id")]
-        if rejection_ids:
-            credit_notes = await db.retailer_credit_notes.find(
-                {"rejection_id": {"$in": rejection_ids}},
-                {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1}
-            ).to_list(len(rejection_ids))
-            
-            # Create a map of rejection_id -> credit note info
-            cn_map = {
-                cn.get("rejection_id"): {
-                    "credit_note_id": cn.get("id"),
-                    "credit_note_number": cn.get("credit_note_number"),
-                    "credit_note_amount": cn.get("amount"),
-                    "credit_note_status": cn.get("status", "pending")
-                }
-                for cn in credit_notes if cn.get("rejection_id")
-            }
-            
-            # Attach credit note info to rejections
-            for rejection in rejections:
-                rej_id = rejection.get("id")
-                if rej_id and rej_id in cn_map:
-                    rejection.update(cn_map[rej_id])
+    # Attach credit note info using shared helper
+    await attach_credit_notes_to_rejections(rejections)
         
-        # Calculate COGS for each rejection using daily_cogs collection
-        # This mirrors the pattern in dashboard_analytics.py
+    # Calculate COGS for each rejection using daily_cogs collection
+    # This mirrors the pattern in dashboard_analytics.py
+    if rejections:
         
         # Helper function to extract packaging weight
         def get_packaging_weight_gm(unit_str):

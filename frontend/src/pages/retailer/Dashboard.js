@@ -5705,11 +5705,12 @@ export default function RetailerDashboard({
                       <th className="p-3 text-center font-medium text-gray-500">QTY</th>
                       <th className="p-3 text-right font-medium text-gray-500">VALUE</th>
                       <th className="p-3 text-left font-medium text-gray-500">REASON</th>
+                      <th className="p-3 text-center font-medium text-gray-500">CREDIT NOTE</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rejections.length === 0 ? (
-                      <tr><td colSpan={5} className="p-8 text-center text-gray-400">No rejections recorded</td></tr>
+                      <tr><td colSpan={6} className="p-8 text-center text-gray-400">No rejections recorded</td></tr>
                     ) : (() => {
                       // Group rejections by date
                       const rejectionsByDate = rejections.reduce((acc, r) => {
@@ -5742,6 +5743,20 @@ export default function RetailerDashboard({
                               <td className="p-3 text-center text-red-600 font-semibold">{totalQty}</td>
                               <td className="p-3 text-right text-red-600 font-semibold">{formatCurrency(totalValue)}</td>
                               <td className="p-3 text-gray-500 text-xs">{dateRejections.length} item(s)</td>
+                              <td className="p-3 text-center">
+                                {/* Show count of credit notes for this date */}
+                                {(() => {
+                                  const withCN = dateRejections.filter(r => r.credit_note_number);
+                                  const adjusted = dateRejections.filter(r => r.credit_note_status === 'adjusted').length;
+                                  if (withCN.length === 0) return <span className="text-xs text-gray-400">-</span>;
+                                  return (
+                                    <span className="text-xs">
+                                      {withCN.length} CN{withCN.length > 1 ? 's' : ''}
+                                      {adjusted > 0 && <span className="text-green-600 ml-1">({adjusted} adj)</span>}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
                             </tr>
                             
                             {/* Expanded Product Details */}
@@ -5757,6 +5772,23 @@ export default function RetailerDashboard({
                                 <td className="p-2 text-center text-red-500">{rejection.quantity}</td>
                                 <td className="p-2 text-right text-red-500">{formatCurrency(rejection.rejection_value)}</td>
                                 <td className="p-2 text-gray-500">{rejection.reason}</td>
+                                <td className="p-2 text-center">
+                                  {rejection.credit_note_number ? (
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <span className="text-xs font-mono text-blue-600">{rejection.credit_note_number}</span>
+                                      <span className="text-[10px] text-gray-500">{formatCurrency(rejection.credit_note_amount || 0)}</span>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                        rejection.credit_note_status === 'adjusted' 
+                                          ? 'bg-green-100 text-green-700' 
+                                          : 'bg-yellow-100 text-yellow-700'
+                                      }`}>
+                                        {rejection.credit_note_status === 'adjusted' ? 'Adjusted' : 'Pending'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">-</span>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </React.Fragment>
@@ -5772,6 +5804,14 @@ export default function RetailerDashboard({
                         <td className="p-3 text-center text-red-600">{rejections.reduce((sum, r) => sum + (r.quantity || 0), 0)}</td>
                         <td className="p-3 text-right text-red-600">{formatCurrency(rejections.reduce((sum, r) => sum + (r.rejection_value || 0), 0))}</td>
                         <td></td>
+                        <td className="p-3 text-center text-xs">
+                          {(() => {
+                            const withCN = rejections.filter(r => r.credit_note_number);
+                            const adjusted = rejections.filter(r => r.credit_note_status === 'adjusted').length;
+                            if (withCN.length === 0) return '';
+                            return `${withCN.length} CN${withCN.length > 1 ? 's' : ''} (${adjusted} adjusted)`;
+                          })()}
+                        </td>
                       </tr>
                     </tfoot>
                   )}

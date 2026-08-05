@@ -15,7 +15,7 @@ from dependencies import (
     logger,
 )
 from models import RetailerIndentCreate, RetailerIndentItem
-from routes.retailer_portal import compute_retailer_payment_details, compute_retailer_payment_summary
+from routes.retailer_portal import compute_retailer_payment_details, compute_retailer_payment_summary, attach_credit_notes_to_rejections
 
 router = APIRouter(tags=["field_team"])
 
@@ -756,13 +756,16 @@ async def get_retailer_rejections_for_field_team(
     retailer_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get rejections for a specific retailer"""
+    """Get rejections for a specific retailer with credit note info attached"""
     await verify_field_team_retailer_access(current_user, retailer_id)
     
     rejections = await db.retailer_rejections.find(
         {"retailer_id": retailer_id},
         {"_id": 0}
     ).sort("rejection_date", -1).to_list(5000)
+    
+    # Attach credit note info using shared helper
+    await attach_credit_notes_to_rejections(rejections)
     
     return rejections
 

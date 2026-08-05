@@ -2,6 +2,17 @@
 
 ## Changelog (August 2026)
 
+### August 5, 2026 - Credit Note Display on Rejections Table ✅
+- **FEATURE**: Show credit note info against each rejection in both Retailer and Field Team portals
+  - **Backend**: Created shared helper `attach_credit_notes_to_rejections()` in `retailer_portal.py`
+    - Bulk fetches credit notes for rejection IDs and attaches: `credit_note_id`, `credit_note_number`, `credit_note_amount`, `credit_note_status`
+    - Used by both `/api/retailer-rejections` and `/api/field-team/retailer/{id}-rejections`
+  - **Frontend** (`Dashboard.js` rejections table):
+    - Added "CREDIT NOTE" column header
+    - Date summary row shows count of credit notes and how many are adjusted
+    - Expanded row shows credit note number, amount, and status badge (green "Adjusted" / yellow "Pending")
+    - Footer shows total count of credit notes and adjusted count
+
 ### August 5, 2026 - Cart Auto-Save (Draft) Feature ✅
 - **FEATURE**: Cart draft persistence for order/indent flow
   - Cart state now persists across page reloads and browser sessions

@@ -15,7 +15,7 @@ from dependencies import (
     logger,
 )
 from models import RetailerIndentCreate, RetailerIndentItem
-from routes.retailer_portal import compute_retailer_payment_details
+from routes.retailer_portal import compute_retailer_payment_details, compute_retailer_payment_summary
 
 router = APIRouter(tags=["field_team"])
 
@@ -877,60 +877,20 @@ async def get_retailer_payment_summary_for_field_team(
     end_date: str = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get payment summary for a specific retailer (for Field Team view)"""
+    """
+    Get payment summary for a specific retailer (for Field Team view).
+    Uses the shared compute_retailer_payment_summary function to ensure
+    consistency with the retailer portal view.
+    """
     retailer = await verify_field_team_retailer_access(current_user, retailer_id)
     
-    today = get_ist_today()
-    upfront_pct = retailer.get("upfront_collection_percentage", 50)
-    commission_pct = retailer.get("commission_percentage", 0)
+    # Use the shared computation function - same as retailer portal
+    result = await compute_retailer_payment_summary(retailer_id, start_date, end_date)
     
-    # Build query for invoices
-    query = {"retailer_id": retailer_id}
-    if start_date or end_date:
-        date_query = {}
-        if start_date:
-            date_query["$gte"] = start_date
-        if end_date:
-            date_query["$lte"] = end_date + "T23:59:59"
-        query["invoice_date"] = date_query
+    # Add retailer info to the response for Field Team context
+    result["retailer_name"] = retailer.get("company_name") or retailer.get("name")
+    result["upfront_percentage"] = retailer.get("upfront_collection_percentage", 50)
+    result["commission_percentage"] = retailer.get("commission_percentage", 0)
+    result["date_range"] = {"start": start_date, "end": end_date}
     
-    # Fetch invoices
-    invoices = await db.retailer_invoices.find(query, {"_id": 0}).to_list(1000)
-    
-    # Fetch payments
-    payment_query = {"retailer_id": retailer_id}
-    if start_date or end_date:
-        date_query = {}
-        if start_date:
-            date_query["$gte"] = start_date
-        if end_date:
-            date_query["$lte"] = end_date + "T23:59:59"
-        payment_query["payment_date"] = date_query
-    
-    payments = await db.retailer_payments.find(payment_query, {"_id": 0}).to_list(500)
-    
-    # Calculate totals
-    total_gross = sum(inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0 for inv in invoices)
-    total_rejection = sum(inv.get("rejection_amount", 0) or 0 for inv in invoices)
-    total_commission = sum(inv.get("commission_amount", 0) or 0 for inv in invoices)
-    total_net_payable = total_gross - total_rejection - total_commission
-    total_paid = sum(p.get("amount", 0) or 0 for p in payments)
-    total_pending = total_net_payable - total_paid
-    
-    return {
-        "retailer_id": retailer_id,
-        "retailer_name": retailer.get("company_name") or retailer.get("name"),
-        "upfront_percentage": upfront_pct,
-        "commission_percentage": commission_pct,
-        "date_range": {"start": start_date, "end": end_date},
-        "summary": {
-            "total_gross": round(total_gross, 2),
-            "total_rejection": round(total_rejection, 2),
-            "total_commission": round(total_commission, 2),
-            "total_net_payable": round(total_net_payable, 2),
-            "total_paid": round(total_paid, 2),
-            "total_pending": round(total_pending, 2),
-            "invoice_count": len(invoices),
-            "payment_count": len(payments)
-        }
-    }
+    return result

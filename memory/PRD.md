@@ -2,6 +2,22 @@
 
 ## Changelog (August 2026)
 
+### August 5, 2026 - Field Team Payment Block Fixes ✅
+- **FIX 1: Total Payable shows gross pending in fieldTeamMode**
+  - In `Dashboard.js` for `fieldTeamMode=true`:
+    - Header figure (line 3724) now shows `total_pending` (gross) instead of `immediately_payable` (net after credit)
+    - Total Payable card shows `total_pending` with label "From Pending Invoices"
+    - Credit Notes card label changed to "Pending Credit Notes"
+    - Suppressed "After ₹X credit" sub-labels to keep credit shown separately
+  - Retailer's own portal unchanged (still shows net figures)
+
+- **FIX 2: Summary popup now works for Field Team**
+  - Extracted shared `compute_retailer_payment_summary(retailer_id, start_date, end_date)` in `retailer_portal.py`
+  - `get_retailer_payment_summary` now calls shared function (thin wrapper)
+  - Field Team's `/api/field-team/retailer/{id}/payment-summary` now returns correct shape:
+    - `{total_invoices, totals: {...}, invoices: [...]}` instead of `{summary: {...}}`
+  - Summary modal now displays same data as Admin/Retailer view with full invoice breakdown
+
 ### August 5, 2026 - Field Team Payment Details Fix ✅
 - **REFACTOR**: Deduplicated Field Team payment-details endpoint
   - **Problem**: `GET /api/field-team/retailer/{id}/payment-details` was a hand-rolled duplicate of the retailer payment-details endpoint that had drifted (missing per-date invoices, credit notes, item enrichment, etc.)

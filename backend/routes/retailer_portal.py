@@ -9550,6 +9550,19 @@ async def get_retailer_payment_summary(
     elif not retailer_id:
         raise HTTPException(status_code=400, detail="retailer_id is required for admin")
     
+    return await compute_retailer_payment_summary(retailer_id, start_date, end_date)
+
+
+async def compute_retailer_payment_summary(retailer_id: str, start_date: str = None, end_date: str = None):
+    """
+    Shared function to compute payment summary for a retailer.
+    Used by both retailer portal and field team endpoints.
+    
+    Returns:
+    - total_invoices: count of invoices
+    - totals: {gross_value, rejection_amount, total_mrp_value, commission_amount, total_credit_adjusted, net_payable, paid_amount, net_due}
+    - invoices: array of invoice objects with full breakdown
+    """
     # Build query
     query = {"retailer_id": retailer_id}
     

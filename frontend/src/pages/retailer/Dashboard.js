@@ -3721,18 +3721,29 @@ export default function RetailerDashboard({
                           <p className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold ${
                             paymentDetails.is_full_upfront ? 'text-purple-700' : 'text-blue-700'
                           }`}>
-                            {formatCurrency(paymentDetails.totals?.immediately_payable ?? ((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0)))}
+                            {/* In fieldTeamMode: show gross total_pending; otherwise show immediately_payable (net of credit) */}
+                            {fieldTeamMode 
+                              ? formatCurrency(paymentDetails.totals?.total_pending || 0)
+                              : formatCurrency(paymentDetails.totals?.immediately_payable ?? ((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0)))
+                            }
                           </p>
-                          {/* For 50% upfront: show total outstanding as secondary figure */}
-                          {!paymentDetails.is_full_upfront && paymentDetails.totals?.grand_total > paymentDetails.totals?.immediately_payable && (
+                          {/* For 50% upfront: show total outstanding as secondary figure - only in non-fieldTeamMode */}
+                          {!fieldTeamMode && !paymentDetails.is_full_upfront && paymentDetails.totals?.grand_total > paymentDetails.totals?.immediately_payable && (
                             <p className="text-[10px] sm:text-xs text-gray-500">
                               Total Outstanding: {formatCurrency((paymentDetails.totals?.grand_total || 0) - (paymentDetails.totals?.total_pending_credit || 0))}
                             </p>
                           )}
-                          {paymentDetails.totals?.total_pending_credit > 0 && (
+                          {/* In fieldTeamMode: show "From pending invoices" label instead of credit adjustment */}
+                          {fieldTeamMode ? (
                             <p className="text-[10px] sm:text-xs text-gray-500">
-                              After ₹{(paymentDetails.totals?.total_pending_credit || 0).toLocaleString()} credit adjustment
+                              From pending invoices
                             </p>
+                          ) : (
+                            paymentDetails.totals?.total_pending_credit > 0 && (
+                              <p className="text-[10px] sm:text-xs text-gray-500">
+                                After ₹{(paymentDetails.totals?.total_pending_credit || 0).toLocaleString()} credit adjustment
+                              </p>
+                            )
                           )}
                         </div>
                       </div>
@@ -3768,11 +3779,18 @@ export default function RetailerDashboard({
                           >
                             <div className="flex justify-between items-start">
                               <div className="min-w-0 flex-1">
-                                <p className="text-[10px] sm:text-xs text-gray-500">Total Payable</p>
-                                <p className="text-base sm:text-lg font-bold text-purple-600 truncate">
-                                  {formatCurrency(paymentDetails.totals?.net_payable || (paymentDetails.totals?.grand_total - (paymentDetails.totals?.total_pending_credit || 0)))}
+                                <p className="text-[10px] sm:text-xs text-gray-500">
+                                  {fieldTeamMode ? 'From Pending Invoices' : 'Total Payable'}
                                 </p>
-                                {paymentDetails.totals?.total_pending_credit > 0 && (
+                                <p className="text-base sm:text-lg font-bold text-purple-600 truncate">
+                                  {/* In fieldTeamMode: show gross total_pending; otherwise show net_payable (after credit) */}
+                                  {fieldTeamMode 
+                                    ? formatCurrency(paymentDetails.totals?.total_pending || 0)
+                                    : formatCurrency(paymentDetails.totals?.net_payable || (paymentDetails.totals?.grand_total - (paymentDetails.totals?.total_pending_credit || 0)))
+                                  }
+                                </p>
+                                {/* Suppress credit sub-label in fieldTeamMode */}
+                                {!fieldTeamMode && paymentDetails.totals?.total_pending_credit > 0 && (
                                   <p className="text-[9px] sm:text-[10px] text-gray-500 truncate">
                                     After ₹{(paymentDetails.totals?.total_pending_credit || 0).toLocaleString()} credit
                                   </p>
@@ -3792,7 +3810,9 @@ export default function RetailerDashboard({
                           >
                             <div className="flex justify-between items-start">
                               <div className="min-w-0 flex-1">
-                                <p className="text-[10px] sm:text-xs text-gray-500">Credit Notes</p>
+                                <p className="text-[10px] sm:text-xs text-gray-500">
+                                  {fieldTeamMode ? 'Pending Credit Notes' : 'Credit Notes'}
+                                </p>
                                 <p className={`text-base sm:text-lg font-bold truncate ${
                                   (paymentDetails.credit_notes?.length || 0) > 0 ? 'text-green-600' : 'text-gray-400'
                                 }`}>
@@ -3888,7 +3908,9 @@ export default function RetailerDashboard({
                           </div>
                           {(paymentDetails.totals?.total_pending_credit > 0 || paymentDetails.credit_notes?.length > 0) && (
                             <div className="bg-white rounded-lg border border-purple-200 p-2 px-2 sm:px-3 text-center flex-1">
-                              <p className="text-[10px] sm:text-xs text-purple-600 font-medium">Credit Notes</p>
+                              <p className="text-[10px] sm:text-xs text-purple-600 font-medium">
+                                {fieldTeamMode ? 'Pending Credits' : 'Credit Notes'}
+                              </p>
                               <p className="text-sm sm:text-base font-bold text-purple-700">
                                 - {formatCurrency(paymentDetails.totals?.total_pending_credit || 0)}
                               </p>

@@ -15,6 +15,7 @@ from dependencies import (
     logger,
 )
 from models import RetailerIndentCreate, RetailerIndentItem
+from routes.retailer_portal import compute_retailer_payment_details
 
 router = APIRouter(tags=["field_team"])
 
@@ -539,7 +540,8 @@ async def get_retailer_payment_details_for_field_team(
 ):
     """
     Get payment details for a specific retailer (for Field Team view).
-    This replicates the retailer-payment-details endpoint logic.
+    Uses the shared compute_retailer_payment_details function to ensure
+    consistency with the retailer portal view.
     """
     if current_user.get("role") != "field_team":
         raise HTTPException(status_code=403, detail="Only field team members can access this endpoint")
@@ -549,131 +551,15 @@ async def get_retailer_payment_details_for_field_team(
     # Verify this retailer is assigned to the field team member
     retailer = await verify_retailer_assigned_to_field_team(retailer_id, field_team_id)
     
-    today = get_ist_today()
-    upfront_pct = retailer.get("upfront_collection_percentage", 50)
-    is_full_upfront = upfront_pct == 100
+    # Use the shared computation function - same as retailer portal
+    result = await compute_retailer_payment_details(retailer_id, start_date, end_date)
     
-    # Build query
-    query = {"retailer_id": retailer_id}
-    if start_date or end_date:
-        date_query = {}
-        if start_date:
-            date_query["$gte"] = start_date
-        if end_date:
-            date_query["$lte"] = end_date + "T23:59:59"
-        query["invoice_date"] = date_query
-    else:
-        query["status"] = {"$in": ["pending", "partial"]}
+    # Add retailer info to the response for Field Team context
+    result["retailer_id"] = retailer_id
+    result["retailer_name"] = retailer.get("company_name") or retailer.get("name")
+    result["date_range"] = {"start": start_date, "end": end_date}
     
-    invoices = await db.retailer_invoices.find(query, {"_id": 0}).sort("invoice_date", -1).to_list(500)
-    
-    # Build date-wise aggregation
-    date_groups = {}
-    
-    for inv in invoices:
-        inv_date = inv.get("invoice_date")
-        if isinstance(inv_date, str):
-            inv_date_str = inv_date[:10]
-            inv_date_obj = datetime.fromisoformat(inv_date_str).date()
-        elif isinstance(inv_date, datetime):
-            inv_date_str = inv_date.date().isoformat()
-            inv_date_obj = inv_date.date()
-        else:
-            continue
-        
-        gross_value = inv.get("gross_value", 0) or inv.get("total_mrp_value", 0) or 0
-        rejection_amount = inv.get("rejection_amount", 0) or 0
-        commission_amount = inv.get("commission_amount", 0) or 0
-        paid_amount = inv.get("paid_amount", 0) or 0
-        total_credit_adjusted = inv.get("total_credit_adjusted", 0) or 0
-        
-        net_payable = inv.get("net_payable", 0) or 0
-        if net_payable <= 0:
-            net_payable = gross_value - rejection_amount - commission_amount
-        
-        final_payable = net_payable - total_credit_adjusted
-        pending_amount = max(0, final_payable - paid_amount)
-        
-        days_since = (today - inv_date_obj).days
-        
-        # Calculate buckets
-        upfront_due = 0
-        final_due = 0
-        
-        if pending_amount > 0:
-            if is_full_upfront:
-                upfront_due = pending_amount
-            else:
-                upfront_portion = final_payable * (upfront_pct / 100)
-                unpaid_upfront = max(0, upfront_portion - paid_amount)
-                
-                if days_since == 0:
-                    upfront_due = min(unpaid_upfront, pending_amount)
-                    final_due = max(0, pending_amount - upfront_due)
-                elif days_since >= 1 and days_since <= 4:
-                    upfront_due = unpaid_upfront
-                    final_due = max(0, pending_amount - unpaid_upfront)
-                elif days_since >= 5:
-                    upfront_due = unpaid_upfront
-                    final_due = pending_amount - unpaid_upfront if unpaid_upfront > 0 else pending_amount
-        
-        if inv_date_str not in date_groups:
-            date_groups[inv_date_str] = {
-                "date": inv_date_str,
-                "gross_value": 0,
-                "rejection_amount": 0,
-                "commission_amount": 0,
-                "net_payable": 0,
-                "paid_amount": 0,
-                "pending_amount": 0,
-                "upfront_due": 0,
-                "final_due": 0,
-                "days_since": days_since,
-                "invoice_count": 0
-            }
-        
-        grp = date_groups[inv_date_str]
-        grp["gross_value"] += gross_value
-        grp["rejection_amount"] += rejection_amount
-        grp["commission_amount"] += commission_amount
-        grp["net_payable"] += final_payable
-        grp["paid_amount"] += paid_amount
-        grp["pending_amount"] += pending_amount
-        grp["upfront_due"] += upfront_due
-        grp["final_due"] += final_due
-        grp["invoice_count"] += 1
-    
-    # Convert to list and sort
-    dates_list = sorted(date_groups.values(), key=lambda x: x["date"], reverse=True)
-    
-    # Round values
-    for d in dates_list:
-        for key in ["gross_value", "rejection_amount", "commission_amount", "net_payable", "paid_amount", "pending_amount", "upfront_due", "final_due"]:
-            d[key] = round(d[key], 2)
-    
-    # Calculate totals
-    totals = {
-        "gross_value": round(sum(d["gross_value"] for d in dates_list), 2),
-        "rejection_amount": round(sum(d["rejection_amount"] for d in dates_list), 2),
-        "commission_amount": round(sum(d["commission_amount"] for d in dates_list), 2),
-        "net_payable": round(sum(d["net_payable"] for d in dates_list), 2),
-        "paid_amount": round(sum(d["paid_amount"] for d in dates_list), 2),
-        "pending_amount": round(sum(d["pending_amount"] for d in dates_list), 2),
-        "upfront_due": round(sum(d["upfront_due"] for d in dates_list), 2),
-        "final_due": round(sum(d["final_due"] for d in dates_list), 2),
-        "immediately_payable": round(sum(d["upfront_due"] + d["final_due"] for d in dates_list if d["days_since"] >= 5) + sum(d["upfront_due"] for d in dates_list if d["days_since"] < 5), 2)
-    }
-    
-    return {
-        "retailer_id": retailer_id,
-        "retailer_name": retailer.get("company_name") or retailer.get("name"),
-        "upfront_percentage": upfront_pct,
-        "commission_percentage": retailer.get("commission_percentage", 0),
-        "is_full_upfront": is_full_upfront,
-        "date_range": {"start": start_date, "end": end_date},
-        "totals": totals,
-        "dates": dates_list
-    }
+    return result
 
 
 @router.get("/field-team/retailer/{retailer_id}/payment-ledger")

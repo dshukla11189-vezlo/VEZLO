@@ -9253,8 +9253,6 @@ async def get_retailer_payment_details(
     Each row: Date, 50% Upfront Payment, Final Payment
     Click on a row to see item-level breakdown.
     """
-    from datetime import timedelta
-    
     # Get retailer ID from current user
     if current_user.get("role") != "retailer":
         raise HTTPException(status_code=403, detail="Only retailers can access this endpoint")
@@ -9262,6 +9260,22 @@ async def get_retailer_payment_details(
     retailer_id = current_user.get("user_id")
     if not retailer_id:
         raise HTTPException(status_code=400, detail="Retailer ID not found")
+    
+    # Use the shared computation function
+    return await compute_retailer_payment_details(retailer_id, start_date, end_date)
+
+
+async def compute_retailer_payment_details(retailer_id: str, start_date: str = None, end_date: str = None):
+    """
+    Shared function to compute payment details for a retailer.
+    Used by both retailer portal and field team endpoints.
+    
+    Returns complete payment details including:
+    - Per-date entries with upfront_50_total, final_payment_total, total_pending, invoices, is_all_clear
+    - Totals with grand_total, net_payable, total_pending_credit, immediately_payable
+    - Credit notes
+    """
+    from datetime import timedelta
     
     # Get retailer info for commission percentage and upfront collection percentage
     retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0, "commission_percentage": 1, "upfront_collection_percentage": 1})

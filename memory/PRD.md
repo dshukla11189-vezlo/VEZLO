@@ -2,6 +2,19 @@
 
 ## Changelog (August 2026)
 
+### August 5, 2026 - Field Team Payment Details Fix ✅
+- **REFACTOR**: Deduplicated Field Team payment-details endpoint
+  - **Problem**: `GET /api/field-team/retailer/{id}/payment-details` was a hand-rolled duplicate of the retailer payment-details endpoint that had drifted (missing per-date invoices, credit notes, item enrichment, etc.)
+  - **Solution**: 
+    - Extracted body of `get_retailer_payment_details` in `retailer_portal.py` into shared `compute_retailer_payment_details(retailer_id, start_date, end_date)` function
+    - Made `get_retailer_payment_details` a thin wrapper calling the shared function
+    - Updated `field_team.py` to import and use `compute_retailer_payment_details` (reduced from 140+ lines to ~30 lines)
+  - **Result**: Field Team payment view now matches Admin/Retailer view exactly with:
+    - Per-date entries with `upfront_50_total`, `final_payment_total`, `total_pending`, `invoices`, `is_all_clear`
+    - Totals with `grand_total`, `net_payable`, `total_pending_credit`, `immediately_payable`
+    - Credit notes included in response
+    - Both 100%-upfront and 50%-upfront models handled correctly
+
 ### August 5, 2026 - Fixed Expenses Module Enhancements ✅
 - **FEATURE: Date Range Filter**
   - Added toggle between "By Month" (default) and "Date Range" filter modes

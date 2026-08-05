@@ -76,7 +76,7 @@ export default function VariableExpenses() {
     paid_by_employee_id: '', // If employee, store their ID
     payment_status: 'pending', // 'pending', 'partially_paid', 'paid'
     paid_amount: '',
-    payment_date: new Date().toISOString().split('T')[0],
+    payment_date: '', // Empty by default - will be filled when user enters payment details
     payment_reference: '',
     settlement_status: 'settled', // 'settled' or 'pending_reimbursement'
     settlement_date: '',
@@ -231,7 +231,7 @@ export default function VariableExpenses() {
       paid_by_employee_id: '',
       payment_status: 'pending',
       paid_amount: '',
-      payment_date: new Date().toISOString().split('T')[0],
+      payment_date: '', // Empty by default - will be filled when user enters payment details
       payment_reference: '',
       settlement_status: 'settled',
       settlement_date: '',

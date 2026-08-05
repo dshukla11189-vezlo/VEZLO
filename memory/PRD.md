@@ -2,6 +2,29 @@
 
 ## Changelog (August 2026)
 
+
+### August 5, 2026 - Expenses Payment Modal Focus Trap Bug Fix ✅
+- **BUG FIX**: Fixed Payment Details modal being unclickable in Fixed/Variable Expenses
+  - **Problem**: When adding an expense with "Paid" status, the "Record Payment Details" modal rendered inside the still-open "Add Dialog" which had a focus-trap that blocked clicks on the payment modal buttons
+  - **Root Cause**: The Add Dialog (Shadcn Radix Dialog) was not closed before opening the Payment Details modal, causing the focus-trap to remain active
+  - **Solution in FixedExpenses.js**:
+    - Modified `handleSubmit()` to call `setShowAddDialog(false)` BEFORE `setShowPaymentDetailsModal(true)`
+    - Updated Cancel button in Payment Details modal to re-open Add Dialog (`setShowAddDialog(true)`) so user can continue editing
+    - Added `data-testid` attributes: `payment-details-modal`, `confirm-payment-btn`, `payment-cancel-btn`
+  - **Solution in VariableExpenses.js**:
+    - Same fix applied to `handleSubmit()` - close Add Dialog before opening Payment modal
+    - Fixed `payment_date` initialization from `new Date().toISOString()` to `''` (empty string)
+    - This allows the Payment Details modal trigger condition (`payment_status === 'paid' && !payment_date`) to be reached in the Add flow
+    - Added `data-testid` attributes: `variable-payment-details-modal`, `variable-confirm-payment-btn`, `variable-payment-cancel-btn`
+  - **Verification**: Radix dialog count goes to 0 when Payment modal opens, Confirm Payment button is clickable without force
+
+- **ENHANCEMENT**: Fixed Expenses now defaults to latest month with data
+  - Previously defaulted to current calendar month which could show empty results
+  - Added `useEffect` hook to fetch all expenses and determine the latest month/year with data
+  - Falls back to current month if no expense data exists
+  - `filterMonth` state initialized as `null` until determined to prevent premature API calls
+
+
 ### August 3, 2026 - Field Team Record Rejection Flow Fix ✅
 - **BUG FIX**: Fixed Field Team Dashboard showing "No retailers assigned to you"
   - **Root Cause**: Backend was querying retailers with `assigned_to: field_team_id` (Staff model)

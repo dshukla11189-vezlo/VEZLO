@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Calculator, Edit2, Trash2, RefreshCw, CheckCircle, Clock, 
-  AlertTriangle, Calendar, Copy, Users
+  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus
 } from 'lucide-react';
 
 const FIXED_CATEGORIES = [
@@ -25,7 +25,17 @@ const FIXED_CATEGORIES = [
   'Internet/Phone',
   'Security',
   'Maintenance',
+  'Allowance',
+  'Asset EMI',
+  'Subscription',
   'Other'
+];
+
+const EXPENSE_TYPES = [
+  { value: 'general', label: 'General' },
+  { value: 'allowance', label: 'Allowance' },
+  { value: 'asset_emi', label: 'Asset EMI' },
+  { value: 'subscription', label: 'Subscription' }
 ];
 
 const MONTHS = [
@@ -41,9 +51,18 @@ export default function FixedExpenses() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [initialMonthLoaded, setInitialMonthLoaded] = useState(false);
   
-  // Filters - Initialize with null to indicate "not yet determined"
+  // Filter mode: 'month' or 'dateRange'
+  const [filterMode, setFilterMode] = useState('month');
+  
+  // Month-based filters
   const [filterMonth, setFilterMonth] = useState(null);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  
+  // Date range filters
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  
+  // Common filters
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   
@@ -66,7 +85,9 @@ export default function FixedExpenses() {
     paid_by_employee_id: '',
     is_settled: true,
     settlement_date: '',
-    settlement_remarks: ''
+    settlement_remarks: '',
+    vendor: '',
+    invoice_number: ''
   });
   
   // Payment Details Modal state
@@ -77,6 +98,38 @@ export default function FixedExpenses() {
     payment_reference: '',
     paid_by_type: 'company',
     paid_by_employee_id: ''
+  });
+  
+  // View Details Modal state
+  const [showViewDetailsModal, setShowViewDetailsModal] = useState(false);
+  const [viewingExpense, setViewingExpense] = useState(null);
+  
+  // Corporate Expenses Management state
+  const [showCorporateDialog, setShowCorporateDialog] = useState(false);
+  const [corporateTab, setCorporateTab] = useState('templates'); // 'templates' or 'employees'
+  const [corporateEmployees, setCorporateEmployees] = useState([]);
+  const [recurringTemplates, setRecurringTemplates] = useState([]);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [showEmployeeDialog, setShowEmployeeDialog] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [editingEmployee, setEditingEmployee] = useState(null);
+  const [templateForm, setTemplateForm] = useState({
+    category: '',
+    description: '',
+    amount: '',
+    due_date: '1',
+    vendor: '',
+    invoice_number: '',
+    linked_employee_id: '',
+    linked_employee_name: '',
+    expense_type: 'general',
+    notes: ''
+  });
+  const [employeeForm, setEmployeeForm] = useState({
+    name: '',
+    role: '',
+    department: '',
+    notes: ''
   });
   
   // Staff users for Paid By dropdown
@@ -147,15 +200,23 @@ export default function FixedExpenses() {
   }, []);
 
   const loadExpenses = useCallback(async () => {
-    // Wait until initial month is determined
-    if (filterMonth === null) return;
+    // Wait until initial month is determined (only for month mode)
+    if (filterMode === 'month' && filterMonth === null) return;
     
     setLoading(true);
     try {
       let url = '/api/expenses/fixed';
       const params = new URLSearchParams();
-      params.append('month', filterMonth + 1);  // Convert 0-indexed to 1-indexed
-      params.append('year', filterYear);
+      
+      // Use date range or month/year based on filter mode
+      if (filterMode === 'dateRange' && (filterDateFrom || filterDateTo)) {
+        if (filterDateFrom) params.append('from_date', filterDateFrom);
+        if (filterDateTo) params.append('to_date', filterDateTo);
+      } else {
+        params.append('month', filterMonth + 1);  // Convert 0-indexed to 1-indexed
+        params.append('year', filterYear);
+      }
+      
       if (filterCategory !== 'all') params.append('category', filterCategory);
       if (filterStatus !== 'all') params.append('status', filterStatus);
       
@@ -169,18 +230,36 @@ export default function FixedExpenses() {
     } finally {
       setLoading(false);
     }
-  }, [filterMonth, filterYear, filterCategory, filterStatus]);
+  }, [filterMode, filterMonth, filterYear, filterDateFrom, filterDateTo, filterCategory, filterStatus]);
 
   useEffect(() => {
-    if (filterMonth !== null) {
+    if (filterMode === 'dateRange' || filterMonth !== null) {
       loadExpenses();
     }
-  }, [loadExpenses, filterMonth]);
+  }, [loadExpenses, filterMonth, filterMode]);
+
+  // Load corporate employees and templates
+  const loadCorporateData = async () => {
+    try {
+      const [empRes, tmplRes] = await Promise.all([
+        api.get('/api/corporate-employees'),
+        api.get('/api/recurring-expense-templates')
+      ]);
+      setCorporateEmployees(empRes.data || []);
+      setRecurringTemplates(tmplRes.data || []);
+    } catch (error) {
+      console.error('Failed to load corporate data:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadCorporateData();
+  }, []);
 
   const resetForm = () => {
     setFormData({
       date: new Date().toISOString().split('T')[0],
-      month: filterMonth + 1,  // filterMonth is 0-indexed
+      month: filterMonth !== null ? filterMonth + 1 : new Date().getMonth() + 1,
       year: filterYear,
       category: '',
       description: '',
@@ -196,9 +275,149 @@ export default function FixedExpenses() {
       paid_by_employee_id: '',
       is_settled: true,
       settlement_date: '',
-      settlement_remarks: ''
+      settlement_remarks: '',
+      vendor: '',
+      invoice_number: ''
     });
     setEditingExpense(null);
+  };
+
+  const resetTemplateForm = () => {
+    setTemplateForm({
+      category: '',
+      description: '',
+      amount: '',
+      due_date: '1',
+      vendor: '',
+      invoice_number: '',
+      linked_employee_id: '',
+      linked_employee_name: '',
+      expense_type: 'general',
+      notes: ''
+    });
+    setEditingTemplate(null);
+  };
+
+  const resetEmployeeForm = () => {
+    setEmployeeForm({
+      name: '',
+      role: '',
+      department: '',
+      notes: ''
+    });
+    setEditingEmployee(null);
+  };
+
+  // Handle View Details
+  const handleViewDetails = (expense) => {
+    setViewingExpense(expense);
+    setShowViewDetailsModal(true);
+  };
+
+  // Template CRUD
+  const handleSaveTemplate = async () => {
+    if (!templateForm.category || !templateForm.amount) {
+      toast.error('Category and Amount are required');
+      return;
+    }
+    
+    try {
+      const payload = {
+        ...templateForm,
+        amount: parseFloat(templateForm.amount),
+        due_date: parseInt(templateForm.due_date) || 1
+      };
+      
+      if (editingTemplate) {
+        await api.put(`/api/recurring-expense-templates/${editingTemplate.id}`, payload);
+        toast.success('Template updated');
+      } else {
+        await api.post('/api/recurring-expense-templates', payload);
+        toast.success('Template created');
+      }
+      
+      setShowTemplateDialog(false);
+      resetTemplateForm();
+      loadCorporateData();
+    } catch (error) {
+      console.error('Save template error:', error);
+      toast.error('Failed to save template');
+    }
+  };
+
+  const handleEditTemplate = (template) => {
+    setEditingTemplate(template);
+    setTemplateForm({
+      category: template.category || '',
+      description: template.description || '',
+      amount: template.amount?.toString() || '',
+      due_date: template.due_date?.toString() || '1',
+      vendor: template.vendor || '',
+      invoice_number: template.invoice_number || '',
+      linked_employee_id: template.linked_employee_id || '',
+      linked_employee_name: template.linked_employee_name || '',
+      expense_type: template.expense_type || 'general',
+      notes: template.notes || ''
+    });
+    setShowTemplateDialog(true);
+  };
+
+  const handleDeleteTemplate = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this template?')) return;
+    try {
+      await api.delete(`/api/recurring-expense-templates/${id}`);
+      toast.success('Template deleted');
+      loadCorporateData();
+    } catch (error) {
+      toast.error('Failed to delete template');
+    }
+  };
+
+  // Employee CRUD
+  const handleSaveEmployee = async () => {
+    if (!employeeForm.name) {
+      toast.error('Employee name is required');
+      return;
+    }
+    
+    try {
+      if (editingEmployee) {
+        await api.put(`/api/corporate-employees/${editingEmployee.id}`, employeeForm);
+        toast.success('Employee updated');
+      } else {
+        await api.post('/api/corporate-employees', employeeForm);
+        toast.success('Employee created');
+      }
+      
+      setShowEmployeeDialog(false);
+      resetEmployeeForm();
+      loadCorporateData();
+    } catch (error) {
+      console.error('Save employee error:', error);
+      toast.error('Failed to save employee');
+    }
+  };
+
+  const handleEditEmployee = (employee) => {
+    setEditingEmployee(employee);
+    setEmployeeForm({
+      name: employee.name || '',
+      role: employee.role || '',
+      department: employee.department || '',
+      notes: employee.notes || ''
+    });
+    setShowEmployeeDialog(true);
+  };
+
+  const handleDeleteEmployee = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this employee?')) return;
+    try {
+      await api.delete(`/api/corporate-employees/${id}`);
+      toast.success('Employee deleted');
+      loadCorporateData();
+    } catch (error) {
+      toast.error('Failed to delete employee');
+    }
   };
 
   const handleSubmit = async () => {
@@ -332,7 +551,9 @@ export default function FixedExpenses() {
       paid_by_employee_id: expense.paid_by_employee_id || '',
       is_settled: expense.is_settled ?? true,
       settlement_date: expense.settlement_date?.split('T')[0] || '',
-      settlement_remarks: expense.settlement_remarks || ''
+      settlement_remarks: expense.settlement_remarks || '',
+      vendor: expense.vendor || '',
+      invoice_number: expense.invoice_number || ''
     });
     setShowAddDialog(true);
   };
@@ -523,32 +744,81 @@ export default function FixedExpenses() {
         <Card className="mb-4">
           <CardContent className="py-3">
             <div className="flex flex-wrap gap-3 items-end">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Month</label>
-                <Select value={filterMonth !== null ? filterMonth.toString() : ''} onValueChange={(v) => setFilterMonth(parseInt(v))}>
-                  <SelectTrigger className="w-32 h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTHS.map((month, idx) => (
-                      <SelectItem key={idx} value={idx.toString()}>{month}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              {/* Filter Mode Toggle */}
+              <div className="flex bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => setFilterMode('month')}
+                  className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                    filterMode === 'month' ? 'bg-white shadow text-[#14532D] font-medium' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  By Month
+                </button>
+                <button
+                  onClick={() => setFilterMode('dateRange')}
+                  className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                    filterMode === 'dateRange' ? 'bg-white shadow text-[#14532D] font-medium' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Date Range
+                </button>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Year</label>
-                <Select value={filterYear.toString()} onValueChange={(v) => setFilterYear(parseInt(v))}>
-                  <SelectTrigger className="w-24 h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {years.map(year => (
-                      <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+
+              {filterMode === 'month' ? (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Month</label>
+                    <Select value={filterMonth !== null ? filterMonth.toString() : ''} onValueChange={(v) => setFilterMonth(parseInt(v))}>
+                      <SelectTrigger className="w-32 h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {MONTHS.map((month, idx) => (
+                          <SelectItem key={idx} value={idx.toString()}>{month}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Year</label>
+                    <Select value={filterYear.toString()} onValueChange={(v) => setFilterYear(parseInt(v))}>
+                      <SelectTrigger className="w-24 h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {years.map(year => (
+                          <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">From Date</label>
+                    <Input
+                      type="date"
+                      value={filterDateFrom}
+                      onChange={(e) => setFilterDateFrom(e.target.value)}
+                      className="w-36 h-8 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">To Date</label>
+                    <Input
+                      type="date"
+                      value={filterDateTo}
+                      onChange={(e) => setFilterDateTo(e.target.value)}
+                      className="w-36 h-8 text-sm"
+                    />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadExpenses} className="h-8">
+                    <RefreshCw size={14} className="mr-1" /> Apply
+                  </Button>
+                </>
+              )}
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Category</label>
                 <Select value={filterCategory} onValueChange={setFilterCategory}>
@@ -575,6 +845,17 @@ export default function FixedExpenses() {
                     <SelectItem value="Pending">Pending</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="ml-auto">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowCorporateDialog(true)}
+                  className="h-8 text-blue-600 border-blue-200 hover:bg-blue-50"
+                >
+                  <Building2 size={14} className="mr-1" /> Corporate Expenses
+                </Button>
               </div>
             </div>
           </CardContent>
@@ -657,6 +938,15 @@ export default function FixedExpenses() {
                           </td>
                           <td className="p-2 text-center">
                             <div className="flex items-center justify-center gap-1">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-6 w-6 p-0" 
+                                onClick={() => handleViewDetails(expense)}
+                                title="View Details"
+                              >
+                                <Eye size={12} className="text-gray-600" />
+                              </Button>
                               {expense.status !== 'Paid' && (
                                 <Button 
                                   variant="ghost" 
@@ -794,6 +1084,31 @@ export default function FixedExpenses() {
                   onCheckedChange={(checked) => setFormData(prev => ({ ...prev, is_recurring: checked }))}
                 />
                 <label className="text-xs font-medium text-gray-700">Recurring Monthly (auto-create next month)</label>
+              </div>
+
+              {/* Vendor & Invoice Section */}
+              <div className="border-t pt-3 mt-3">
+                <label className="text-xs font-semibold text-gray-500 uppercase mb-2 block">Vendor Details (Optional)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-700 mb-1 block">Vendor</label>
+                    <Input
+                      placeholder="Vendor name"
+                      value={formData.vendor}
+                      onChange={(e) => setFormData(prev => ({ ...prev, vendor: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-700 mb-1 block">Invoice Number</label>
+                    <Input
+                      placeholder="INV-..."
+                      value={formData.invoice_number}
+                      onChange={(e) => setFormData(prev => ({ ...prev, invoice_number: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                </div>
               </div>
               
               {/* Paid By Section */}
@@ -1033,6 +1348,446 @@ export default function FixedExpenses() {
             </div>
           </div>
         )}
+
+        {/* View Details Modal */}
+        <Dialog open={showViewDetailsModal} onOpenChange={setShowViewDetailsModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText size={18} className="text-blue-600" />
+                Expense Details
+              </DialogTitle>
+            </DialogHeader>
+            
+            {viewingExpense && (
+              <div className="space-y-4 py-2">
+                {/* Category & Description */}
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">{viewingExpense.category}</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      viewingExpense.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                    }`}>{viewingExpense.status}</span>
+                  </div>
+                  <p className="text-sm text-gray-600">{viewingExpense.description || 'No description'}</p>
+                  <p className="text-2xl font-bold mt-2">₹{viewingExpense.amount?.toLocaleString()}</p>
+                </div>
+
+                {/* Expense Info Grid */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-0.5">Date</p>
+                    <p className="font-medium">{viewingExpense.date?.split('T')[0] || `${viewingExpense.year}-${String(viewingExpense.month).padStart(2, '0')}-01`}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-0.5">Due Date</p>
+                    <p className="font-medium">Day {viewingExpense.due_date || 1}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-0.5">Recurring</p>
+                    <p className="font-medium">{viewingExpense.is_recurring ? 'Yes' : 'No'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-0.5">Paid By</p>
+                    <p className="font-medium">{viewingExpense.paid_by || 'Company'}</p>
+                  </div>
+                </div>
+
+                {/* Vendor & Invoice Info */}
+                {(viewingExpense.vendor || viewingExpense.invoice_number) && (
+                  <div className="border-t pt-3">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Vendor Details</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      {viewingExpense.vendor && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-0.5">Vendor</p>
+                          <p className="font-medium">{viewingExpense.vendor}</p>
+                        </div>
+                      )}
+                      {viewingExpense.invoice_number && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-0.5">Invoice Number</p>
+                          <p className="font-medium">{viewingExpense.invoice_number}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Payment Details - only show if Paid */}
+                {viewingExpense.status === 'Paid' && (
+                  <div className="border-t pt-3">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Payment Details</h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-0.5">Payment Mode</p>
+                        <p className="font-medium">{viewingExpense.payment_mode || 'Not specified'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-0.5">Payment Date</p>
+                        <p className="font-medium">{viewingExpense.payment_date?.split('T')[0] || 'Not specified'}</p>
+                      </div>
+                      {viewingExpense.payment_reference && (
+                        <div className="col-span-2">
+                          <p className="text-xs text-gray-500 mb-0.5">Transaction Reference</p>
+                          <p className="font-medium font-mono text-xs bg-gray-50 px-2 py-1 rounded">{viewingExpense.payment_reference}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Template/Generated Info */}
+                {viewingExpense.template_id && (
+                  <div className="text-xs text-gray-500 bg-blue-50 px-2 py-1 rounded">
+                    Generated from recurring template
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowViewDetailsModal(false)}>
+                Close
+              </Button>
+              <Button onClick={() => {
+                setShowViewDetailsModal(false);
+                handleEdit(viewingExpense);
+              }}>
+                <Edit2 size={14} className="mr-1" /> Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Corporate Expenses Dialog */}
+        <Dialog open={showCorporateDialog} onOpenChange={setShowCorporateDialog}>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 size={18} className="text-blue-600" />
+                Corporate Expenses Management
+              </DialogTitle>
+            </DialogHeader>
+            
+            {/* Tabs */}
+            <div className="flex gap-2 mb-4 border-b pb-2">
+              <button
+                onClick={() => setCorporateTab('templates')}
+                className={`px-4 py-2 text-sm rounded-t transition-colors ${
+                  corporateTab === 'templates' ? 'bg-[#14532D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <FileText size={14} className="inline mr-1" /> Recurring Templates
+              </button>
+              <button
+                onClick={() => setCorporateTab('employees')}
+                className={`px-4 py-2 text-sm rounded-t transition-colors ${
+                  corporateTab === 'employees' ? 'bg-[#14532D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Users size={14} className="inline mr-1" /> Corporate Employees
+              </button>
+            </div>
+
+            {/* Templates Tab */}
+            {corporateTab === 'templates' && (
+              <div>
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-sm text-gray-500">Templates auto-generate expenses each month when you click "Generate Recurring"</p>
+                  <Button 
+                    size="sm" 
+                    onClick={() => { resetTemplateForm(); setShowTemplateDialog(true); }}
+                    className="bg-[#14532D] hover:bg-[#166534]"
+                  >
+                    <Plus size={14} className="mr-1" /> Add Template
+                  </Button>
+                </div>
+
+                {recurringTemplates.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <FileText size={32} className="mx-auto mb-2 opacity-50" />
+                    <p>No recurring templates yet</p>
+                    <p className="text-xs">Create templates for auto-generating monthly expenses</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {recurringTemplates.map(tmpl => (
+                      <div key={tmpl.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">{tmpl.category}</span>
+                            {tmpl.expense_type !== 'general' && (
+                              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs capitalize">{tmpl.expense_type.replace('_', ' ')}</span>
+                            )}
+                          </div>
+                          <p className="text-sm font-medium mt-1">{tmpl.description || tmpl.category}</p>
+                          <p className="text-lg font-bold text-green-600">₹{tmpl.amount?.toLocaleString()}</p>
+                          {tmpl.linked_employee_name && (
+                            <p className="text-xs text-gray-500">Linked to: {tmpl.linked_employee_name}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEditTemplate(tmpl)}>
+                            <Edit2 size={14} className="text-blue-600" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleDeleteTemplate(tmpl.id)}>
+                            <Trash2 size={14} className="text-red-600" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Employees Tab */}
+            {corporateTab === 'employees' && (
+              <div>
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-sm text-gray-500">Manage corporate employees for expense tracking and allowances</p>
+                  <Button 
+                    size="sm" 
+                    onClick={() => { resetEmployeeForm(); setShowEmployeeDialog(true); }}
+                    className="bg-[#14532D] hover:bg-[#166534]"
+                  >
+                    <UserPlus size={14} className="mr-1" /> Add Employee
+                  </Button>
+                </div>
+
+                {corporateEmployees.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Users size={32} className="mx-auto mb-2 opacity-50" />
+                    <p>No corporate employees yet</p>
+                    <p className="text-xs">Add employees to link allowances and expenses</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {corporateEmployees.map(emp => (
+                      <div key={emp.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <p className="font-medium">{emp.name}</p>
+                          <p className="text-xs text-gray-500">{emp.role}{emp.department ? ` • ${emp.department}` : ''}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEditEmployee(emp)}>
+                            <Edit2 size={14} className="text-blue-600" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleDeleteEmployee(emp.id)}>
+                            <Trash2 size={14} className="text-red-600" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Template Add/Edit Dialog */}
+        <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+          <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingTemplate ? 'Edit Template' : 'Add Recurring Template'}</DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-3 py-2">
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Category *</label>
+                <Select value={templateForm.category} onValueChange={(v) => setTemplateForm(prev => ({ ...prev, category: v }))}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FIXED_CATEGORIES.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Description</label>
+                <Input
+                  placeholder="e.g., Office rent, Laptop EMI..."
+                  value={templateForm.description}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Amount *</label>
+                  <Input
+                    type="number"
+                    placeholder="0.00"
+                    value={templateForm.amount}
+                    onChange={(e) => setTemplateForm(prev => ({ ...prev, amount: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Due Date (Day)</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={templateForm.due_date}
+                    onChange={(e) => setTemplateForm(prev => ({ ...prev, due_date: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Expense Type</label>
+                <Select value={templateForm.expense_type} onValueChange={(v) => setTemplateForm(prev => ({ ...prev, expense_type: v }))}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_TYPES.map(t => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Vendor</label>
+                  <Input
+                    placeholder="Vendor name"
+                    value={templateForm.vendor}
+                    onChange={(e) => setTemplateForm(prev => ({ ...prev, vendor: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Invoice Number</label>
+                  <Input
+                    placeholder="INV-..."
+                    value={templateForm.invoice_number}
+                    onChange={(e) => setTemplateForm(prev => ({ ...prev, invoice_number: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              {corporateEmployees.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Link to Employee (for allowances)</label>
+                  <Select 
+                    value={templateForm.linked_employee_id || '__none__'} 
+                    onValueChange={(v) => {
+                      const isNone = v === '__none__';
+                      const emp = corporateEmployees.find(e => e.id === v);
+                      setTemplateForm(prev => ({ 
+                        ...prev, 
+                        linked_employee_id: isNone ? '' : v,
+                        linked_employee_name: isNone ? '' : (emp?.name || '')
+                      }));
+                    }}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="None (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {corporateEmployees.map(emp => (
+                        <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Notes</label>
+                <Input
+                  placeholder="Any additional notes..."
+                  value={templateForm.notes}
+                  onChange={(e) => setTemplateForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowTemplateDialog(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSaveTemplate} className="bg-[#14532D] hover:bg-[#166534]">
+                {editingTemplate ? 'Update' : 'Create'} Template
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Employee Add/Edit Dialog */}
+        <Dialog open={showEmployeeDialog} onOpenChange={setShowEmployeeDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{editingEmployee ? 'Edit Employee' : 'Add Corporate Employee'}</DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-3 py-2">
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Name *</label>
+                <Input
+                  placeholder="Full name"
+                  value={employeeForm.name}
+                  onChange={(e) => setEmployeeForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Role</label>
+                  <Input
+                    placeholder="e.g., Manager"
+                    value={employeeForm.role}
+                    onChange={(e) => setEmployeeForm(prev => ({ ...prev, role: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Department</label>
+                  <Input
+                    placeholder="e.g., Operations"
+                    value={employeeForm.department}
+                    onChange={(e) => setEmployeeForm(prev => ({ ...prev, department: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Notes</label>
+                <Input
+                  placeholder="Any additional notes..."
+                  value={employeeForm.notes}
+                  onChange={(e) => setEmployeeForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setShowEmployeeDialog(false)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSaveEmployee} className="bg-[#14532D] hover:bg-[#166534]">
+                {editingEmployee ? 'Update' : 'Create'} Employee
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

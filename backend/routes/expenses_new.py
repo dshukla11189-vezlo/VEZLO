@@ -230,22 +230,38 @@ async def fix_settlement_status_for_pending(current_user: dict = Depends(get_cur
 async def get_fixed_expenses(
     month: int = None,
     year: int = None,
+    from_date: str = None,
+    to_date: str = None,
     category: str = None,
     status: str = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Get fixed expenses with optional filters.
     
-    If no month/year filter is provided, defaults to current month and year
-    to prevent unbounded result sets. Use explicit month/year for different periods.
+    Supports two filter modes:
+    1. Month/Year mode: Uses month and year params (legacy)
+    2. Date Range mode: Uses from_date and to_date params (new)
+    
+    If date range params are provided, they take priority over month/year.
+    If no filters provided, defaults to current month and year.
     """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     query = {}
     
-    # Apply default month/year filter (current month) if neither is provided
-    if month is None and year is None:
+    # Date range mode takes priority
+    if from_date or to_date:
+        date_query = {}
+        if from_date:
+            date_query["$gte"] = from_date
+        if to_date:
+            date_query["$lte"] = to_date + "T23:59:59"
+        if date_query:
+            query["date"] = date_query
+    # Fall back to month/year mode
+    elif month is None and year is None:
+        # Default to current month/year if no filters provided
         now = datetime.now(timezone.utc)
         query["month"] = now.month
         query["year"] = now.year
@@ -261,7 +277,7 @@ async def get_fixed_expenses(
         query["status"] = status
     
     # Increased limit from 500 to 2000 for filtered queries
-    expenses = await db.fixed_expenses.find(query, {"_id": 0}).sort([("due_date", 1)]).to_list(2000)
+    expenses = await db.fixed_expenses.find(query, {"_id": 0}).sort([("date", -1), ("due_date", 1)]).to_list(2000)
     return expenses
 
 @router.post("/expenses/fixed")
@@ -314,7 +330,10 @@ async def delete_fixed_expense(expense_id: str, current_user: dict = Depends(get
 
 @router.post("/expenses/fixed/generate-recurring")
 async def generate_recurring_expenses(data: dict, current_user: dict = Depends(get_current_user)):
-    """Generate recurring expenses for a given month based on previous month's recurring entries"""
+    """Generate recurring expenses for a given month based on:
+    1. Previous month's recurring entries
+    2. Active recurring expense templates
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -336,38 +355,100 @@ async def generate_recurring_expenses(data: dict, current_user: dict = Depends(g
         "is_recurring": True
     }, {"_id": 0}).to_list(100)
     
+    # Get active recurring expense templates
+    templates = await db.recurring_expense_templates.find({
+        "is_active": {"$ne": False}
+    }, {"_id": 0}).to_list(500)
+    
     # Check which ones already exist for target month
     existing = await db.fixed_expenses.find({
         "month": target_month,
         "year": target_year
-    }, {"_id": 0, "category": 1, "description": 1}).to_list(100)
+    }, {"_id": 0, "category": 1, "description": 1, "template_id": 1}).to_list(500)
     
     existing_keys = set((e.get("category", "") + e.get("description", "")) for e in existing)
+    existing_template_ids = set(e.get("template_id") for e in existing if e.get("template_id"))
     
-    # Create new entries for target month
+    # Calculate target date for the expense record
+    target_date = f"{target_year}-{str(target_month).zfill(2)}-01"
+    
     created_count = 0
+    from_templates = 0
+    from_prev_month = 0
+    
+    # 1. Generate from templates first
+    for tmpl in templates:
+        if tmpl.get("id") in existing_template_ids:
+            continue  # Already generated from this template
+        
+        key = tmpl.get("category", "") + tmpl.get("description", "")
+        if key in existing_keys:
+            continue  # Similar expense already exists
+        
+        new_expense = {
+            "id": str(uuid.uuid4()),
+            "template_id": tmpl.get("id"),  # Link back to template
+            "date": target_date,
+            "month": target_month,
+            "year": target_year,
+            "category": tmpl.get("category"),
+            "description": tmpl.get("description"),
+            "amount": tmpl.get("amount"),
+            "due_date": tmpl.get("due_date", 1),
+            "vendor": tmpl.get("vendor", ""),
+            "invoice_number": tmpl.get("invoice_number", ""),
+            "linked_employee_id": tmpl.get("linked_employee_id"),
+            "linked_employee_name": tmpl.get("linked_employee_name", ""),
+            "expense_type": tmpl.get("expense_type", "general"),
+            "is_recurring": True,
+            "status": "Pending",
+            "paid_by": "Company",
+            "paid_by_type": "company",
+            "is_settled": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": current_user["email"],
+            "generated_from": "template"
+        }
+        await db.fixed_expenses.insert_one(new_expense.copy())
+        existing_keys.add(key)
+        created_count += 1
+        from_templates += 1
+    
+    # 2. Generate from previous month's recurring entries
     for exp in prev_expenses:
         key = exp.get("category", "") + exp.get("description", "")
         if key not in existing_keys:
             new_expense = {
                 "id": str(uuid.uuid4()),
+                "date": target_date,
                 "month": target_month,
                 "year": target_year,
                 "category": exp.get("category"),
                 "description": exp.get("description"),
                 "amount": exp.get("amount"),
                 "due_date": exp.get("due_date"),
+                "vendor": exp.get("vendor", ""),
+                "invoice_number": exp.get("invoice_number", ""),
                 "is_recurring": True,
                 "status": "Pending",
                 "paid_by": "Company",
-                "is_settled": True,
+                "paid_by_type": "company",
+                "is_settled": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "created_by": current_user["email"]
+                "created_by": current_user["email"],
+                "generated_from": "previous_month"
             }
             await db.fixed_expenses.insert_one(new_expense.copy())
+            existing_keys.add(key)
             created_count += 1
+            from_prev_month += 1
     
-    return {"message": f"Generated {created_count} recurring entries", "count": created_count}
+    return {
+        "message": f"Generated {created_count} recurring entries ({from_templates} from templates, {from_prev_month} from previous month)",
+        "count": created_count,
+        "from_templates": from_templates,
+        "from_prev_month": from_prev_month
+    }
 
 @router.post("/expenses/fixed/bulk-settle")
 async def bulk_settle_fixed_expenses(data: dict, current_user: dict = Depends(get_current_user)):
@@ -391,6 +472,168 @@ async def bulk_settle_fixed_expenses(data: dict, current_user: dict = Depends(ge
     )
     
     return {"message": f"Settled {result.modified_count} expenses", "count": result.modified_count}
+
+# ============================================================================
+# SECTION: CORPORATE EMPLOYEES (For recurring expense templates)
+# ============================================================================
+
+@router.get("/corporate-employees")
+async def get_corporate_employees(current_user: dict = Depends(get_current_user)):
+    """Get all corporate employees for expense management"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    employees = await db.corporate_employees.find({"is_active": {"$ne": False}}, {"_id": 0}).sort("name", 1).to_list(500)
+    return employees
+
+@router.post("/corporate-employees")
+async def create_corporate_employee(data: dict, current_user: dict = Depends(get_current_user)):
+    """Create a corporate employee for expense tracking"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage corporate employees")
+    
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="Employee name is required")
+    
+    employee = {
+        "id": str(uuid.uuid4()),
+        "name": data.get("name"),
+        "role": data.get("role", ""),
+        "department": data.get("department", ""),
+        "monthly_allowances": data.get("monthly_allowances", []),  # [{type: "Travel", amount: 5000}, ...]
+        "notes": data.get("notes", ""),
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user["email"]
+    }
+    
+    await db.corporate_employees.insert_one(employee.copy())
+    if "_id" in employee:
+        del employee["_id"]
+    
+    return employee
+
+@router.put("/corporate-employees/{employee_id}")
+async def update_corporate_employee(employee_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    """Update a corporate employee"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage corporate employees")
+    
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    data["updated_by"] = current_user["email"]
+    
+    # Remove id from update data if present
+    if "id" in data:
+        del data["id"]
+    
+    result = await db.corporate_employees.update_one(
+        {"id": employee_id},
+        {"$set": data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    return {"message": "Employee updated"}
+
+@router.delete("/corporate-employees/{employee_id}")
+async def delete_corporate_employee(employee_id: str, current_user: dict = Depends(get_current_user)):
+    """Soft-delete a corporate employee"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage corporate employees")
+    
+    result = await db.corporate_employees.update_one(
+        {"id": employee_id},
+        {"$set": {"is_active": False, "deleted_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    
+    return {"message": "Employee deactivated"}
+
+# ============================================================================
+# SECTION: RECURRING EXPENSE TEMPLATES (For auto-generating fixed expenses)
+# ============================================================================
+
+@router.get("/recurring-expense-templates")
+async def get_recurring_expense_templates(current_user: dict = Depends(get_current_user)):
+    """Get all recurring expense templates"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    templates = await db.recurring_expense_templates.find({"is_active": {"$ne": False}}, {"_id": 0}).sort("category", 1).to_list(500)
+    return templates
+
+@router.post("/recurring-expense-templates")
+async def create_recurring_expense_template(data: dict, current_user: dict = Depends(get_current_user)):
+    """Create a recurring expense template"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage templates")
+    
+    if not data.get("category") or not data.get("amount"):
+        raise HTTPException(status_code=400, detail="Category and amount are required")
+    
+    template = {
+        "id": str(uuid.uuid4()),
+        "category": data.get("category"),
+        "description": data.get("description", ""),
+        "amount": float(data.get("amount", 0)),
+        "due_date": int(data.get("due_date", 1)),  # Day of month (1-31)
+        "vendor": data.get("vendor", ""),
+        "invoice_number": data.get("invoice_number", ""),
+        "linked_employee_id": data.get("linked_employee_id"),  # For allowances tied to employees
+        "linked_employee_name": data.get("linked_employee_name", ""),
+        "expense_type": data.get("expense_type", "general"),  # 'general', 'allowance', 'asset_emi', 'subscription'
+        "notes": data.get("notes", ""),
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user["email"]
+    }
+    
+    await db.recurring_expense_templates.insert_one(template.copy())
+    if "_id" in template:
+        del template["_id"]
+    
+    return template
+
+@router.put("/recurring-expense-templates/{template_id}")
+async def update_recurring_expense_template(template_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    """Update a recurring expense template"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage templates")
+    
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    data["updated_by"] = current_user["email"]
+    
+    if "id" in data:
+        del data["id"]
+    
+    result = await db.recurring_expense_templates.update_one(
+        {"id": template_id},
+        {"$set": data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    return {"message": "Template updated"}
+
+@router.delete("/recurring-expense-templates/{template_id}")
+async def delete_recurring_expense_template(template_id: str, current_user: dict = Depends(get_current_user)):
+    """Soft-delete a recurring expense template"""
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can manage templates")
+    
+    result = await db.recurring_expense_templates.update_one(
+        {"id": template_id},
+        {"$set": {"is_active": False, "deleted_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    return {"message": "Template deactivated"}
 
 # ==================== VARIABLE EXPENSE BY RETAILER BREAKDOWN ====================
 

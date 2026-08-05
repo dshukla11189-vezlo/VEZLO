@@ -1,0 +1,48 @@
+{
+  "summary": "End-to-end test of Fixed Expenses enhancements (date range filter, corporate expenses, view details modal, vendor/invoice fields, recurring templates & employees). Backend: 17/17 pytest cases passed (filters, CRUD for corporate_employees & recurring_expense_templates, generate-recurring uses templates + is idempotent, vendor/invoice fields persist). Frontend: Found and fixed a CRITICAL runtime crash in the Add/Edit Template dialog: `<SelectItem value=''>None</SelectItem>` for the linked_employee_id Select — Radix Select forbids empty-string values, causing an 'Uncaught runtime errors' overlay any time the Template dialog was opened while at least one corporate employee existed. This crash blocked scenarios 6, 7, 8, 9. After the fix (sentinel '__none__' value with mapping to '' in state), all UI scenarios pass: Date Range/Month toggle, View Details modal shows vendor + payment sections with all fields (payment_mode, payment_date, payment_reference, vendor, invoice_number), Corporate Expenses dialog with Templates+Employees tabs, Add/Edit/Delete Employee, Add/Edit/Delete Template, Generate Recurring (button works; API idempotency verified), Add Expense dialog includes Vendor + Invoice Number inputs.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_cases_executed": {
+    "1_date_range_mode": "PASS - Toggle shows From/To date inputs; Apply refetches and seeded row (Aug 5, 2026) appears when range covers it.",
+    "2_by_month_mode": "PASS - Toggling back restores Month/Year selects (date inputs count = 0).",
+    "3_view_details_dialog": "PASS - Eye icon opens 'Expense Details' modal; Vendor Details section renders (Vendor='SeedVendor Ltd', Invoice='INV-SEED-42'); Payment Details section renders (Mode='bank_transfer', Date, Reference='TXN-SEED-999'); Paid By='Company' shown.",
+    "4_corporate_expenses_dialog": "PASS - Opens with 'Recurring Templates' and 'Corporate Employees' tabs both visible/toggleable.",
+    "5_add_corporate_employee": "PASS - Added TEST_UI_Emp; appears in Employees list. Delete works.",
+    "6_add_recurring_template": "PASS AFTER FIX - Category select + description + amount saved; template appears in list. (Originally blocked by SelectItem empty-value crash.)",
+    "7_generate_recurring": "PASS - Backend endpoint tested via pytest (from_templates>=1, idempotent on second call). UI button clicks without error.",
+    "8_edit_delete_template": "PASS AFTER FIX - Edited amount 555->888 persisted; delete removes row.",
+    "9_add_expense_with_vendor_invoice": "PASS - Add Fixed Expense dialog exposes 'Vendor' and 'Invoice Number' inputs under 'Vendor Details (optional)' section; backend POST /api/expenses/fixed persists both fields (verified in backend tests).",
+    "10_view_details_shows_vendor_info": "PASS - Vendor Details section only renders when vendor or invoice_number is set (guarded), verified on seeded expense."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fixed_expenses_enhancements.py",
+    "/app/test_reports/pytest/fixed_expenses_enhancements.xml"
+  ],
+  "action_items": [
+    "Main agent: review the SelectItem fix in FixedExpenses.js (linked_employee_id Select now uses sentinel '__none__' -> mapped to '' in state). No further action required unless main agent wants a different UX pattern.",
+    "Consider adding data-testid attributes to: 'By Month' / 'Date Range' toggle buttons, 'Apply' button, 'Corporate Expenses' button, 'Add Template', 'Add Employee', 'Generate Recurring', 'View Details' eye buttons, Template/Employee delete buttons - would make future UI regression tests more robust (currently forced to use text/regex).",
+    "generate-recurring endpoint calculates `prev_month = 11` when `target_month==0`, but Python months are 1..12, so this branch is dead. Consider removing or fixing: for target_month=1 you want prev_month=12/year-1. Current code (line 348: `prev_month - 1 if target_month > 0 else 11`) yields prev_month=0 for target_month=1, which will not match any records."
+  ],
+  "critical_code_review_comments": [
+    "BUG (fixed by test agent): FixedExpenses.js line 1699 previously had `<SelectItem value=''>None</SelectItem>` which crashes Radix Select. Replaced with sentinel '__none__' + mapping in onValueChange. See lines ~1683-1706.",
+    "expenses_new.py generate_recurring lines 343-349: previous-month calculation is buggy for target_month=1 (January). It computes prev_month=0, which never matches. Should be: if target_month==1: prev_month=12, prev_year=year-1 else prev_month=target_month-1, prev_year=year. Not a blocker (templates path still works) but silently skips Jan->Dec rollover from previous-month recurrence.",
+    "FixedExpenses.js is now 1794 lines (exceeded 700-line threshold). Recommend splitting: FixedExpensesTable, CorporateExpensesDialog (templates+employees), ViewDetailsModal, PaymentDetailsModal into separate files.",
+    "Payment Details modal at line 1242 is still a plain div overlay (z-50) while other dialogs use Radix Dialog. Iteration 49 already noted this — still true; not urgent but should be extracted/normalized.",
+    "generate_recurring returns UI-friendly stats (from_templates/from_prev_month) but the UI's Generate Recurring button just fires a confirm() and does not surface these numbers to the user. Consider a toast with 'Generated X from Y templates + Z from previous month'."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/admin/FixedExpenses.js (fixed empty-string SelectItem crash in linked_employee_id Select)",
+    "/app/backend/tests/test_fixed_expenses_enhancements.py (new pytest file)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% after fix (all 10 scenarios verified)"},
+  "test_credentials": "admin@freshflow.com / admin123 (login payload uses 'identifier'; response uses 'token').",
+  "seed_data_creation": "Temporarily created via API: fixed expense id=452206dd... (TEST_UI_seed_expense with vendor+invoice+payment fields) for T3; corporate employee TEST_UI_Emp_Retry for T6 (Select rendering). Also templates TEST_UI_Template_X1, TEST_UI_Tmpl_Retry via UI. ALL cleaned up at end of run. Backend pytest also self-cleans TEST_-prefixed rows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "SelectItem-empty-string bug already fixed here. If main agent introduces new Select components with 'None/All' options, remember Radix requires non-empty value strings (use sentinel like '__none__' or '__all__'). Note the January edge case in generate_recurring previous-month logic (not fixed). Test-ids missing on many buttons in FixedExpenses.js — Playwright tests here rely on visible text (regex) which is fragile. Backend endpoints all under /api/expenses/fixed, /api/corporate-employees, /api/recurring-expense-templates.",
+  "rca of the issue": "Bug: Radix UI's SelectItem throws 'A <Select.Item /> must have a value prop that is not an empty string' when rendered with value=''. FixedExpenses.js used `<SelectItem value=''>None</SelectItem>` as the 'no employee' option in the linked_employee_id Select. The Select is only rendered when corporateEmployees.length > 0, which is exactly the scenario tested by scenarios 5-8 in sequence. Repro: create at least one corporate employee, then click 'Add Template' in Corporate Expenses > Templates tab. Result: full-page red overlay 'Uncaught runtime errors'. Fix: use sentinel value '__none__' for the SelectItem and translate '__none__' <-> '' inside the state setter, keeping the API payload unchanged (linked_employee_id remains '' when None chosen)."
+}

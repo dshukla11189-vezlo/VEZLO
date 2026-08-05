@@ -259,10 +259,10 @@ async def attach_credit_notes_to_rejections(rejections: list) -> list:
     if not rejection_ids:
         return rejections
     
-    # Bulk lookup credit notes for these rejections - include adjusted_against_invoices array
+    # Bulk lookup credit notes for these rejections - include adjusted_in_invoices array
     credit_notes = await db.retailer_credit_notes.find(
         {"rejection_id": {"$in": rejection_ids}},
-        {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1, "adjusted_against_invoices": 1}
+        {"_id": 0, "rejection_id": 1, "id": 1, "credit_note_number": 1, "amount": 1, "status": 1, "adjusted_in_invoices": 1, "adjusted_against_invoices": 1}
     ).to_list(len(rejection_ids))
     
     # Create a map of rejection_id -> credit note info
@@ -272,8 +272,8 @@ async def attach_credit_notes_to_rejections(rejections: list) -> list:
         if not rej_id:
             continue
         
-        # Get the invoice numbers from adjusted_against_invoices array
-        adjusted_invoices = cn.get("adjusted_against_invoices", [])
+        # Get the invoice numbers from adjusted_in_invoices (primary) or adjusted_against_invoices (fallback)
+        adjusted_invoices = cn.get("adjusted_in_invoices") or cn.get("adjusted_against_invoices", [])
         invoice_numbers = [adj.get("invoice_number") for adj in adjusted_invoices if adj.get("invoice_number")]
         
         cn_map[rej_id] = {

@@ -5780,13 +5780,15 @@ export default function RetailerDashboard({
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                                         rejection.credit_note_status === 'adjusted' 
                                           ? 'bg-green-100 text-green-700' 
-                                          : 'bg-yellow-100 text-yellow-700'
+                                          : rejection.credit_note_status === 'partial'
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : 'bg-yellow-100 text-yellow-700'
                                       }`}>
-                                        {rejection.credit_note_status === 'adjusted' ? 'Adjusted' : 'Pending'}
+                                        {rejection.credit_note_status === 'adjusted' ? 'Adjusted' : rejection.credit_note_status === 'partial' ? 'Partial' : 'Pending'}
                                       </span>
-                                      {rejection.credit_note_status === 'adjusted' && rejection.adjusted_invoice_number && (
-                                        <span className="text-[9px] text-gray-500 mt-0.5">
-                                          → {rejection.adjusted_invoice_number}
+                                      {(rejection.credit_note_status === 'adjusted' || rejection.credit_note_status === 'partial') && rejection.adjusted_invoice_numbers && (
+                                        <span className="text-[9px] text-green-600 mt-0.5 max-w-[100px] truncate" title={rejection.adjusted_invoice_numbers}>
+                                          → {rejection.adjusted_invoice_numbers}
                                         </span>
                                       )}
                                     </div>
@@ -5904,13 +5906,15 @@ export default function RetailerDashboard({
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                                         item.credit_note_status === 'adjusted' 
                                           ? 'bg-green-100 text-green-700' 
-                                          : 'bg-yellow-100 text-yellow-700'
+                                          : item.credit_note_status === 'partial'
+                                            ? 'bg-blue-100 text-blue-700'
+                                            : 'bg-yellow-100 text-yellow-700'
                                       }`}>
-                                        {item.credit_note_status === 'adjusted' ? 'Adjusted' : 'Pending'}
+                                        {item.credit_note_status === 'adjusted' ? 'Adjusted' : item.credit_note_status === 'partial' ? 'Partial' : 'Pending'}
                                       </span>
-                                      {item.credit_note_status === 'adjusted' && item.adjusted_invoice_number && (
-                                        <span className="text-[9px] text-gray-500 mt-0.5">
-                                          → {item.adjusted_invoice_number}
+                                      {(item.credit_note_status === 'adjusted' || item.credit_note_status === 'partial') && item.adjusted_invoice_numbers && (
+                                        <span className="text-[9px] text-green-600 mt-0.5 max-w-[100px] truncate" title={item.adjusted_invoice_numbers}>
+                                          → {item.adjusted_invoice_numbers}
                                         </span>
                                       )}
                                     </div>

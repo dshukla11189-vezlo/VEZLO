@@ -6,14 +6,17 @@
 - **FEATURE**: Show credit note info against each rejection in both Retailer and Field Team portals
   - **Backend**: Created shared helper `attach_credit_notes_to_rejections()` in `retailer_portal.py`
     - Bulk fetches credit notes for rejection IDs and attaches: `credit_note_id`, `credit_note_number`, `credit_note_amount`, `credit_note_status`
-    - Also fetches `adjusted_invoice_number` for adjusted credit notes by joining with retailer_invoices
+    - Fetches `adjusted_against_invoices` array and joins invoice numbers for display as `adjusted_invoice_numbers`
     - Used by `/api/retailer-rejections`, `/api/field-team/retailer/{id}-rejections`, and `/api/retailer-rejections/daily-summary`
   - **Frontend** (`Dashboard.js` rejections tables):
     - Added "CREDIT NOTE" column to BOTH "By Invoice Date" and "By Recorded Date" views
     - Date summary row shows count of credit notes and how many are adjusted
-    - Expanded row shows credit note number, amount, and status badge (green "Adjusted" / yellow "Pending")
-    - For adjusted credit notes, shows "→ INV-XXX" to indicate which invoice it was adjusted against
+    - Expanded row shows credit note number, amount, and status badge (green "Adjusted" / blue "Partial" / yellow "Pending")
+    - For adjusted/partial credit notes, shows "→ INV-XXX, INV-YYY" to indicate which invoice(s) it was adjusted against
     - Footer shows total count of credit notes and adjusted count
+  - **Credit Note Deletion**: Already implemented - when rejection is deleted:
+    - If CN has been used (adjusted_amount > 0), it's voided instead of deleted
+    - If CN hasn't been used, it's fully deleted along with the rejection
 
 ### August 5, 2026 - Cart Auto-Save (Draft) Feature ✅
 - **FEATURE**: Cart draft persistence for order/indent flow

@@ -16,6 +16,7 @@
   - **Files Changed**: 
     - `backend/routes/labour.py` - Updated attendance endpoints + summary
     - `frontend/src/pages/staff/Attendance.js` - Added vertical allocation columns
+    - `frontend/src/pages/admin/LaborCosts.js` - Added vertical allocation columns (Record Attendance tab) with summary cards showing Retail/QC split
 
 ### August 8, 2026 - Labour Payment Recording Feature ✅
 - **NEW FEATURE**: Record and track payments made to labourers in Payroll Processing

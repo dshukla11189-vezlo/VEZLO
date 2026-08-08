@@ -443,10 +443,27 @@ export default function LaborCosts() {
         if (!updated.present) {
           updated.overtime_hours = 0;
           updated.working_hours = 0;
+          updated.retail_hours = 0;
+          updated.qc_hours = 0;
+          updated.retail_ot_hours = 0;
+          updated.qc_ot_hours = 0;
         }
         // Can't have paid leave if present
         if (updated.present) {
           updated.paid_leave = false;
+        }
+        // Auto-calculate total overtime from retail + qc OT
+        if (field === 'retail_ot_hours' || field === 'qc_ot_hours') {
+          updated.overtime_hours = (parseFloat(updated.retail_ot_hours) || 0) + (parseFloat(updated.qc_ot_hours) || 0);
+        }
+        // Ensure retail + qc hours don't exceed working hours
+        const totalVerticalHours = (parseFloat(updated.retail_hours) || 0) + (parseFloat(updated.qc_hours) || 0);
+        if (totalVerticalHours > (updated.working_hours || 9)) {
+          if (field === 'retail_hours') {
+            updated.retail_hours = Math.max(0, (updated.working_hours || 9) - (parseFloat(updated.qc_hours) || 0));
+          } else if (field === 'qc_hours') {
+            updated.qc_hours = Math.max(0, (updated.working_hours || 9) - (parseFloat(updated.retail_hours) || 0));
+          }
         }
         return updated;
       }
@@ -465,6 +482,10 @@ export default function LaborCosts() {
           present: newPresent,
           working_hours: newPresent ? (record.working_hours || 9) : 0,
           overtime_hours: newPresent ? record.overtime_hours : 0,
+          retail_hours: newPresent ? 9 : 0, // Default all hours to retail
+          qc_hours: newPresent ? 0 : 0,
+          retail_ot_hours: newPresent ? record.retail_ot_hours : 0,
+          qc_ot_hours: newPresent ? record.qc_ot_hours : 0,
           paid_leave: newPresent ? false : record.paid_leave
         };
       }
@@ -497,6 +518,8 @@ export default function LaborCosts() {
       ...record,
       present: true,
       working_hours: 9,
+      retail_hours: 9, // Default all to retail
+      qc_hours: 0,
       paid_leave: false
     })));
     setHasAttendanceChanges(true);
@@ -509,6 +532,10 @@ export default function LaborCosts() {
       present: false,
       working_hours: 0,
       overtime_hours: 0,
+      retail_hours: 0,
+      qc_hours: 0,
+      retail_ot_hours: 0,
+      qc_ot_hours: 0,
       paid_leave: false
     })));
     setHasAttendanceChanges(true);
@@ -522,8 +549,12 @@ export default function LaborCosts() {
         labour_id: a.labour_id,
         labour_name: a.labour_name,
         present: a.present,
-        working_hours: a.working_hours || 9,
-        overtime_hours: a.overtime_hours,
+        working_hours: a.present ? (a.working_hours || 9) : 0,
+        overtime_hours: a.overtime_hours || 0,
+        retail_hours: a.retail_hours || 0,
+        qc_hours: a.qc_hours || 0,
+        retail_ot_hours: a.retail_ot_hours || 0,
+        qc_ot_hours: a.qc_ot_hours || 0,
         paid_leave: !a.present && a.paid_leave,
         daily_rate: a.daily_rate,
         overtime_rate: a.overtime_rate
@@ -618,6 +649,10 @@ export default function LaborCosts() {
   const paidLeaveCount = attendance.filter(a => !a.present && a.paid_leave).length;
   const totalDailyHours = attendance.reduce((sum, a) => sum + (a.present ? (a.working_hours || 9) : 0), 0);
   const totalOvertimeHours = attendance.reduce((sum, a) => sum + (a.present ? a.overtime_hours : 0), 0);
+  const totalRetailHours = attendance.reduce((sum, a) => sum + (a.retail_hours || 0), 0);
+  const totalQcHours = attendance.reduce((sum, a) => sum + (a.qc_hours || 0), 0);
+  const totalRetailOtHours = attendance.reduce((sum, a) => sum + (a.retail_ot_hours || 0), 0);
+  const totalQcOtHours = attendance.reduce((sum, a) => sum + (a.qc_ot_hours || 0), 0);
 
   // Labour form handlers
   const openAddLabour = () => {
@@ -1379,7 +1414,7 @@ export default function LaborCosts() {
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-6 gap-2">
               <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">
@@ -1387,8 +1422,8 @@ export default function LaborCosts() {
                       <Users className="text-white" size={16} />
                     </div>
                     <div>
-                      <p className="text-[10px] text-blue-800 font-medium uppercase">Total</p>
-                      <p className="text-lg font-bold text-blue-900">{attendance.length}</p>
+                      <p className="text-[10px] text-blue-800 font-medium uppercase">Present</p>
+                      <p className="text-lg font-bold text-blue-900">{attendancePresentCount}/{attendance.length}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -1397,24 +1432,37 @@ export default function LaborCosts() {
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">
                     <div className="p-2 bg-green-600 rounded-lg">
-                      <CheckCircle2 className="text-white" size={16} />
+                      <Clock className="text-white" size={16} />
                     </div>
                     <div>
-                      <p className="text-[10px] text-green-800 font-medium uppercase">Present</p>
-                      <p className="text-lg font-bold text-green-900">{attendancePresentCount}</p>
+                      <p className="text-[10px] text-green-800 font-medium uppercase">Working Hrs</p>
+                      <p className="text-lg font-bold text-green-900">{totalDailyHours}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
-              <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+              <Card className="bg-gradient-to-br from-blue-100 to-blue-200 border-blue-300">
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2">
-                    <div className="p-2 bg-purple-600 rounded-lg">
-                      <Clock className="text-white" size={16} />
+                    <div className="p-2 bg-blue-700 rounded-lg">
+                      <Building2 className="text-white" size={16} />
                     </div>
                     <div>
-                      <p className="text-[10px] text-purple-800 font-medium uppercase">Daily Hrs</p>
-                      <p className="text-lg font-bold text-purple-900">{totalDailyHours}</p>
+                      <p className="text-[10px] text-blue-800 font-medium uppercase">Retail Hrs</p>
+                      <p className="text-lg font-bold text-blue-900">{totalRetailHours}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-purple-100 to-purple-200 border-purple-300">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-purple-700 rounded-lg">
+                      <Building2 className="text-white" size={16} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-purple-800 font-medium uppercase">QC Hrs</p>
+                      <p className="text-lg font-bold text-purple-900">{totalQcHours}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -1426,8 +1474,25 @@ export default function LaborCosts() {
                       <Clock className="text-white" size={16} />
                     </div>
                     <div>
-                      <p className="text-[10px] text-orange-800 font-medium uppercase">OT Hours</p>
+                      <p className="text-[10px] text-orange-800 font-medium uppercase">OT Total</p>
                       <p className="text-lg font-bold text-orange-900">{totalOvertimeHours}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-amber-600 rounded-lg">
+                      <Clock className="text-white" size={16} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-amber-800 font-medium uppercase">OT Split</p>
+                      <p className="text-sm font-bold">
+                        <span className="text-blue-700">{totalRetailOtHours}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-purple-700">{totalQcOtHours}</span>
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -1446,15 +1511,19 @@ export default function LaborCosts() {
                     <tr>
                       <th>LABOURER</th>
                       <th className="text-center">STATUS</th>
-                      <th className="text-center">DAILY HOURS</th>
-                      <th className="text-center">OT HOURS</th>
+                      <th className="text-center">WORKING HRS</th>
+                      <th className="text-center text-blue-700 bg-blue-50">RETAIL HRS</th>
+                      <th className="text-center text-purple-700 bg-purple-50">QC HRS</th>
+                      <th className="text-center">OT TOTAL</th>
+                      <th className="text-center text-blue-700 bg-blue-50">RETAIL OT</th>
+                      <th className="text-center text-purple-700 bg-purple-50">QC OT</th>
                       <th className="text-center">PAID LEAVE</th>
                     </tr>
                   </thead>
                   <tbody>
                     {attendance.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="text-center text-gray-500 py-8">
+                        <td colSpan={9} className="text-center text-gray-500 py-8">
                           No labourers found. Add labourers in "Manage Labourers" tab first.
                         </td>
                       </tr>
@@ -1488,24 +1557,79 @@ export default function LaborCosts() {
                                 min="0"
                                 max="12"
                                 step="0.5"
-                                className="w-20 h-8 text-center mx-auto"
+                                className="w-16 h-8 text-center mx-auto text-xs"
                                 data-testid={`daily-hours-${record.labour_id}`}
                               />
                             ) : (
                               <span className="text-gray-400">-</span>
                             )}
                           </td>
-                          <td className="text-center">
+                          <td className="text-center bg-blue-50/50">
                             {record.present ? (
                               <Input
                                 type="number"
-                                value={record.overtime_hours}
-                                onChange={(e) => updateAttendance(record.labour_id, 'overtime_hours', parseFloat(e.target.value) || 0)}
+                                value={record.retail_hours || ''}
+                                onChange={(e) => updateAttendance(record.labour_id, 'retail_hours', parseFloat(e.target.value) || 0)}
                                 min="0"
-                                max="12"
+                                max={record.working_hours || 9}
                                 step="0.5"
-                                className="w-20 h-8 text-center mx-auto"
-                                data-testid={`ot-hours-${record.labour_id}`}
+                                className="w-16 h-8 text-center mx-auto text-xs border-blue-200"
+                                placeholder="0"
+                                data-testid={`retail-hours-${record.labour_id}`}
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="text-center bg-purple-50/50">
+                            {record.present ? (
+                              <Input
+                                type="number"
+                                value={record.qc_hours || ''}
+                                onChange={(e) => updateAttendance(record.labour_id, 'qc_hours', parseFloat(e.target.value) || 0)}
+                                min="0"
+                                max={record.working_hours || 9}
+                                step="0.5"
+                                className="w-16 h-8 text-center mx-auto text-xs border-purple-200"
+                                placeholder="0"
+                                data-testid={`qc-hours-${record.labour_id}`}
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="text-center">
+                            <span className={`font-medium ${record.overtime_hours > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                              {record.overtime_hours || 0}
+                            </span>
+                          </td>
+                          <td className="text-center bg-blue-50/50">
+                            {record.present ? (
+                              <Input
+                                type="number"
+                                value={record.retail_ot_hours || ''}
+                                onChange={(e) => updateAttendance(record.labour_id, 'retail_ot_hours', parseFloat(e.target.value) || 0)}
+                                min="0"
+                                step="0.5"
+                                className="w-16 h-8 text-center mx-auto text-xs border-blue-200"
+                                placeholder="0"
+                                data-testid={`retail-ot-${record.labour_id}`}
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="text-center bg-purple-50/50">
+                            {record.present ? (
+                              <Input
+                                type="number"
+                                value={record.qc_ot_hours || ''}
+                                onChange={(e) => updateAttendance(record.labour_id, 'qc_ot_hours', parseFloat(e.target.value) || 0)}
+                                min="0"
+                                step="0.5"
+                                className="w-16 h-8 text-center mx-auto text-xs border-purple-200"
+                                placeholder="0"
+                                data-testid={`qc-ot-${record.labour_id}`}
                               />
                             ) : (
                               <span className="text-gray-400">-</span>
@@ -1526,6 +1650,23 @@ export default function LaborCosts() {
                       ))
                     )}
                   </tbody>
+                  <tfoot className="bg-gray-100">
+                    <tr>
+                      <td className="p-2 font-bold">TOTAL</td>
+                      <td className="p-2 text-center font-bold">
+                        <span className="text-green-700">{attendance.filter(a => a.present).length}</span>
+                        <span className="text-gray-400 mx-1">/</span>
+                        <span className="text-gray-600">{attendance.length}</span>
+                      </td>
+                      <td className="p-2 text-center font-bold text-gray-600">{attendance.reduce((sum, r) => sum + (r.present ? (r.working_hours || 9) : 0), 0).toFixed(1)}</td>
+                      <td className="p-2 text-center font-bold text-blue-600 bg-blue-50">{attendance.reduce((sum, r) => sum + (r.retail_hours || 0), 0).toFixed(1)}</td>
+                      <td className="p-2 text-center font-bold text-purple-600 bg-purple-50">{attendance.reduce((sum, r) => sum + (r.qc_hours || 0), 0).toFixed(1)}</td>
+                      <td className="p-2 text-center font-bold text-orange-600">{attendance.reduce((sum, r) => sum + (r.overtime_hours || 0), 0).toFixed(1)}</td>
+                      <td className="p-2 text-center font-bold text-blue-600 bg-blue-50">{attendance.reduce((sum, r) => sum + (r.retail_ot_hours || 0), 0).toFixed(1)}</td>
+                      <td className="p-2 text-center font-bold text-purple-600 bg-purple-50">{attendance.reduce((sum, r) => sum + (r.qc_ot_hours || 0), 0).toFixed(1)}</td>
+                      <td className="p-2 text-center font-bold text-purple-600">{attendance.filter(a => !a.present && a.paid_leave).length}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}

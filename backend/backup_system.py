@@ -36,6 +36,7 @@ COLLECTIONS_TO_BACKUP = [
     "procurements",
     "procurement_templates",
     "farmer_payments",
+    "procurement_payments",
     # Quick Commerce
     "qc_packaging",
     "qc_customers",
@@ -44,6 +45,7 @@ COLLECTIONS_TO_BACKUP = [
     "qc_invoices",
     "qc_grns",
     "qc_daily_requirements",
+    "qc_orders",
     "customer_product_settings",
     # Retailer
     "retailers",
@@ -57,16 +59,32 @@ COLLECTIONS_TO_BACKUP = [
     "retailer_closing_inventory",
     "retailer_inventory",
     "retailer_daily_requirements",
+    "retailer_credit_notes",
+    "retailer_orders",
     "retail_plans",
+    "sticker_mrp_overrides",
     # Stock & Expenses
     "daily_stock_status",
+    "daily_cogs",
+    "daily_mrp",
     "variable_expenses",
     "fixed_expenses",
+    "corporate_employees",
+    "recurring_expense_templates",
     # Labour
     "labours",
     "labour_attendance",
-    # Payments
+    # Vendors & Payments
+    "vendors",
     "payments",
+    "invoices",
+    # Wastage
+    "wastage",
+    "rejections",
+    # External Integrations
+    "blinkit_prices",
+    # System
+    "background_jobs",
 ]
 
 # Sensitive fields to exclude from backup

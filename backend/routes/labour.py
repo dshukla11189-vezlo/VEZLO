@@ -388,3 +388,29 @@ async def get_labour_costs_summary(
         "daily_breakdown": daily_list,
         "labour_breakdown": labour_list
     }
+
+
+
+@router.get("/labour-attendance/bulk")
+async def get_labour_attendance_bulk(
+    from_date: str = Query(None, description="Start date YYYY-MM-DD"),
+    to_date: str = Query(None, description="End date YYYY-MM-DD"),
+    limit: int = Query(50000, description="Max records to return"),
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """
+    Bulk fetch all labour attendance records for sync purposes.
+    If from_date/to_date provided, filters by date range.
+    Returns raw attendance records from the database.
+    """
+    query = {}
+    if from_date and to_date:
+        query["date"] = {"$gte": from_date, "$lte": to_date}
+    elif from_date:
+        query["date"] = {"$gte": from_date}
+    elif to_date:
+        query["date"] = {"$lte": to_date}
+    
+    records = await db.labour_attendance.find(query, {"_id": 0}).sort("date", -1).to_list(limit)
+    return records

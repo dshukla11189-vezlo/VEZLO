@@ -233,6 +233,7 @@ async def sync_from_production(
                 'procurements': 'procurements',
                 'procurement_templates': 'procurement_templates',
                 'farmer_payments': 'farmer_payments',
+                'procurement_payments': 'procurement_payments',
                 # Quick Commerce
                 'qc_packaging': 'qc_packaging',
                 'qc_customers': 'qc_customers',
@@ -241,6 +242,7 @@ async def sync_from_production(
                 'qc_invoices': 'qc_invoices',
                 'qc_grns': 'qc_grns',
                 'qc_daily_requirements': 'qc_daily_requirements',
+                'qc_orders': 'qc_orders',
                 'customer_product_settings': 'customer_product_settings',
                 # Retailer
                 'retailers': 'retailers',
@@ -255,15 +257,31 @@ async def sync_from_production(
                 'retailer_closing_inventory': 'retailer_closing_inventory',
                 'retailer_inventory': 'retailer_inventory',
                 'retailer_daily_requirements': 'retailer_daily_requirements',
+                'retailer_credit_notes': 'retailer_credit_notes',
+                'retailer_orders': 'retailer_orders',
+                'sticker_mrp_overrides': 'sticker_mrp_overrides',
                 # Stock & Expenses
                 'daily_stock_status': 'daily_stock_status',
+                'daily_cogs': 'daily_cogs',
+                'daily_mrp': 'daily_mrp',
                 'variable_expenses': 'variable_expenses',
                 'fixed_expenses': 'fixed_expenses',
+                'corporate_employees': 'corporate_employees',
+                'recurring_expense_templates': 'recurring_expense_templates',
                 # Labour
                 'labours': 'labours',
                 'labour_attendance': 'labour_attendance',
-                # Payments
+                # Vendors & Payments
+                'vendors': 'vendors',
                 'payments': 'payments',
+                'invoices': 'invoices',
+                # Wastage
+                'wastage': 'wastage',
+                'rejections': 'rejections',
+                # External Integrations
+                'blinkit_prices': 'blinkit_prices',
+                # System
+                'background_jobs': 'background_jobs',
             }
             
             # JSON fields per collection (fields that contain lists/objects)
@@ -645,54 +663,75 @@ async def sync_from_production_full(
             headers = {"Authorization": f"Bearer {token}"}
             
             # Define all API endpoints - WITH images for products
+            # COMPREHENSIVE list of ALL collections to sync (matches backup_system.py COLLECTIONS_TO_BACKUP)
             api_endpoints = {
+                # Core
                 'qc_packaging': '/api/qc-packaging',
                 'products': '/api/products?include_images=true&limit=50000' if request.include_images else '/api/products?include_images=false&limit=50000',
                 'product_types': '/api/product-types',
                 'product_categories': '/api/product-categories',
                 'units': '/api/units',
+                'users': '/api/users?limit=50000',
+                # Procurement
                 'farmers': '/api/farmers?limit=50000',
+                'procurements': '/api/procurement?limit=50000',
+                'procurement_templates': '/api/procurement-templates?limit=50000',
+                'farmer_payments': '/api/farmer-payments?limit=50000',
+                'procurement_payments': '/api/procurement-payments?limit=50000',
+                # Labour (Critical - user reported missing)
                 'labours': '/api/labours?limit=50000',
+                # Quick Commerce
                 'qc_customers': '/api/qc-customers?limit=50000',
+                'qc_indents': '/api/qc-indents?limit=50000',
+                'qc_dispatches': '/api/qc-dispatches?limit=50000',
+                'qc_grns': '/api/qc-grns?limit=50000',
+                'qc_invoices': '/api/qc-invoices?limit=50000',
+                'qc_daily_requirements': '/api/qc-daily-requirements?limit=50000',
+                'qc_orders': '/api/qc-orders?limit=50000',
+                'customer_product_settings': '/api/customer-product-settings?limit=50000',
+                # Retailer
                 'retailers': '/api/retailers?limit=50000',
                 'retailer_catalogue': '/api/retailer-catalogue?limit=50000',
                 'retailer_indents': '/api/retailer-indents?limit=50000',
                 'retailer_dispatches': '/api/retailer-dispatches?limit=50000',
                 'retailer_invoices': '/api/retailer-invoices?limit=50000',
+                'retailer_grn': '/api/retailer-grn?limit=50000',
                 'retailer_rejections': '/api/retailer-rejections?limit=50000',
                 'retailer_payments': '/api/retailer-payments?limit=50000',
                 'retailer_credit_notes': '/api/retailer-credit-notes?limit=50000',
-                'qc_indents': '/api/qc-indents?limit=50000',
-                'qc_dispatches': '/api/qc-dispatches?limit=50000',
-                'qc_grns': '/api/qc-grns?limit=50000',
-                'qc_invoices': '/api/qc-invoices?limit=50000',
-                'procurements': '/api/procurement?limit=50000',
-                'farmer_payments': '/api/farmer-payments?limit=50000',
-                'customer_product_settings': '/api/customer-product-settings?limit=50000',
-                'daily_mrp': '/api/daily-mrp?limit=50000',
-                'daily_stock_status': '/api/stock-status?limit=50000',
-                'users': '/api/users?limit=50000',
-                'blinkit_prices': '/api/blinkit-prices?limit=50000',
-                'retail_plans': '/api/retail-plans?limit=50000',
-                'daily_cogs': '/api/daily-cogs?limit=50000',
-                'payments': '/api/payments?limit=50000',
-                'cogs_snapshots': '/api/cogs-snapshots?limit=50000',
-                'retailer_inventory': '/api/retailer-inventory?limit=50000',
                 'retailer_closing_inventory': '/api/retailer-closing-inventory?limit=50000',
-                'retailer_grn': '/api/retailer-grn?limit=50000',
+                'retailer_inventory': '/api/retailer-inventory?limit=50000',
                 'retailer_daily_requirements': '/api/retailer-daily-requirements?limit=50000',
-                'qc_daily_requirements': '/api/qc-daily-requirements?limit=50000',
-                'procurement_templates': '/api/procurement-templates?limit=50000',
+                'retailer_orders': '/api/retailer-orders?limit=50000',
+                'retail_plans': '/api/retail-plans?limit=50000',
+                'sticker_mrp_overrides': '/api/sticker-mrp-overrides?limit=50000',
+                # Stock & Analytics
+                'daily_stock_status': '/api/stock-status?limit=50000',
+                'daily_mrp': '/api/daily-mrp?limit=50000',
+                'daily_cogs': '/api/daily-cogs?limit=50000',
+                'cogs_snapshots': '/api/cogs-snapshots?limit=50000',
+                'blinkit_prices': '/api/blinkit-prices?limit=50000',
+                # Expenses
+                'vendors': '/api/vendors?limit=50000',
+                'corporate_employees': '/api/corporate-employees?limit=50000',
+                'recurring_expense_templates': '/api/recurring-expense-templates?limit=50000',
+                # Payments & Invoices
+                'payments': '/api/payments?limit=50000',
+                'invoices': '/api/invoices?limit=50000',
+                # Wastage (from retailer_orders)
+                'wastage': '/api/wastage?limit=50000',
+                'rejections': '/api/rejections?limit=50000',
             }
             
-            # Date range endpoints
+            # Date range endpoints (Fetch last 365 days of data)
             from_date = (datetime.now(timezone.utc) - timedelta(days=365)).strftime('%Y-%m-%d')
             to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             
             date_range_endpoints = {
                 'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
                 'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
-                'labour_attendance': f'/api/labour-attendance?from_date={from_date}&to_date={to_date}',
+                # Labour Attendance - Use BULK endpoint for sync (user reported missing)
+                'labour_attendance': f'/api/labour-attendance/bulk?from_date={from_date}&to_date={to_date}&limit=50000',
             }
             
             sync_results = {}

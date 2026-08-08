@@ -2,6 +2,21 @@
 
 ## Changelog (August 2026)
 
+### August 8, 2026 - Full Sync Missing Collections Fix ✅
+- **BUG FIX**: Production-to-Preview Full Sync now includes ALL database collections
+  - **Problem**: User reported that Payroll (`labours`) and Attendance (`labour_attendance`) data was not syncing from Production to Preview when using "Full Sync with Images"
+  - **Root Cause**: The `/api/sync-from-production-full` endpoint was missing several collections from its API endpoint mapping
+  - **Solution**:
+    1. Added new `/api/labour-attendance/bulk` endpoint for efficient bulk fetching of attendance records
+    2. Updated `sync-from-production-full` to include ALL collections from `COLLECTIONS_TO_BACKUP`:
+       - Added: `procurement_payments`, `qc_orders`, `retailer_orders`, `sticker_mrp_overrides`, `invoices`, `vendors`, `corporate_employees`, `recurring_expense_templates`
+       - Fixed: `labour_attendance` now uses `/api/labour-attendance/bulk` endpoint
+    3. Total synced collections now matches backup system (50 collections)
+  - **Files Changed**: 
+    - `backend/routes/backup_data.py` - Updated api_endpoints and date_range_endpoints
+    - `backend/routes/labour.py` - Added `/api/labour-attendance/bulk` endpoint
+  - **Testing**: Verified all API endpoints return data correctly
+
 ### August 5, 2026 - Credit Note Display on Rejections Table ✅
 - **FEATURE**: Show credit note info against each rejection in both Retailer and Field Team portals
   - **Backend**: Created shared helper `attach_credit_notes_to_rejections()` in `retailer_portal.py`

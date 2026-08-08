@@ -10,7 +10,7 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Users, Plus, Edit2, Trash2, RefreshCw, Calendar, DollarSign, 
   Clock, User, Phone, Save, X, ChevronDown, ChevronRight, Building2, CalendarDays,
-  Copy, CheckCircle2, XCircle, AlertCircle, Download, FileSpreadsheet, CreditCard
+  Copy, CheckCircle2, XCircle, AlertCircle, Download, FileSpreadsheet, CreditCard, Pencil
 } from 'lucide-react';
 import {
   Dialog,
@@ -115,6 +115,123 @@ export default function LaborCosts() {
   const [showPayrollDetailModal, setShowPayrollDetailModal] = useState(false);
   const [payrollDetailData, setPayrollDetailData] = useState(null);
   const [loadingPayrollDetail, setLoadingPayrollDetail] = useState(false);
+  
+  // Payment Recording state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentModalMode, setPaymentModalMode] = useState('add'); // 'add' or 'edit'
+  const [selectedLabourForPayment, setSelectedLabourForPayment] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    transaction_id: '',
+    payment_mode: 'Bank Transfer',
+    notes: ''
+  });
+  const [editingPaymentId, setEditingPaymentId] = useState(null);
+  const [savingPayment, setSavingPayment] = useState(false);
+  
+  // Payment history modal
+  const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+  const [paymentHistoryData, setPaymentHistoryData] = useState(null);
+  
+  // Open payment modal to add new payment
+  const openAddPaymentModal = (labour) => {
+    setSelectedLabourForPayment(labour);
+    setPaymentForm({
+      amount: labour.net_payable > 0 ? labour.net_payable.toFixed(2) : '',
+      payment_date: new Date().toISOString().split('T')[0],
+      transaction_id: '',
+      payment_mode: 'Bank Transfer',
+      notes: ''
+    });
+    setPaymentModalMode('add');
+    setEditingPaymentId(null);
+    setShowPaymentModal(true);
+  };
+  
+  // Open payment modal to edit existing payment
+  const openEditPaymentModal = (labour, payment) => {
+    setSelectedLabourForPayment(labour);
+    setPaymentForm({
+      amount: payment.amount?.toString() || '',
+      payment_date: payment.payment_date || '',
+      transaction_id: payment.transaction_id || '',
+      payment_mode: payment.payment_mode || 'Bank Transfer',
+      notes: payment.notes || ''
+    });
+    setPaymentModalMode('edit');
+    setEditingPaymentId(payment.id);
+    setShowPaymentModal(true);
+  };
+  
+  // Save payment (create or update)
+  const savePayment = async () => {
+    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (!paymentForm.payment_date) {
+      toast.error('Please select a payment date');
+      return;
+    }
+    
+    setSavingPayment(true);
+    try {
+      const payload = {
+        labour_id: selectedLabourForPayment.labour_id,
+        amount: parseFloat(paymentForm.amount),
+        payment_date: paymentForm.payment_date,
+        transaction_id: paymentForm.transaction_id,
+        payment_mode: paymentForm.payment_mode,
+        notes: paymentForm.notes,
+        period_from: payrollDateFrom,
+        period_to: payrollDateTo
+      };
+      
+      if (paymentModalMode === 'edit' && editingPaymentId) {
+        await api.put(`/api/labour-payments/${editingPaymentId}`, payload);
+        toast.success('Payment updated successfully');
+      } else {
+        await api.post('/api/labour-payments', payload);
+        toast.success('Payment recorded successfully');
+      }
+      
+      setShowPaymentModal(false);
+      loadPayrollData(); // Refresh payroll data
+    } catch (error) {
+      toast.error('Failed to save payment');
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+  
+  // Delete payment
+  const deletePayment = async (paymentId) => {
+    if (!window.confirm('Are you sure you want to delete this payment?')) return;
+    
+    try {
+      await api.delete(`/api/labour-payments/${paymentId}`);
+      toast.success('Payment deleted');
+      loadPayrollData(); // Refresh
+      if (showPaymentHistoryModal) {
+        loadPaymentHistory(selectedLabourForPayment);
+      }
+    } catch (error) {
+      toast.error('Failed to delete payment');
+    }
+  };
+  
+  // Load payment history for a labourer
+  const loadPaymentHistory = async (labour) => {
+    setSelectedLabourForPayment(labour);
+    setShowPaymentHistoryModal(true);
+    try {
+      const response = await api.get(`/api/labour-payments/summary/${labour.labour_id}?from_date=${payrollDateFrom}&to_date=${payrollDateTo}`);
+      setPaymentHistoryData(response.data);
+    } catch (error) {
+      toast.error('Failed to load payment history');
+    }
+  };
   
   // Load detailed payroll for a specific labourer
   const loadPayrollDetail = async (labourId) => {
@@ -1706,19 +1823,25 @@ export default function LaborCosts() {
                           <th className="p-2 text-center font-medium text-gray-500">DAYS</th>
                           <th className="p-2 text-center font-medium text-gray-500">OT HRS</th>
                           <th className="p-2 text-right font-medium text-gray-500">AMOUNT</th>
-                          <th className="p-2 text-center font-medium text-gray-500">DETAILS</th>
+                          <th className="p-2 text-right font-medium text-gray-500">PAID</th>
+                          <th className="p-2 text-right font-medium text-gray-500">NET PAYABLE</th>
+                          <th className="p-2 text-center font-medium text-gray-500">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody>
                         {payrollData.labour_breakdown.map((lb, idx) => {
                           const labourDetails = labours.find(l => l.id === lb.labour_id) || {};
                           const isInactive = lb.is_active === false || labourDetails.is_active === false;
+                          const totalPaid = lb.total_paid || 0;
+                          const netPayable = lb.net_payable !== undefined ? lb.net_payable : (lb.total_payment || 0);
+                          const isFullyPaid = netPayable <= 0;
                           return (
-                            <tr key={lb.labour_id} className={`border-b hover:bg-gray-100 cursor-pointer ${isInactive ? 'bg-red-50' : ''}`}>
+                            <tr key={lb.labour_id} className={`border-b hover:bg-gray-100 ${isInactive ? 'bg-red-50' : ''} ${isFullyPaid ? 'bg-green-50' : ''}`}>
                               <td className="p-2 text-gray-400">{idx + 1}</td>
                               <td className={`p-2 font-medium ${isInactive ? 'text-red-700' : ''}`}>
                                 {lb.labour_name}
                                 {isInactive && <span className="ml-2 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">INACTIVE</span>}
+                                {isFullyPaid && <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">PAID</span>}
                               </td>
                               <td className="p-2 text-gray-600 font-mono text-[10px]">
                                 {labourDetails.bank_account_number || <span className="text-gray-400">-</span>}
@@ -1728,19 +1851,45 @@ export default function LaborCosts() {
                               </td>
                               <td className="p-2 text-center">{lb.days_present}</td>
                               <td className="p-2 text-center text-orange-600">{(lb.total_overtime_hours || 0).toFixed(1)}</td>
-                              <td className={`p-2 text-right font-semibold ${isInactive ? 'text-red-700' : 'text-green-700'}`}>
+                              <td className={`p-2 text-right font-medium ${isInactive ? 'text-red-700' : 'text-gray-700'}`}>
                                 ₹{(lb.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                               </td>
+                              <td className="p-2 text-right">
+                                {totalPaid > 0 ? (
+                                  <button 
+                                    onClick={() => loadPaymentHistory(lb)}
+                                    className="text-blue-600 hover:underline font-medium"
+                                  >
+                                    ₹{totalPaid.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                              <td className={`p-2 text-right font-semibold ${netPayable <= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                                {netPayable <= 0 ? '₹0' : `₹${netPayable.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}
+                              </td>
                               <td className="p-2 text-center">
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  onClick={() => loadPayrollDetail(lb.labour_id)}
-                                  className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 text-xs px-2 py-1"
-                                  data-testid={`view-detail-${lb.labour_id}`}
-                                >
-                                  View Details
-                                </Button>
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => loadPayrollDetail(lb.labour_id)}
+                                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 text-[10px] px-2 py-1 h-7"
+                                    data-testid={`view-detail-${lb.labour_id}`}
+                                  >
+                                    Details
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => openAddPaymentModal(lb)}
+                                    className="text-green-600 hover:text-green-800 hover:bg-green-50 text-[10px] px-2 py-1 h-7"
+                                    data-testid={`add-payment-${lb.labour_id}`}
+                                  >
+                                    + Pay
+                                  </Button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1749,8 +1898,14 @@ export default function LaborCosts() {
                           <td className="p-2" colSpan={4}>TOTAL</td>
                           <td className="p-2 text-center">{payrollData.summary?.total_man_days || 0}</td>
                           <td className="p-2 text-center text-orange-600">{(payrollData.summary?.total_overtime_hours || 0).toFixed(1)}</td>
-                          <td className="p-2 text-right text-green-700">
+                          <td className="p-2 text-right text-gray-700">
                             ₹{(payrollData.summary?.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-2 text-right text-blue-700">
+                            ₹{(payrollData.summary?.total_paid || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-2 text-right text-orange-700">
+                            ₹{(payrollData.summary?.net_payable || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                           </td>
                           <td></td>
                         </tr>
@@ -2056,6 +2211,220 @@ export default function LaborCosts() {
             <DialogFooter className="border-t pt-3">
               <Button variant="outline" onClick={() => setShowPayrollDetailModal(false)}>
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add/Edit Payment Modal */}
+        <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CreditCard size={20} />
+                {paymentModalMode === 'edit' ? 'Edit Payment' : 'Record Payment'}
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedLabourForPayment && (
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-600">Paying to:</p>
+                  <p className="font-semibold">{selectedLabourForPayment.labour_name}</p>
+                  <p className="text-xs text-gray-500">
+                    Period: {payrollDateFrom} to {payrollDateTo}
+                  </p>
+                  <p className="text-sm mt-1">
+                    Amount Due: <span className="font-semibold text-orange-600">₹{(selectedLabourForPayment.net_payable || selectedLabourForPayment.total_payment || 0).toLocaleString('en-IN', {maximumFractionDigits: 2})}</span>
+                  </p>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Amount *</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={paymentForm.amount}
+                      onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
+                      placeholder="Enter amount"
+                      className="mt-1"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Payment Date *</label>
+                    <Input
+                      type="date"
+                      value={paymentForm.payment_date}
+                      onChange={(e) => setPaymentForm({...paymentForm, payment_date: e.target.value})}
+                      className="mt-1"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Transaction ID / Reference</label>
+                    <Input
+                      type="text"
+                      value={paymentForm.transaction_id}
+                      onChange={(e) => setPaymentForm({...paymentForm, transaction_id: e.target.value})}
+                      placeholder="e.g., NEFT123456789"
+                      className="mt-1"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Payment Mode</label>
+                    <select
+                      value={paymentForm.payment_mode}
+                      onChange={(e) => setPaymentForm({...paymentForm, payment_mode: e.target.value})}
+                      className="mt-1 w-full border rounded-md p-2 text-sm"
+                    >
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Cash">Cash</option>
+                      <option value="UPI">UPI</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Notes</label>
+                    <Input
+                      type="text"
+                      value={paymentForm.notes}
+                      onChange={(e) => setPaymentForm({...paymentForm, notes: e.target.value})}
+                      placeholder="Optional notes"
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPaymentModal(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={savePayment} 
+                disabled={savingPayment}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {savingPayment ? <RefreshCw className="animate-spin mr-2" size={16} /> : null}
+                {paymentModalMode === 'edit' ? 'Update Payment' : 'Record Payment'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Payment History Modal */}
+        <Dialog open={showPaymentHistoryModal} onOpenChange={setShowPaymentHistoryModal}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CreditCard size={20} />
+                Payment History - {paymentHistoryData?.labour_name || 'Loading...'}
+              </DialogTitle>
+            </DialogHeader>
+            
+            {paymentHistoryData && (
+              <div className="overflow-y-auto flex-1 space-y-4">
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm text-blue-800">Total Paid</p>
+                      <p className="text-2xl font-bold text-blue-900">
+                        ₹{paymentHistoryData.total_paid?.toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-blue-800">Payments</p>
+                      <p className="text-2xl font-bold text-blue-900">{paymentHistoryData.payment_count}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                {paymentHistoryData.payments?.length > 0 ? (
+                  <div className="space-y-2">
+                    {paymentHistoryData.payments.map((payment) => (
+                      <Card key={payment.id} className="border">
+                        <CardContent className="p-3">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg font-bold text-green-700">
+                                  ₹{payment.amount?.toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                                </span>
+                                <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                                  {payment.payment_mode}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {new Date(payment.payment_date).toLocaleDateString('en-IN', {
+                                  weekday: 'short', day: '2-digit', month: 'short', year: 'numeric'
+                                })}
+                              </p>
+                              {payment.transaction_id && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Ref: {payment.transaction_id}
+                                </p>
+                              )}
+                              {payment.notes && (
+                                <p className="text-xs text-gray-500 mt-1 italic">
+                                  {payment.notes}
+                                </p>
+                              )}
+                              {payment.period_from && payment.period_to && (
+                                <p className="text-[10px] text-gray-400 mt-1">
+                                  For period: {payment.period_from} to {payment.period_to}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setShowPaymentHistoryModal(false);
+                                  openEditPaymentModal(selectedLabourForPayment, payment);
+                                }}
+                                className="text-blue-600 hover:text-blue-800 h-7 px-2"
+                              >
+                                <Pencil size={14} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deletePayment(payment.id)}
+                                className="text-red-600 hover:text-red-800 h-7 px-2"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-center text-gray-500 py-4">No payments recorded yet</p>
+                )}
+              </div>
+            )}
+            
+            <DialogFooter className="border-t pt-3">
+              <Button variant="outline" onClick={() => setShowPaymentHistoryModal(false)}>
+                Close
+              </Button>
+              <Button 
+                onClick={() => {
+                  setShowPaymentHistoryModal(false);
+                  openAddPaymentModal(selectedLabourForPayment);
+                }}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                + Add Payment
               </Button>
             </DialogFooter>
           </DialogContent>

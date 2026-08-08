@@ -2,6 +2,20 @@
 
 ## Changelog (August 2026)
 
+### August 8, 2026 - Labour Payment Recording Feature ✅
+- **NEW FEATURE**: Record and track payments made to labourers in Payroll Processing
+  - **Payment Recording**: Click "+ Pay" button to record payment with amount, date, transaction ID, payment mode, and notes
+  - **Payment History**: Click on paid amount to view all payments for that labourer with edit/delete options
+  - **Net Payable Tracking**: Shows AMOUNT - PAID = NET PAYABLE in real-time
+  - **Visual Indicators**: 
+    - "PAID" badge on fully paid labourers
+    - Green background for fully paid rows
+    - Orange text for pending payments
+  - **Backend**: New `/api/labour-payments` CRUD endpoints + updated summary to include payment tracking
+  - **Files Changed**: 
+    - `backend/routes/labour.py` - Added labour payment endpoints + updated summary
+    - `frontend/src/pages/admin/LaborCosts.js` - Added payment modal, history modal, new columns
+
 ### August 8, 2026 - Detailed Payroll Breakdown Feature ✅
 - **NEW FEATURE**: Added detailed payroll breakdown modal for each labourer
   - **Shows**: Days Present, Regular Hours + Amount, Overtime Hours + Amount, Final Payable

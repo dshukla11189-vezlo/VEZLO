@@ -74,6 +74,7 @@ COLLECTIONS_TO_BACKUP = [
     # Labour
     "labours",
     "labour_attendance",
+    "labour_payments",
     # Vendors & Payments
     "vendors",
     "payments",

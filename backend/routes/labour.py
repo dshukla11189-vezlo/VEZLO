@@ -398,6 +398,30 @@ async def get_labour_costs_summary(
             labour_totals[labour_id]["total_overtime_hours"] += overtime_hours
             labour_totals[labour_id]["total_payment"] += effective_payment
     
+    # Get all labour payments for this date range
+    all_payments = await db.labour_payments.find({
+        "$or": [
+            {"period_from": {"$lte": to_date}, "period_to": {"$gte": from_date}},
+            {"payment_date": {"$gte": from_date, "$lte": to_date}}
+        ]
+    }, {"_id": 0}).to_list(1000)
+    
+    # Group payments by labour_id
+    payments_by_labour = {}
+    for payment in all_payments:
+        lid = payment.get("labour_id")
+        if lid not in payments_by_labour:
+            payments_by_labour[lid] = []
+        payments_by_labour[lid].append(payment)
+    
+    # Add payment info to labour totals
+    for labour_id, totals in labour_totals.items():
+        payments = payments_by_labour.get(labour_id, [])
+        total_paid = sum(p.get("amount", 0) for p in payments)
+        totals["total_paid"] = total_paid
+        totals["net_payable"] = totals["total_payment"] - total_paid
+        totals["payments"] = payments
+    
     # Sort daily totals by date
     daily_list = sorted(daily_totals.values(), key=lambda x: x["date"], reverse=True)
     
@@ -406,6 +430,7 @@ async def get_labour_costs_summary(
     
     # Calculate grand totals
     grand_total_payment = sum(lb["total_payment"] for lb in labour_list)
+    grand_total_paid = sum(lb.get("total_paid", 0) for lb in labour_list)
     total_days = len(daily_list)
     total_man_days = sum(d["total_present"] for d in daily_list)
     total_overtime_hours = sum(d["total_overtime_hours"] for d in daily_list)
@@ -415,6 +440,8 @@ async def get_labour_costs_summary(
         "to_date": to_date,
         "summary": {
             "total_payment": grand_total_payment,
+            "total_paid": grand_total_paid,
+            "net_payable": grand_total_payment - grand_total_paid,
             "total_days": total_days,
             "total_man_days": total_man_days,
             "total_overtime_hours": total_overtime_hours,
@@ -579,4 +606,161 @@ async def get_labour_payroll_detail(
             "paid_leave_days": paid_leave_days
         },
         "daily_records": daily_records
+    }
+
+
+
+# --- Labour Payment Recording ---
+
+@router.get("/labour-payments")
+async def list_labour_payments(
+    labour_id: str = Query(None, description="Filter by labour ID"),
+    from_date: str = Query(None, description="Filter from date YYYY-MM-DD"),
+    to_date: str = Query(None, description="Filter to date YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Get all labour payments with optional filters"""
+    query = {}
+    if labour_id:
+        query["labour_id"] = labour_id
+    if from_date and to_date:
+        query["payment_date"] = {"$gte": from_date, "$lte": to_date}
+    elif from_date:
+        query["payment_date"] = {"$gte": from_date}
+    elif to_date:
+        query["payment_date"] = {"$lte": to_date}
+    
+    payments = await db.labour_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    return payments
+
+
+@router.post("/labour-payments")
+async def create_labour_payment(
+    payment: dict,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Record a payment made to a labourer"""
+    # Validate required fields
+    required_fields = ["labour_id", "amount", "payment_date"]
+    for field in required_fields:
+        if field not in payment or payment[field] is None:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+    
+    # Verify labourer exists
+    labourer = await db.labours.find_one({"id": payment["labour_id"]})
+    if not labourer:
+        raise HTTPException(status_code=404, detail="Labourer not found")
+    
+    # Create payment record
+    payment_record = {
+        "id": str(uuid.uuid4()),
+        "labour_id": payment["labour_id"],
+        "labour_name": labourer.get("name", "Unknown"),
+        "amount": float(payment["amount"]),
+        "payment_date": payment["payment_date"],
+        "transaction_id": payment.get("transaction_id", ""),
+        "payment_mode": payment.get("payment_mode", "Bank Transfer"),
+        "notes": payment.get("notes", ""),
+        "period_from": payment.get("period_from"),
+        "period_to": payment.get("period_to"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.get("email", "unknown")
+    }
+    
+    await db.labour_payments.insert_one(payment_record)
+    
+    # Remove _id before returning
+    payment_record.pop("_id", None)
+    return payment_record
+
+
+@router.put("/labour-payments/{payment_id}")
+async def update_labour_payment(
+    payment_id: str,
+    payment: dict,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Update a labour payment record"""
+    existing = await db.labour_payments.find_one({"id": payment_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    # Update allowed fields
+    update_fields = {}
+    if "amount" in payment:
+        update_fields["amount"] = float(payment["amount"])
+    if "payment_date" in payment:
+        update_fields["payment_date"] = payment["payment_date"]
+    if "transaction_id" in payment:
+        update_fields["transaction_id"] = payment["transaction_id"]
+    if "payment_mode" in payment:
+        update_fields["payment_mode"] = payment["payment_mode"]
+    if "notes" in payment:
+        update_fields["notes"] = payment["notes"]
+    if "period_from" in payment:
+        update_fields["period_from"] = payment["period_from"]
+    if "period_to" in payment:
+        update_fields["period_to"] = payment["period_to"]
+    
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_fields["updated_by"] = current_user.get("email", "unknown")
+    
+    await db.labour_payments.update_one({"id": payment_id}, {"$set": update_fields})
+    
+    # Return updated record
+    updated = await db.labour_payments.find_one({"id": payment_id}, {"_id": 0})
+    return updated
+
+
+@router.delete("/labour-payments/{payment_id}")
+async def delete_labour_payment(
+    payment_id: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Delete a labour payment record"""
+    existing = await db.labour_payments.find_one({"id": payment_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    await db.labour_payments.delete_one({"id": payment_id})
+    return {"message": "Payment deleted successfully", "id": payment_id}
+
+
+@router.get("/labour-payments/summary/{labour_id}")
+async def get_labour_payment_summary(
+    labour_id: str,
+    from_date: str = Query(None, description="Period from date"),
+    to_date: str = Query(None, description="Period to date"),
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Get payment summary for a specific labourer for a date range"""
+    # Get labourer details
+    labourer = await db.labours.find_one({"id": labour_id}, {"_id": 0})
+    if not labourer:
+        raise HTTPException(status_code=404, detail="Labourer not found")
+    
+    # Get payments for this labourer in the date range
+    query = {"labour_id": labour_id}
+    if from_date and to_date:
+        # Get payments where period overlaps with the requested range
+        query["$or"] = [
+            {"period_from": {"$lte": to_date}, "period_to": {"$gte": from_date}},
+            {"payment_date": {"$gte": from_date, "$lte": to_date}}
+        ]
+    
+    payments = await db.labour_payments.find(query, {"_id": 0}).sort("payment_date", -1).to_list(100)
+    
+    total_paid = sum(p.get("amount", 0) for p in payments)
+    
+    return {
+        "labour_id": labour_id,
+        "labour_name": labourer.get("name"),
+        "total_paid": total_paid,
+        "payment_count": len(payments),
+        "payments": payments
     }

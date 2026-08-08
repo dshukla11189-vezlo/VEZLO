@@ -452,17 +452,36 @@ export default function LaborCosts() {
         if (updated.present) {
           updated.paid_leave = false;
         }
+        
+        // Auto-fill remaining hours for vertical split
+        const workingHrs = updated.working_hours || 9;
+        if (field === 'retail_hours') {
+          // When retail hours changed, auto-fill QC with remainder
+          const retailVal = parseFloat(value) || 0;
+          updated.qc_hours = Math.max(0, workingHrs - retailVal);
+        } else if (field === 'qc_hours') {
+          // When QC hours changed, auto-fill retail with remainder
+          const qcVal = parseFloat(value) || 0;
+          updated.retail_hours = Math.max(0, workingHrs - qcVal);
+        } else if (field === 'working_hours') {
+          // When working hours changed, adjust retail to match (keep QC, adjust retail)
+          const newWorkingHrs = parseFloat(value) || 9;
+          const currentQc = parseFloat(updated.qc_hours) || 0;
+          updated.retail_hours = Math.max(0, newWorkingHrs - currentQc);
+        }
+        
         // Auto-calculate total overtime from retail + qc OT
         if (field === 'retail_ot_hours' || field === 'qc_ot_hours') {
           updated.overtime_hours = (parseFloat(updated.retail_ot_hours) || 0) + (parseFloat(updated.qc_ot_hours) || 0);
         }
+        
         // Ensure retail + qc hours don't exceed working hours
         const totalVerticalHours = (parseFloat(updated.retail_hours) || 0) + (parseFloat(updated.qc_hours) || 0);
-        if (totalVerticalHours > (updated.working_hours || 9)) {
+        if (totalVerticalHours > workingHrs) {
           if (field === 'retail_hours') {
-            updated.retail_hours = Math.max(0, (updated.working_hours || 9) - (parseFloat(updated.qc_hours) || 0));
+            updated.retail_hours = Math.max(0, workingHrs - (parseFloat(updated.qc_hours) || 0));
           } else if (field === 'qc_hours') {
-            updated.qc_hours = Math.max(0, (updated.working_hours || 9) - (parseFloat(updated.retail_hours) || 0));
+            updated.qc_hours = Math.max(0, workingHrs - (parseFloat(updated.retail_hours) || 0));
           }
         }
         return updated;

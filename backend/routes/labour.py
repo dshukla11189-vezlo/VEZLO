@@ -439,3 +439,135 @@ async def get_labour_attendance_bulk(
     
     records = await db.labour_attendance.find(query, {"_id": 0}).sort("date", -1).to_list(limit)
     return records
+
+
+
+@router.get("/labour-costs/detail/{labour_id}")
+async def get_labour_payroll_detail(
+    labour_id: str,
+    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """
+    Get detailed payroll breakdown for a specific labourer.
+    Shows day-by-day attendance with regular hours, overtime, and payment calculation.
+    """
+    # Get labourer details
+    labourer = await db.labours.find_one({"id": labour_id}, {"_id": 0})
+    if not labourer:
+        raise HTTPException(status_code=404, detail="Labourer not found")
+    
+    default_daily_rate = labourer.get("default_daily_rate", 0) or 0
+    default_ot_rate = labourer.get("overtime_rate", 50) or 50
+    
+    # Get attendance records for the date range
+    attendance = await db.labour_attendance.find({
+        "labour_id": labour_id,
+        "date": {"$gte": from_date, "$lte": to_date}
+    }, {"_id": 0}).sort("date", 1).to_list(500)
+    
+    # Process records
+    daily_records = []
+    days_present = 0
+    days_under_9_hours = []
+    days_with_overtime = []
+    paid_leave_days = []
+    
+    total_working_hours = 0
+    total_overtime_hours = 0
+    total_regular_payment = 0
+    total_overtime_payment = 0
+    total_paid_leave_payment = 0
+    
+    for record in attendance:
+        if not record.get("present"):
+            continue
+        
+        days_present += 1
+        date = record.get("date")
+        working_hours = record.get("working_hours", 9) or 9
+        overtime_hours = record.get("overtime_hours", 0) or 0
+        daily_rate = record.get("daily_rate", 0) or 0
+        overtime_rate = record.get("overtime_rate", 0) or 0
+        total_payment = record.get("total_payment", 0) or 0
+        is_paid_leave = record.get("paid_leave", False)
+        
+        # If payment is 0, calculate using default rates (for records without rates set)
+        if total_payment == 0 and daily_rate == 0:
+            daily_rate = default_daily_rate
+            overtime_rate = overtime_rate or default_ot_rate
+            regular_payment = daily_rate
+            ot_payment = overtime_hours * overtime_rate
+            total_payment = regular_payment + ot_payment
+        else:
+            # Use the recorded total_payment as-is
+            # Calculate breakdown: if we have both daily_rate and OT data, use them
+            if daily_rate > 0:
+                regular_payment = daily_rate
+                # OT payment is total minus daily rate
+                ot_payment = max(0, total_payment - daily_rate)
+            else:
+                # No daily rate recorded, use default for breakdown
+                regular_payment = min(total_payment, default_daily_rate)
+                ot_payment = max(0, total_payment - regular_payment)
+        
+        total_working_hours += working_hours
+        total_overtime_hours += overtime_hours
+        total_regular_payment += regular_payment
+        total_overtime_payment += ot_payment
+        
+        day_record = {
+            "date": date,
+            "working_hours": working_hours,
+            "overtime_hours": overtime_hours,
+            "daily_rate": daily_rate,
+            "overtime_rate": overtime_rate or default_ot_rate,
+            "regular_payment": regular_payment,
+            "overtime_payment": ot_payment,
+            "total_payment": total_payment,
+            "is_paid_leave": is_paid_leave,
+            "is_under_9_hours": working_hours < 9
+        }
+        daily_records.append(day_record)
+        
+        # Track anomalies
+        if working_hours < 9 and working_hours > 0:
+            days_under_9_hours.append({"date": date, "hours": working_hours})
+        
+        if overtime_hours > 0:
+            days_with_overtime.append({
+                "date": date, 
+                "hours": overtime_hours,
+                "payment": ot_payment
+            })
+        
+        if is_paid_leave:
+            paid_leave_days.append({"date": date, "payment": regular_payment})
+            total_paid_leave_payment += regular_payment
+    
+    return {
+        "labour_id": labour_id,
+        "labour_name": labourer.get("name"),
+        "is_active": labourer.get("is_active", True),
+        "default_daily_rate": default_daily_rate,
+        "default_overtime_rate": default_ot_rate,
+        "from_date": from_date,
+        "to_date": to_date,
+        "summary": {
+            "days_present": days_present,
+            "total_working_hours": total_working_hours,
+            "total_overtime_hours": total_overtime_hours,
+            "total_regular_payment": total_regular_payment,
+            "total_overtime_payment": total_overtime_payment,
+            "total_paid_leave_payment": total_paid_leave_payment,
+            "final_payable": total_regular_payment + total_overtime_payment
+        },
+        "highlights": {
+            "days_under_9_hours": days_under_9_hours,
+            "days_with_overtime": days_with_overtime,
+            "paid_leave_days": paid_leave_days
+        },
+        "daily_records": daily_records
+    }

@@ -110,6 +110,26 @@ export default function LaborCosts() {
     date_range: true,
     phone: false
   });
+  
+  // Detailed Payroll Modal state
+  const [showPayrollDetailModal, setShowPayrollDetailModal] = useState(false);
+  const [payrollDetailData, setPayrollDetailData] = useState(null);
+  const [loadingPayrollDetail, setLoadingPayrollDetail] = useState(false);
+  
+  // Load detailed payroll for a specific labourer
+  const loadPayrollDetail = async (labourId) => {
+    setLoadingPayrollDetail(true);
+    setShowPayrollDetailModal(true);
+    try {
+      const response = await api.get(`/api/labour-costs/detail/${labourId}?from_date=${payrollDateFrom}&to_date=${payrollDateTo}`);
+      setPayrollDetailData(response.data);
+    } catch (error) {
+      toast.error('Failed to load payroll details');
+      setShowPayrollDetailModal(false);
+    } finally {
+      setLoadingPayrollDetail(false);
+    }
+  };
 
   // Load labours
   const loadLabours = useCallback(async () => {
@@ -1686,6 +1706,7 @@ export default function LaborCosts() {
                           <th className="p-2 text-center font-medium text-gray-500">DAYS</th>
                           <th className="p-2 text-center font-medium text-gray-500">OT HRS</th>
                           <th className="p-2 text-right font-medium text-gray-500">AMOUNT</th>
+                          <th className="p-2 text-center font-medium text-gray-500">DETAILS</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1693,7 +1714,7 @@ export default function LaborCosts() {
                           const labourDetails = labours.find(l => l.id === lb.labour_id) || {};
                           const isInactive = lb.is_active === false || labourDetails.is_active === false;
                           return (
-                            <tr key={lb.labour_id} className={`border-b hover:bg-gray-50 ${isInactive ? 'bg-red-50' : ''}`}>
+                            <tr key={lb.labour_id} className={`border-b hover:bg-gray-100 cursor-pointer ${isInactive ? 'bg-red-50' : ''}`}>
                               <td className="p-2 text-gray-400">{idx + 1}</td>
                               <td className={`p-2 font-medium ${isInactive ? 'text-red-700' : ''}`}>
                                 {lb.labour_name}
@@ -1710,6 +1731,17 @@ export default function LaborCosts() {
                               <td className={`p-2 text-right font-semibold ${isInactive ? 'text-red-700' : 'text-green-700'}`}>
                                 ₹{(lb.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                               </td>
+                              <td className="p-2 text-center">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => loadPayrollDetail(lb.labour_id)}
+                                  className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 text-xs px-2 py-1"
+                                  data-testid={`view-detail-${lb.labour_id}`}
+                                >
+                                  View Details
+                                </Button>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1720,6 +1752,7 @@ export default function LaborCosts() {
                           <td className="p-2 text-right text-green-700">
                             ₹{(payrollData.summary?.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                           </td>
+                          <td></td>
                         </tr>
                       </tbody>
                     </table>
@@ -1805,6 +1838,224 @@ export default function LaborCosts() {
               </Button>
               <Button onClick={exportPayrollCSV} className="bg-[#14532D]" data-testid="confirm-payroll-export">
                 <Download size={16} className="mr-1" /> Download CSV
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Detailed Payroll Breakdown Modal */}
+        <Dialog open={showPayrollDetailModal} onOpenChange={setShowPayrollDetailModal}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <User size={20} />
+                Payroll Breakdown - {payrollDetailData?.labour_name || 'Loading...'}
+                {payrollDetailData?.is_active === false && (
+                  <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-normal">INACTIVE</span>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            
+            {loadingPayrollDetail ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="animate-spin text-gray-400" size={32} />
+              </div>
+            ) : payrollDetailData ? (
+              <div className="overflow-y-auto flex-1 space-y-4 pr-2">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Card className="bg-blue-50 border-blue-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-blue-800 font-medium">DAYS PRESENT</p>
+                      <p className="text-xl font-bold text-blue-900">{payrollDetailData.summary.days_present}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-purple-50 border-purple-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-purple-800 font-medium">REGULAR HOURS</p>
+                      <p className="text-xl font-bold text-purple-900">{payrollDetailData.summary.total_working_hours}</p>
+                      <p className="text-xs text-purple-600">₹{payrollDetailData.summary.total_regular_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-orange-50 border-orange-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-orange-800 font-medium">OVERTIME HOURS</p>
+                      <p className="text-xl font-bold text-orange-900">{payrollDetailData.summary.total_overtime_hours}</p>
+                      <p className="text-xs text-orange-600">₹{payrollDetailData.summary.total_overtime_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-green-50 border-green-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-green-800 font-medium">FINAL PAYABLE</p>
+                      <p className="text-xl font-bold text-green-900">₹{payrollDetailData.summary.final_payable?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Paid Leaves Section */}
+                {payrollDetailData.highlights.paid_leave_days?.length > 0 && (
+                  <Card className="border-cyan-200 bg-cyan-50">
+                    <CardHeader className="py-2 px-3">
+                      <CardTitle className="text-sm text-cyan-800 flex items-center gap-2">
+                        <CreditCard size={16} /> Paid Leaves ({payrollDetailData.highlights.paid_leave_days.length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0">
+                      <div className="flex flex-wrap gap-2">
+                        {payrollDetailData.highlights.paid_leave_days.map((day, idx) => (
+                          <span key={idx} className="text-xs bg-cyan-100 text-cyan-800 px-2 py-1 rounded">
+                            {new Date(day.date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})} - ₹{day.payment?.toLocaleString('en-IN')}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-sm text-cyan-700 mt-2 font-medium">
+                        Total Paid Leave: ₹{payrollDetailData.summary.total_paid_leave_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Days Under 9 Hours Warning */}
+                {payrollDetailData.highlights.days_under_9_hours?.length > 0 && (
+                  <Card className="border-yellow-200 bg-yellow-50">
+                    <CardHeader className="py-2 px-3">
+                      <CardTitle className="text-sm text-yellow-800 flex items-center gap-2">
+                        <AlertCircle size={16} /> Days with Less than 9 Hours ({payrollDetailData.highlights.days_under_9_hours.length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0">
+                      <div className="flex flex-wrap gap-2">
+                        {payrollDetailData.highlights.days_under_9_hours.map((day, idx) => (
+                          <span key={idx} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                            {new Date(day.date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})} - {day.hours}h
+                          </span>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Overtime Days */}
+                {payrollDetailData.highlights.days_with_overtime?.length > 0 && (
+                  <Card className="border-orange-200 bg-orange-50">
+                    <CardHeader className="py-2 px-3">
+                      <CardTitle className="text-sm text-orange-800 flex items-center gap-2">
+                        <Clock size={16} /> Overtime Days ({payrollDetailData.highlights.days_with_overtime.length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-orange-100">
+                            <tr>
+                              <th className="p-2 text-left text-orange-800">DATE</th>
+                              <th className="p-2 text-center text-orange-800">OT HOURS</th>
+                              <th className="p-2 text-right text-orange-800">OT PAYMENT</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {payrollDetailData.highlights.days_with_overtime.map((day, idx) => (
+                              <tr key={idx} className="border-b border-orange-200">
+                                <td className="p-2">{new Date(day.date).toLocaleDateString('en-IN', {weekday: 'short', day: '2-digit', month: 'short'})}</td>
+                                <td className="p-2 text-center font-medium text-orange-700">{day.hours}</td>
+                                <td className="p-2 text-right text-orange-700">₹{day.payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</td>
+                              </tr>
+                            ))}
+                            <tr className="bg-orange-100 font-semibold">
+                              <td className="p-2">TOTAL</td>
+                              <td className="p-2 text-center text-orange-800">{payrollDetailData.summary.total_overtime_hours}</td>
+                              <td className="p-2 text-right text-orange-800">₹{payrollDetailData.summary.total_overtime_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Daily Attendance Records */}
+                <Card>
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <CalendarDays size={16} /> Daily Attendance Records
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto max-h-60">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="p-2 text-left font-medium text-gray-500">DATE</th>
+                            <th className="p-2 text-center font-medium text-gray-500">HOURS</th>
+                            <th className="p-2 text-center font-medium text-gray-500">OT</th>
+                            <th className="p-2 text-right font-medium text-gray-500">DAILY RATE</th>
+                            <th className="p-2 text-right font-medium text-gray-500">OT RATE</th>
+                            <th className="p-2 text-right font-medium text-gray-500">PAYMENT</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payrollDetailData.daily_records.map((record, idx) => (
+                            <tr 
+                              key={idx} 
+                              className={`border-b ${record.is_under_9_hours ? 'bg-yellow-50' : ''} ${record.is_paid_leave ? 'bg-cyan-50' : ''}`}
+                            >
+                              <td className="p-2">
+                                {new Date(record.date).toLocaleDateString('en-IN', {weekday: 'short', day: '2-digit', month: 'short'})}
+                                {record.is_paid_leave && <span className="ml-1 text-[9px] bg-cyan-100 text-cyan-700 px-1 rounded">PL</span>}
+                              </td>
+                              <td className={`p-2 text-center ${record.is_under_9_hours ? 'text-yellow-700 font-medium' : ''}`}>
+                                {record.working_hours}
+                              </td>
+                              <td className="p-2 text-center text-orange-600">
+                                {record.overtime_hours > 0 ? record.overtime_hours : '-'}
+                              </td>
+                              <td className="p-2 text-right text-gray-600">₹{record.daily_rate?.toLocaleString('en-IN')}</td>
+                              <td className="p-2 text-right text-gray-600">₹{record.overtime_rate}</td>
+                              <td className="p-2 text-right font-medium text-green-700">
+                                ₹{record.total_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Final Calculation Summary */}
+                <Card className="border-green-300 bg-green-50">
+                  <CardContent className="p-4">
+                    <h4 className="text-sm font-semibold text-green-800 mb-3">Payment Calculation</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Regular Work ({payrollDetailData.summary.days_present} days × ₹{payrollDetailData.default_daily_rate})</span>
+                        <span className="font-medium">₹{payrollDetailData.summary.total_regular_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</span>
+                      </div>
+                      {payrollDetailData.summary.total_overtime_hours > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Overtime ({payrollDetailData.summary.total_overtime_hours} hrs × ₹{payrollDetailData.default_overtime_rate})</span>
+                          <span className="font-medium text-orange-700">+ ₹{payrollDetailData.summary.total_overtime_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</span>
+                        </div>
+                      )}
+                      {payrollDetailData.summary.total_paid_leave_payment > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Paid Leave ({payrollDetailData.highlights.paid_leave_days?.length} days)</span>
+                          <span className="font-medium text-cyan-700">₹{payrollDetailData.summary.total_paid_leave_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</span>
+                        </div>
+                      )}
+                      <div className="border-t border-green-300 pt-2 flex justify-between text-base font-bold text-green-800">
+                        <span>Final Payable</span>
+                        <span>₹{payrollDetailData.summary.final_payable?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
+
+            <DialogFooter className="border-t pt-3">
+              <Button variant="outline" onClick={() => setShowPayrollDetailModal(false)}>
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -2,6 +2,21 @@
 
 ## Changelog (August 2026)
 
+### August 8, 2026 - Detailed Payroll Breakdown Feature ✅
+- **NEW FEATURE**: Added detailed payroll breakdown modal for each labourer
+  - **Problem**: Payroll table showed summary values (Days, OT Hours, Amount) but no breakdown of how the calculation was done
+  - **Solution**: Added "View Details" button on each row that opens a detailed breakdown modal showing:
+    1. **Summary Cards**: Days Present, Regular Hours with amount, Overtime Hours with amount, Final Payable
+    2. **Paid Leaves Section**: Lists all paid leave days with dates and amounts (if any)
+    3. **Days Under 9 Hours Warning**: Highlights days with less than 9 working hours (yellow)
+    4. **Overtime Days Table**: Shows each overtime day with date, OT hours, and OT payment
+    5. **Daily Attendance Records**: Full table with Date, Hours, OT, Daily Rate, OT Rate, Payment
+    6. **Payment Calculation Summary**: Shows formula breakdown (Regular Work + Overtime = Final Payable)
+  - **Backend**: New `/api/labour-costs/detail/{labour_id}` endpoint returns comprehensive breakdown
+  - **Files Changed**: 
+    - `backend/routes/labour.py` - Added `get_labour_payroll_detail` endpoint
+    - `frontend/src/pages/admin/LaborCosts.js` - Added detail modal and View Details button
+
 ### August 8, 2026 - Inactive Labour Pending Dues Fix ✅
 - **BUG FIX**: Inactive labourers' pending payment dues now show correctly in Payroll Processing
   - **Problem 1**: When a labourer was marked inactive, their pending dues showed as ₹0

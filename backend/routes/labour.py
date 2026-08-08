@@ -192,6 +192,19 @@ async def save_labour_attendance(
     overtime_rate = float(attendance_data.get("overtime_rate", 0))
     remarks = attendance_data.get("remarks")
     
+    # Vertical allocation - hours spent on each vertical
+    working_hours = float(attendance_data.get("working_hours", 9))
+    retail_hours = float(attendance_data.get("retail_hours", 0))
+    qc_hours = float(attendance_data.get("qc_hours", 0))
+    retail_ot_hours = float(attendance_data.get("retail_ot_hours", 0))
+    qc_ot_hours = float(attendance_data.get("qc_ot_hours", 0))
+    
+    # If no vertical split provided, default all hours to retail
+    if retail_hours == 0 and qc_hours == 0 and present:
+        retail_hours = working_hours
+    if retail_ot_hours == 0 and qc_ot_hours == 0 and overtime_hours > 0:
+        retail_ot_hours = overtime_hours
+    
     # Calculate total payment
     total_payment = 0
     if present:
@@ -206,7 +219,12 @@ async def save_labour_attendance(
             {"_id": existing["_id"]},
             {"$set": {
                 "present": present,
+                "working_hours": working_hours,
                 "overtime_hours": overtime_hours,
+                "retail_hours": retail_hours,
+                "qc_hours": qc_hours,
+                "retail_ot_hours": retail_ot_hours,
+                "qc_ot_hours": qc_ot_hours,
                 "daily_rate": daily_rate,
                 "overtime_rate": overtime_rate,
                 "total_payment": total_payment,
@@ -225,7 +243,12 @@ async def save_labour_attendance(
             "labour_id": labour_id,
             "labour_name": labour_name,
             "present": present,
+            "working_hours": working_hours,
             "overtime_hours": overtime_hours,
+            "retail_hours": retail_hours,
+            "qc_hours": qc_hours,
+            "retail_ot_hours": retail_ot_hours,
+            "qc_ot_hours": qc_ot_hours,
             "daily_rate": daily_rate,
             "overtime_rate": overtime_rate,
             "total_payment": total_payment,
@@ -261,6 +284,18 @@ async def save_bulk_labour_attendance(
         paid_leave = record.get("paid_leave", False)  # New field for paid leave
         remarks = record.get("remarks")
         
+        # Vertical allocation
+        retail_hours = float(record.get("retail_hours", 0))
+        qc_hours = float(record.get("qc_hours", 0))
+        retail_ot_hours = float(record.get("retail_ot_hours", 0))
+        qc_ot_hours = float(record.get("qc_ot_hours", 0))
+        
+        # If no vertical split provided, default all hours to retail
+        if retail_hours == 0 and qc_hours == 0 and (present or paid_leave):
+            retail_hours = working_hours
+        if retail_ot_hours == 0 and qc_ot_hours == 0 and overtime_hours > 0:
+            retail_ot_hours = overtime_hours
+        
         # Calculate hourly rate (daily rate / 9 hours standard)
         hourly_rate = daily_rate / 9 if daily_rate > 0 else 0
         
@@ -273,6 +308,15 @@ async def save_bulk_labour_attendance(
             # Paid leave = full daily rate (as if worked 9 hours)
             total_payment = daily_rate
         
+        # Calculate vertical-wise payment allocation
+        total_regular_hours = retail_hours + qc_hours
+        retail_regular_payment = (retail_hours / total_regular_hours * (hourly_rate * working_hours)) if total_regular_hours > 0 else 0
+        qc_regular_payment = (qc_hours / total_regular_hours * (hourly_rate * working_hours)) if total_regular_hours > 0 else 0
+        
+        total_ot = retail_ot_hours + qc_ot_hours
+        retail_ot_payment = (retail_ot_hours * overtime_rate) if total_ot > 0 else 0
+        qc_ot_payment = (qc_ot_hours * overtime_rate) if total_ot > 0 else 0
+        
         # Upsert attendance record
         await db.labour_attendance.update_one(
             {"date": date, "labour_id": labour_id},
@@ -281,6 +325,12 @@ async def save_bulk_labour_attendance(
                 "present": present,
                 "working_hours": working_hours,
                 "overtime_hours": overtime_hours,
+                "retail_hours": retail_hours,
+                "qc_hours": qc_hours,
+                "retail_ot_hours": retail_ot_hours,
+                "qc_ot_hours": qc_ot_hours,
+                "retail_payment": round(retail_regular_payment + retail_ot_payment, 2),
+                "qc_payment": round(qc_regular_payment + qc_ot_payment, 2),
                 "daily_rate": daily_rate,
                 "hourly_rate": round(hourly_rate, 2),
                 "overtime_rate": overtime_rate,
@@ -390,6 +440,12 @@ async def get_labour_costs_summary(
                 "days_present": 0,
                 "total_overtime_hours": 0,
                 "total_payment": 0,
+                "retail_hours": 0,
+                "qc_hours": 0,
+                "retail_ot_hours": 0,
+                "qc_ot_hours": 0,
+                "retail_payment": 0,
+                "qc_payment": 0,
                 "is_active": labourer.get("is_active", True)
             }
         
@@ -397,6 +453,37 @@ async def get_labour_costs_summary(
             labour_totals[labour_id]["days_present"] += 1
             labour_totals[labour_id]["total_overtime_hours"] += overtime_hours
             labour_totals[labour_id]["total_payment"] += effective_payment
+            
+            # Add vertical hours and payment
+            rec_retail_hours = record.get("retail_hours", 0) or 0
+            rec_qc_hours = record.get("qc_hours", 0) or 0
+            rec_retail_ot = record.get("retail_ot_hours", 0) or 0
+            rec_qc_ot = record.get("qc_ot_hours", 0) or 0
+            
+            # If no vertical split in record, default to retail
+            working_hours = record.get("working_hours", 9) or 9
+            if rec_retail_hours == 0 and rec_qc_hours == 0:
+                rec_retail_hours = working_hours
+            if rec_retail_ot == 0 and rec_qc_ot == 0 and overtime_hours > 0:
+                rec_retail_ot = overtime_hours
+            
+            labour_totals[labour_id]["retail_hours"] += rec_retail_hours
+            labour_totals[labour_id]["qc_hours"] += rec_qc_hours
+            labour_totals[labour_id]["retail_ot_hours"] += rec_retail_ot
+            labour_totals[labour_id]["qc_ot_hours"] += rec_qc_ot
+            
+            # Calculate vertical-wise payment
+            total_hrs = rec_retail_hours + rec_qc_hours
+            if total_hrs > 0:
+                labour_totals[labour_id]["retail_payment"] += (rec_retail_hours / total_hrs) * regular_payment
+                labour_totals[labour_id]["qc_payment"] += (rec_qc_hours / total_hrs) * regular_payment
+            else:
+                labour_totals[labour_id]["retail_payment"] += regular_payment
+            
+            total_ot = rec_retail_ot + rec_qc_ot
+            if total_ot > 0:
+                labour_totals[labour_id]["retail_payment"] += rec_retail_ot * effective_ot_rate
+                labour_totals[labour_id]["qc_payment"] += rec_qc_ot * effective_ot_rate
     
     # Get all labour payments for this date range
     all_payments = await db.labour_payments.find({
@@ -435,6 +522,14 @@ async def get_labour_costs_summary(
     total_man_days = sum(d["total_present"] for d in daily_list)
     total_overtime_hours = sum(d["total_overtime_hours"] for d in daily_list)
     
+    # Vertical totals
+    total_retail_hours = sum(lb.get("retail_hours", 0) for lb in labour_list)
+    total_qc_hours = sum(lb.get("qc_hours", 0) for lb in labour_list)
+    total_retail_ot = sum(lb.get("retail_ot_hours", 0) for lb in labour_list)
+    total_qc_ot = sum(lb.get("qc_ot_hours", 0) for lb in labour_list)
+    total_retail_payment = sum(lb.get("retail_payment", 0) for lb in labour_list)
+    total_qc_payment = sum(lb.get("qc_payment", 0) for lb in labour_list)
+    
     return {
         "from_date": from_date,
         "to_date": to_date,
@@ -445,7 +540,14 @@ async def get_labour_costs_summary(
             "total_days": total_days,
             "total_man_days": total_man_days,
             "total_overtime_hours": total_overtime_hours,
-            "daily_avg_cost": grand_total_payment / total_days if total_days > 0 else 0
+            "daily_avg_cost": grand_total_payment / total_days if total_days > 0 else 0,
+            # Vertical breakdown
+            "retail_hours": total_retail_hours,
+            "qc_hours": total_qc_hours,
+            "retail_ot_hours": total_retail_ot,
+            "qc_ot_hours": total_qc_ot,
+            "retail_payment": round(total_retail_payment, 2),
+            "qc_payment": round(total_qc_payment, 2)
         },
         "daily_breakdown": daily_list,
         "labour_breakdown": labour_list

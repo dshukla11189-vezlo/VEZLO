@@ -2,6 +2,21 @@
 
 ## Changelog (August 2026)
 
+### August 8, 2026 - Vertical Allocation for Labour Hours ✅
+- **NEW FEATURE**: Track labour hours split between Retail and Quick Commerce (QC) verticals
+  - **Attendance Form Updated**: New columns for Retail Hrs, QC Hrs, Retail OT, QC OT
+  - **Auto-calculation**: Total OT is auto-calculated from Retail OT + QC OT
+  - **Payment Allocation**: Labour costs are now allocated to respective verticals
+  - **Payroll Summary**: Shows vertical-wise breakdown (retail_hours, qc_hours, retail_payment, qc_payment)
+  - **Default Behavior**: If no split provided, all hours default to Retail vertical
+  - **Color Coding**: Blue for Retail, Purple for QC in both UI and reports
+  - **Backend Updated**: 
+    - `/api/labour-attendance` and `/api/labour-attendance/bulk` now accept vertical allocation fields
+    - `/api/labour-costs/summary` returns vertical-wise totals
+  - **Files Changed**: 
+    - `backend/routes/labour.py` - Updated attendance endpoints + summary
+    - `frontend/src/pages/staff/Attendance.js` - Added vertical allocation columns
+
 ### August 8, 2026 - Labour Payment Recording Feature ✅
 - **NEW FEATURE**: Record and track payments made to labourers in Payroll Processing
   - **Payment Recording**: Click "+ Pay" button to record payment with amount, date, transaction ID, payment mode, and notes

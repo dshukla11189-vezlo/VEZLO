@@ -52,7 +52,28 @@ export default function Attendance() {
         // Reset overtime if not present
         if (!updated.present) {
           updated.overtime_hours = 0;
+          updated.retail_hours = 0;
+          updated.qc_hours = 0;
+          updated.retail_ot_hours = 0;
+          updated.qc_ot_hours = 0;
         }
+        
+        // Auto-calculate total overtime from retail + qc OT
+        if (field === 'retail_ot_hours' || field === 'qc_ot_hours') {
+          updated.overtime_hours = (parseFloat(updated.retail_ot_hours) || 0) + (parseFloat(updated.qc_ot_hours) || 0);
+        }
+        
+        // Ensure retail + qc hours don't exceed working hours
+        const totalVerticalHours = (parseFloat(updated.retail_hours) || 0) + (parseFloat(updated.qc_hours) || 0);
+        if (totalVerticalHours > (updated.working_hours || 9)) {
+          // Adjust the last changed field
+          if (field === 'retail_hours') {
+            updated.retail_hours = Math.max(0, (updated.working_hours || 9) - (parseFloat(updated.qc_hours) || 0));
+          } else if (field === 'qc_hours') {
+            updated.qc_hours = Math.max(0, (updated.working_hours || 9) - (parseFloat(updated.retail_hours) || 0));
+          }
+        }
+        
         return updated;
       }
       return record;
@@ -72,6 +93,10 @@ export default function Attendance() {
           present: newPresent,
           working_hours: newPresent ? 9 : 0, // Default 9 hours when marking present
           overtime_hours: newPresent ? record.overtime_hours : 0,
+          retail_hours: newPresent ? 9 : 0, // Default all hours to retail
+          qc_hours: newPresent ? 0 : 0,
+          retail_ot_hours: newPresent ? record.retail_ot_hours : 0,
+          qc_ot_hours: newPresent ? record.qc_ot_hours : 0,
           paid_leave: newPresent ? false : record.paid_leave // Can't have paid leave if present
         };
       }
@@ -108,6 +133,8 @@ export default function Attendance() {
       ...record,
       present: true,
       working_hours: 9,
+      retail_hours: 9, // Default all to retail
+      qc_hours: 0,
       paid_leave: false
     })));
     setHasChanges(true);
@@ -121,6 +148,10 @@ export default function Attendance() {
       present: false,
       working_hours: 0,
       overtime_hours: 0,
+      retail_hours: 0,
+      qc_hours: 0,
+      retail_ot_hours: 0,
+      qc_ot_hours: 0,
       paid_leave: false
     })));
     setHasChanges(true);
@@ -140,7 +171,11 @@ export default function Attendance() {
         labour_name: a.labour_name,
         present: a.present,
         working_hours: a.present ? (a.working_hours || 9) : 0,
-        overtime_hours: a.overtime_hours,
+        overtime_hours: a.overtime_hours || 0,
+        retail_hours: a.retail_hours || 0,
+        qc_hours: a.qc_hours || 0,
+        retail_ot_hours: a.retail_ot_hours || 0,
+        qc_ot_hours: a.qc_ot_hours || 0,
         paid_leave: !a.present && a.paid_leave, // Only save paid_leave if not present
         daily_rate: a.daily_rate,
         overtime_rate: a.overtime_rate
@@ -324,7 +359,11 @@ export default function Attendance() {
                       <th className="p-3 text-left font-medium text-gray-500">LABOUR NAME</th>
                       <th className="p-3 text-center font-medium text-gray-500">PRESENT</th>
                       <th className="p-3 text-center font-medium text-gray-500">WORKING HRS</th>
-                      <th className="p-3 text-center font-medium text-gray-500">OVERTIME HRS</th>
+                      <th className="p-3 text-center font-medium text-blue-600 bg-blue-50">RETAIL HRS</th>
+                      <th className="p-3 text-center font-medium text-purple-600 bg-purple-50">QC HRS</th>
+                      <th className="p-3 text-center font-medium text-gray-500">OT HRS</th>
+                      <th className="p-3 text-center font-medium text-blue-600 bg-blue-50">RETAIL OT</th>
+                      <th className="p-3 text-center font-medium text-purple-600 bg-purple-50">QC OT</th>
                       <th className="p-3 text-center font-medium text-gray-500">PAID LEAVE</th>
                     </tr>
                   </thead>
@@ -362,22 +401,68 @@ export default function Attendance() {
                             value={record.present ? (record.working_hours || 9) : ''}
                             onChange={(e) => updateAttendance(record.labour_id, 'working_hours', parseFloat(e.target.value) || 0)}
                             disabled={!record.present || !isToday}
-                            className={`w-16 h-8 text-center mx-auto ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            className={`w-14 h-8 text-center mx-auto text-xs ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             placeholder="9"
                             data-testid={`working-hours-${record.labour_id}`}
                           />
                         </td>
-                        <td className="p-3 text-center">
+                        <td className="p-3 text-center bg-blue-50/50">
                           <Input
                             type="number"
                             step="0.5"
                             min="0"
-                            value={record.overtime_hours || ''}
-                            onChange={(e) => updateAttendance(record.labour_id, 'overtime_hours', parseFloat(e.target.value) || 0)}
+                            max={record.working_hours || 9}
+                            value={record.present ? (record.retail_hours || '') : ''}
+                            onChange={(e) => updateAttendance(record.labour_id, 'retail_hours', parseFloat(e.target.value) || 0)}
                             disabled={!record.present || !isToday}
-                            className={`w-16 h-8 text-center mx-auto ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            className={`w-14 h-8 text-center mx-auto text-xs border-blue-200 ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             placeholder="0"
-                            data-testid={`overtime-hours-${record.labour_id}`}
+                            data-testid={`retail-hours-${record.labour_id}`}
+                          />
+                        </td>
+                        <td className="p-3 text-center bg-purple-50/50">
+                          <Input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            max={record.working_hours || 9}
+                            value={record.present ? (record.qc_hours || '') : ''}
+                            onChange={(e) => updateAttendance(record.labour_id, 'qc_hours', parseFloat(e.target.value) || 0)}
+                            disabled={!record.present || !isToday}
+                            className={`w-14 h-8 text-center mx-auto text-xs border-purple-200 ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            placeholder="0"
+                            data-testid={`qc-hours-${record.labour_id}`}
+                          />
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className={`font-medium ${record.overtime_hours > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
+                            {record.overtime_hours || 0}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center bg-blue-50/50">
+                          <Input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={record.present ? (record.retail_ot_hours || '') : ''}
+                            onChange={(e) => updateAttendance(record.labour_id, 'retail_ot_hours', parseFloat(e.target.value) || 0)}
+                            disabled={!record.present || !isToday}
+                            className={`w-14 h-8 text-center mx-auto text-xs border-blue-200 ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            placeholder="0"
+                            data-testid={`retail-ot-${record.labour_id}`}
+                          />
+                        </td>
+                        <td className="p-3 text-center bg-purple-50/50">
+                          <Input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={record.present ? (record.qc_ot_hours || '') : ''}
+                            onChange={(e) => updateAttendance(record.labour_id, 'qc_ot_hours', parseFloat(e.target.value) || 0)}
+                            disabled={!record.present || !isToday}
+                            className={`w-14 h-8 text-center mx-auto text-xs border-purple-200 ${(!record.present || !isToday) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                            placeholder="0"
+                            data-testid={`qc-ot-${record.labour_id}`}
                           />
                         </td>
                         <td className="p-3 text-center">
@@ -402,8 +487,20 @@ export default function Attendance() {
                         <span className="text-gray-400 mx-1">/</span>
                         <span className="text-gray-600">{attendance.length}</span>
                       </td>
-                      <td className="p-3 text-center font-bold text-blue-600">{totalWorkingHours.toFixed(1)} hrs</td>
-                      <td className="p-3 text-center font-bold text-orange-600">{totalOvertimeHours.toFixed(1)} hrs</td>
+                      <td className="p-3 text-center font-bold text-gray-600">{totalWorkingHours.toFixed(1)}</td>
+                      <td className="p-3 text-center font-bold text-blue-600 bg-blue-50">
+                        {attendance.reduce((sum, r) => sum + (r.retail_hours || 0), 0).toFixed(1)}
+                      </td>
+                      <td className="p-3 text-center font-bold text-purple-600 bg-purple-50">
+                        {attendance.reduce((sum, r) => sum + (r.qc_hours || 0), 0).toFixed(1)}
+                      </td>
+                      <td className="p-3 text-center font-bold text-orange-600">{totalOvertimeHours.toFixed(1)}</td>
+                      <td className="p-3 text-center font-bold text-blue-600 bg-blue-50">
+                        {attendance.reduce((sum, r) => sum + (r.retail_ot_hours || 0), 0).toFixed(1)}
+                      </td>
+                      <td className="p-3 text-center font-bold text-purple-600 bg-purple-50">
+                        {attendance.reduce((sum, r) => sum + (r.qc_ot_hours || 0), 0).toFixed(1)}
+                      </td>
                       <td className="p-3 text-center font-bold text-purple-600">{paidLeaveCount}</td>
                     </tr>
                   </tfoot>
@@ -421,7 +518,9 @@ export default function Attendance() {
               <li>You can only mark attendance for today&apos;s date</li>
               <li>Click the circle button to mark present/absent for each labourer</li>
               <li><strong>Working Hours:</strong> Default is 9 hours. Change if less (wages will be adjusted proportionally)</li>
-              <li><strong>Overtime Hours:</strong> Enter extra hours worked beyond regular time</li>
+              <li><strong className="text-blue-700">Retail Hrs / QC Hrs:</strong> Split working hours between Retail and Quick Commerce verticals</li>
+              <li><strong>OT Hrs:</strong> Total overtime (auto-calculated from Retail OT + QC OT)</li>
+              <li><strong className="text-blue-700">Retail OT / QC OT:</strong> Split overtime hours between verticals</li>
               <li><strong>Paid Leave:</strong> Check this box for labourers on paid leave (only when absent)</li>
               <li>Click &quot;Save Attendance&quot; to save all changes</li>
               <li>Past dates are view-only and cannot be modified</li>

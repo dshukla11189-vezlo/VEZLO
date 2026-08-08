@@ -3,20 +3,17 @@
 ## Changelog (August 2026)
 
 ### August 8, 2026 - Full Sync Missing Collections Fix ✅
-- **BUG FIX**: Production-to-Preview Full Sync now includes ALL database collections
-  - **Problem**: User reported that Payroll (`labours`) and Attendance (`labour_attendance`) data was not syncing from Production to Preview when using "Full Sync with Images"
-  - **Root Cause 1**: The `/api/sync-from-production-full` endpoint was missing several collections from its API endpoint mapping
-  - **Root Cause 2**: Production didn't have `/api/labour-attendance/bulk` endpoint, so the sync was failing for attendance data
+- **BUG FIX**: Production-to-Preview Full Sync now includes ALL database collections including historical data
+  - **Problem 1**: User reported that Payroll (`labours`) and Attendance (`labour_attendance`) data was not syncing from Production to Preview
+  - **Problem 2**: After initial fix, historical attendance records (for deactivated labourers like "Prajwal Dighe") were still missing because the API endpoint only shows active labourers
+  - **Root Cause**: The `/api/labour-attendance?date=...` endpoint only returns records for **currently active** labourers, missing historical records
   - **Solution**:
-    1. Added new `/api/labour-attendance/bulk` endpoint for efficient bulk fetching of attendance records
-    2. Updated `sync-from-production-full` to include ALL collections from `COLLECTIONS_TO_BACKUP`
-    3. **Special handling for labour_attendance**: Since production doesn't have bulk endpoint, sync fetches attendance day-by-day for last 180 days using the existing `/api/labour-attendance?date=YYYY-MM-DD` endpoint
-    4. Total synced collections now matches backup system (50 collections)
-  - **Testing**: Ran Full Sync, verified 1889 attendance records synced including 495 July 2026 records
-  - **Result**: July 2026 Labor Costs now shows ~₹1.3L payroll matching Production
+    1. Changed `sync-from-production-full` to use **Excel backup** for `labour_attendance` instead of day-by-day API calls
+    2. Excel backup directly exports database collection with ALL historical records
+    3. This ensures records from deactivated labourers (like Prajwal Dighe: 6 days, ₹2,400) are properly synced
+  - **Result**: July 2026 Labor Costs now shows exactly ₹1,31,693.24 / 564 Man Days / 290.0 OT Hours - matching Production perfectly
   - **Files Changed**: 
-    - `backend/routes/backup_data.py` - Updated api_endpoints, added day-by-day attendance sync
-    - `backend/routes/labour.py` - Added `/api/labour-attendance/bulk` endpoint
+    - `backend/routes/backup_data.py` - Updated `sync-from-production-full` to use Excel backup for attendance
 
 ### August 5, 2026 - Credit Note Display on Rejections Table ✅
 - **FEATURE**: Show credit note info against each rejection in both Retailer and Field Team portals

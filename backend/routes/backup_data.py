@@ -737,67 +737,90 @@ async def sync_from_production_full(
             total_synced = 0
             images_synced = 0
             
-            # SPECIAL HANDLING: Sync labour_attendance day-by-day
-            # Production doesn't have bulk endpoint, so we fetch each day's attendance
+            # SPECIAL HANDLING: Sync labour_attendance from Excel backup
+            # The day-by-day API only shows active labourers, but Excel backup has ALL historical records
             try:
-                logger.info("Starting labour_attendance day-by-day sync...")
-                attendance_records = []
+                logger.info("Starting labour_attendance sync from Excel backup...")
                 
-                # Get list of dates to sync (last 180 days for attendance)
-                attendance_from = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%d')
-                attendance_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                # Download Excel backup which contains ALL attendance records including historical
+                backup_response = await client.get(
+                    f"{production_url}/api/backup/download",
+                    headers=headers,
+                    timeout=180.0
+                )
                 
-                current_date = datetime.strptime(attendance_from, '%Y-%m-%d')
-                end_date = datetime.strptime(attendance_to, '%Y-%m-%d')
-                
-                dates_fetched = 0
-                while current_date <= end_date:
-                    date_str = current_date.strftime('%Y-%m-%d')
-                    try:
-                        response = await client.get(
-                            f"{production_url}/api/labour-attendance?date={date_str}",
-                            headers=headers,
-                            timeout=30.0
-                        )
+                if backup_response.status_code == 200:
+                    import openpyxl
+                    from io import BytesIO
+                    import ast
+                    import json as json_lib
+                    
+                    excel_data = BytesIO(backup_response.content)
+                    wb = openpyxl.load_workbook(excel_data)
+                    
+                    # Check if labour_attendance sheet exists
+                    if 'labour_attendance' in wb.sheetnames:
+                        ws = wb['labour_attendance']
+                        rows = list(ws.iter_rows(values_only=True))
                         
-                        if response.status_code == 200:
-                            day_data = response.json()
-                            if isinstance(day_data, list):
-                                # Only include records that have been saved (have an id)
-                                for record in day_data:
-                                    if record.get('id') and record.get('present'):
-                                        clean_record = {k: v for k, v in record.items() if k != '_id'}
-                                        attendance_records.append(clean_record)
-                            dates_fetched += 1
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch attendance for {date_str}: {e}")
+                        if len(rows) > 1:
+                            headers_row = [str(h).lower().strip() if h else f'col_{i}' for i, h in enumerate(rows[0])]
+                            
+                            attendance_records = []
+                            for row in rows[1:]:
+                                doc = {}
+                                for i, value in enumerate(row):
+                                    if i < len(headers_row):
+                                        key = headers_row[i]
+                                        if key == '_id':
+                                            continue
+                                        if value is not None:
+                                            doc[key] = value
+                                if doc and doc.get('id') and doc.get('present'):
+                                    attendance_records.append(doc)
+                            
+                            # Clear and insert attendance records
+                            if attendance_records:
+                                if request.sync_mode == "replace":
+                                    await db.labour_attendance.delete_many({})
+                                
+                                # Use upsert to avoid duplicates
+                                for record in attendance_records:
+                                    record_id = record.get('id')
+                                    if record_id:
+                                        await db.labour_attendance.update_one(
+                                            {"id": record_id},
+                                            {"$set": record},
+                                            upsert=True
+                                        )
+                            
+                            sync_results['labour_attendance'] = {
+                                "status": "synced",
+                                "count": len(attendance_records),
+                                "source": "excel_backup",
+                                "mode": request.sync_mode
+                            }
+                            total_synced += len(attendance_records)
+                            logger.info(f"Labour attendance sync complete: {len(attendance_records)} records from Excel backup")
+                        else:
+                            sync_results['labour_attendance'] = {
+                                "status": "empty",
+                                "count": 0,
+                                "source": "excel_backup"
+                            }
+                    else:
+                        sync_results['labour_attendance'] = {
+                            "status": "error",
+                            "error": "labour_attendance sheet not found in Excel backup",
+                            "count": 0
+                        }
+                else:
+                    sync_results['labour_attendance'] = {
+                        "status": "error",
+                        "error": f"Failed to download Excel backup: {backup_response.status_code}",
+                        "count": 0
+                    }
                     
-                    current_date += timedelta(days=1)
-                
-                # Clear and insert attendance records
-                if attendance_records:
-                    if request.sync_mode == "replace":
-                        await db.labour_attendance.delete_many({})
-                    
-                    # Use upsert to avoid duplicates
-                    for record in attendance_records:
-                        record_id = record.get('id')
-                        if record_id:
-                            await db.labour_attendance.update_one(
-                                {"id": record_id},
-                                {"$set": record},
-                                upsert=True
-                            )
-                
-                sync_results['labour_attendance'] = {
-                    "status": "synced",
-                    "count": len(attendance_records),
-                    "dates_checked": dates_fetched,
-                    "mode": request.sync_mode
-                }
-                total_synced += len(attendance_records)
-                logger.info(f"Labour attendance sync complete: {len(attendance_records)} records from {dates_fetched} days")
-                
             except Exception as e:
                 sync_results['labour_attendance'] = {
                     "status": "error",

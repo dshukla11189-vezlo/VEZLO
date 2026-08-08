@@ -730,13 +730,81 @@ async def sync_from_production_full(
             date_range_endpoints = {
                 'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
                 'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
-                # Labour Attendance - Use BULK endpoint for sync (user reported missing)
-                'labour_attendance': f'/api/labour-attendance/bulk?from_date={from_date}&to_date={to_date}&limit=50000',
+                # NOTE: labour_attendance is handled specially below (day-by-day sync)
             }
             
             sync_results = {}
             total_synced = 0
             images_synced = 0
+            
+            # SPECIAL HANDLING: Sync labour_attendance day-by-day
+            # Production doesn't have bulk endpoint, so we fetch each day's attendance
+            try:
+                logger.info("Starting labour_attendance day-by-day sync...")
+                attendance_records = []
+                
+                # Get list of dates to sync (last 180 days for attendance)
+                attendance_from = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%d')
+                attendance_to = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                
+                current_date = datetime.strptime(attendance_from, '%Y-%m-%d')
+                end_date = datetime.strptime(attendance_to, '%Y-%m-%d')
+                
+                dates_fetched = 0
+                while current_date <= end_date:
+                    date_str = current_date.strftime('%Y-%m-%d')
+                    try:
+                        response = await client.get(
+                            f"{production_url}/api/labour-attendance?date={date_str}",
+                            headers=headers,
+                            timeout=30.0
+                        )
+                        
+                        if response.status_code == 200:
+                            day_data = response.json()
+                            if isinstance(day_data, list):
+                                # Only include records that have been saved (have an id)
+                                for record in day_data:
+                                    if record.get('id') and record.get('present'):
+                                        clean_record = {k: v for k, v in record.items() if k != '_id'}
+                                        attendance_records.append(clean_record)
+                            dates_fetched += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch attendance for {date_str}: {e}")
+                    
+                    current_date += timedelta(days=1)
+                
+                # Clear and insert attendance records
+                if attendance_records:
+                    if request.sync_mode == "replace":
+                        await db.labour_attendance.delete_many({})
+                    
+                    # Use upsert to avoid duplicates
+                    for record in attendance_records:
+                        record_id = record.get('id')
+                        if record_id:
+                            await db.labour_attendance.update_one(
+                                {"id": record_id},
+                                {"$set": record},
+                                upsert=True
+                            )
+                
+                sync_results['labour_attendance'] = {
+                    "status": "synced",
+                    "count": len(attendance_records),
+                    "dates_checked": dates_fetched,
+                    "mode": request.sync_mode
+                }
+                total_synced += len(attendance_records)
+                logger.info(f"Labour attendance sync complete: {len(attendance_records)} records from {dates_fetched} days")
+                
+            except Exception as e:
+                sync_results['labour_attendance'] = {
+                    "status": "error",
+                    "error": str(e),
+                    "count": 0
+                }
+                logger.error(f"Labour attendance sync failed: {e}")
             
             # Sync main collections
             for collection_name, endpoint in {**api_endpoints, **date_range_endpoints}.items():

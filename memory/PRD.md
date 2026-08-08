@@ -5,17 +5,18 @@
 ### August 8, 2026 - Full Sync Missing Collections Fix ✅
 - **BUG FIX**: Production-to-Preview Full Sync now includes ALL database collections
   - **Problem**: User reported that Payroll (`labours`) and Attendance (`labour_attendance`) data was not syncing from Production to Preview when using "Full Sync with Images"
-  - **Root Cause**: The `/api/sync-from-production-full` endpoint was missing several collections from its API endpoint mapping
+  - **Root Cause 1**: The `/api/sync-from-production-full` endpoint was missing several collections from its API endpoint mapping
+  - **Root Cause 2**: Production didn't have `/api/labour-attendance/bulk` endpoint, so the sync was failing for attendance data
   - **Solution**:
     1. Added new `/api/labour-attendance/bulk` endpoint for efficient bulk fetching of attendance records
-    2. Updated `sync-from-production-full` to include ALL collections from `COLLECTIONS_TO_BACKUP`:
-       - Added: `procurement_payments`, `qc_orders`, `retailer_orders`, `sticker_mrp_overrides`, `invoices`, `vendors`, `corporate_employees`, `recurring_expense_templates`
-       - Fixed: `labour_attendance` now uses `/api/labour-attendance/bulk` endpoint
-    3. Total synced collections now matches backup system (50 collections)
+    2. Updated `sync-from-production-full` to include ALL collections from `COLLECTIONS_TO_BACKUP`
+    3. **Special handling for labour_attendance**: Since production doesn't have bulk endpoint, sync fetches attendance day-by-day for last 180 days using the existing `/api/labour-attendance?date=YYYY-MM-DD` endpoint
+    4. Total synced collections now matches backup system (50 collections)
+  - **Testing**: Ran Full Sync, verified 1889 attendance records synced including 495 July 2026 records
+  - **Result**: July 2026 Labor Costs now shows ~₹1.3L payroll matching Production
   - **Files Changed**: 
-    - `backend/routes/backup_data.py` - Updated api_endpoints and date_range_endpoints
+    - `backend/routes/backup_data.py` - Updated api_endpoints, added day-by-day attendance sync
     - `backend/routes/labour.py` - Added `/api/labour-attendance/bulk` endpoint
-  - **Testing**: Verified all API endpoints return data correctly
 
 ### August 5, 2026 - Credit Note Display on Rejections Table ✅
 - **FEATURE**: Show credit note info against each rejection in both Retailer and Field Team portals

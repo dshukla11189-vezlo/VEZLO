@@ -1691,10 +1691,14 @@ export default function LaborCosts() {
                       <tbody>
                         {payrollData.labour_breakdown.map((lb, idx) => {
                           const labourDetails = labours.find(l => l.id === lb.labour_id) || {};
+                          const isInactive = lb.is_active === false || labourDetails.is_active === false;
                           return (
-                            <tr key={lb.labour_id} className="border-b hover:bg-gray-50">
+                            <tr key={lb.labour_id} className={`border-b hover:bg-gray-50 ${isInactive ? 'bg-red-50' : ''}`}>
                               <td className="p-2 text-gray-400">{idx + 1}</td>
-                              <td className="p-2 font-medium">{lb.labour_name}</td>
+                              <td className={`p-2 font-medium ${isInactive ? 'text-red-700' : ''}`}>
+                                {lb.labour_name}
+                                {isInactive && <span className="ml-2 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">INACTIVE</span>}
+                              </td>
                               <td className="p-2 text-gray-600 font-mono text-[10px]">
                                 {labourDetails.bank_account_number || <span className="text-gray-400">-</span>}
                               </td>
@@ -1703,7 +1707,7 @@ export default function LaborCosts() {
                               </td>
                               <td className="p-2 text-center">{lb.days_present}</td>
                               <td className="p-2 text-center text-orange-600">{(lb.total_overtime_hours || 0).toFixed(1)}</td>
-                              <td className="p-2 text-right font-semibold text-green-700">
+                              <td className={`p-2 text-right font-semibold ${isInactive ? 'text-red-700' : 'text-green-700'}`}>
                                 ₹{(lb.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                               </td>
                             </tr>

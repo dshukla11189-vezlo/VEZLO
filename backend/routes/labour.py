@@ -312,16 +312,23 @@ async def get_labour_costs_summary(
     current_user: dict = Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Get labour costs summary for a date range"""
+    """Get labour costs summary for a date range.
+    
+    NOTE: If attendance was recorded with total_payment=0 (rate not set at time of recording),
+    we use the labourer's default_daily_rate to calculate pending dues.
+    This ensures inactive labourers' pending dues are still visible.
+    """
     # Get all attendance records in date range
     attendance = await db.labour_attendance.find(
         {"date": {"$gte": from_date, "$lte": to_date}},
         {"_id": 0}
-    ).sort("date", 1).to_list(1000)
+    ).sort("date", 1).to_list(5000)
     
-    # Get all labourers for reference
-    labours = await db.labours.find({}, {"_id": 0}).to_list(100)
+    # Get ALL labourers (including inactive) for default rate lookup
+    labours = await db.labours.find({}, {"_id": 0}).to_list(200)
     labour_map = {lab["id"]: lab for lab in labours}
+    # Also create a name-based map for legacy records
+    labour_name_map = {lab["name"]: lab for lab in labours}
     
     # Calculate daily totals
     daily_totals = {}
@@ -329,7 +336,25 @@ async def get_labour_costs_summary(
     
     for record in attendance:
         date = record["date"]
-        labour_id = record["labour_id"]
+        labour_id = record.get("labour_id")
+        labour_name = record.get("labour_name", "Unknown")
+        
+        # Get labourer details (for default_daily_rate fallback)
+        labourer = labour_map.get(labour_id) or labour_name_map.get(labour_name) or {}
+        default_rate = labourer.get("default_daily_rate", 0)
+        
+        # Calculate effective payment: use recorded payment, or fallback to default rate
+        recorded_payment = record.get("total_payment", 0) or 0
+        recorded_daily_rate = record.get("daily_rate", 0) or 0
+        
+        # If present but payment is 0, use default rate as pending dues
+        if record.get("present") and recorded_payment == 0 and recorded_daily_rate == 0:
+            # Calculate based on default rate + overtime
+            overtime_hours = record.get("overtime_hours", 0) or 0
+            overtime_rate = labourer.get("overtime_rate", 50)  # Default OT rate
+            effective_payment = default_rate + (overtime_hours * overtime_rate)
+        else:
+            effective_payment = recorded_payment
         
         # Daily totals
         if date not in daily_totals:
@@ -343,34 +368,34 @@ async def get_labour_costs_summary(
         
         if record.get("present"):
             daily_totals[date]["total_present"] += 1
-            daily_totals[date]["total_overtime_hours"] += record.get("overtime_hours", 0)
-            daily_totals[date]["total_payment"] += record.get("total_payment", 0)
+            daily_totals[date]["total_overtime_hours"] += record.get("overtime_hours", 0) or 0
+            daily_totals[date]["total_payment"] += effective_payment
             daily_totals[date]["records"].append(record)
         
         # Labour totals
         if labour_id not in labour_totals:
-            labour_name = record.get("labour_name") or labour_map.get(labour_id, {}).get("name", "Unknown")
             labour_totals[labour_id] = {
                 "labour_id": labour_id,
                 "labour_name": labour_name,
                 "days_present": 0,
                 "total_overtime_hours": 0,
-                "total_payment": 0
+                "total_payment": 0,
+                "is_active": labourer.get("is_active", True)
             }
         
         if record.get("present"):
             labour_totals[labour_id]["days_present"] += 1
-            labour_totals[labour_id]["total_overtime_hours"] += record.get("overtime_hours", 0)
-            labour_totals[labour_id]["total_payment"] += record.get("total_payment", 0)
+            labour_totals[labour_id]["total_overtime_hours"] += record.get("overtime_hours", 0) or 0
+            labour_totals[labour_id]["total_payment"] += effective_payment
     
     # Sort daily totals by date
     daily_list = sorted(daily_totals.values(), key=lambda x: x["date"], reverse=True)
     
-    # Sort labour totals by total payment
+    # Sort labour totals by total payment (descending)
     labour_list = sorted(labour_totals.values(), key=lambda x: x["total_payment"], reverse=True)
     
     # Calculate grand totals
-    grand_total_payment = sum(d["total_payment"] for d in daily_list)
+    grand_total_payment = sum(lb["total_payment"] for lb in labour_list)
     total_days = len(daily_list)
     total_man_days = sum(d["total_present"] for d in daily_list)
     total_overtime_hours = sum(d["total_overtime_hours"] for d in daily_list)

@@ -2,6 +2,20 @@
 
 ## Changelog (August 2026)
 
+### August 8, 2026 - Inactive Labour Pending Dues Fix ✅
+- **BUG FIX**: Inactive labourers' pending payment dues now show correctly in Payroll Processing
+  - **Problem**: When a labourer was marked inactive, their pending dues showed as ₹0 even though they had worked days
+  - **Root Cause**: Attendance records were stored with `total_payment=0` when daily rate wasn't set at time of recording. The payroll summary simply summed these zeros.
+  - **Solution**: 
+    1. Updated `/api/labour-costs/summary` to use labourer's `default_daily_rate` when attendance record has `total_payment=0`
+    2. Added `is_active` flag to labour breakdown response
+    3. Updated frontend to highlight inactive labourers with red styling and "INACTIVE" badge
+  - **Example**: Apeksha Shinde (15 days worked) now correctly shows ₹4,500 (15 × ₹300) instead of ₹0
+  - **Total July Payroll**: Increased from ₹1,31,693 to ₹1,55,643 (includes all pending dues)
+  - **Files Changed**: 
+    - `backend/routes/labour.py` - Updated `get_labour_costs_summary` with default rate fallback
+    - `frontend/src/pages/admin/LaborCosts.js` - Added inactive labourer visual styling
+
 ### August 8, 2026 - Full Sync Missing Collections Fix ✅
 - **BUG FIX**: Production-to-Preview Full Sync now includes ALL database collections including historical data
   - **Problem 1**: User reported that Payroll (`labours`) and Attendance (`labour_attendance`) data was not syncing from Production to Preview

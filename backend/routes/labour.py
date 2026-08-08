@@ -490,28 +490,27 @@ async def get_labour_payroll_detail(
         working_hours = record.get("working_hours", 9) or 9
         overtime_hours = record.get("overtime_hours", 0) or 0
         daily_rate = record.get("daily_rate", 0) or 0
-        overtime_rate = record.get("overtime_rate", 0) or 0
+        recorded_ot_rate = record.get("overtime_rate", 0) or 0
         total_payment = record.get("total_payment", 0) or 0
         is_paid_leave = record.get("paid_leave", False)
         
-        # If payment is 0, calculate using default rates (for records without rates set)
-        if total_payment == 0 and daily_rate == 0:
-            daily_rate = default_daily_rate
-            overtime_rate = overtime_rate or default_ot_rate
+        # Use labourer's overtime_rate from profile, not from attendance record
+        # (attendance record often has overtime_rate=0 even when OT hours are recorded)
+        effective_ot_rate = recorded_ot_rate if recorded_ot_rate > 0 else default_ot_rate
+        
+        # Calculate regular payment (daily rate)
+        if daily_rate > 0:
             regular_payment = daily_rate
-            ot_payment = overtime_hours * overtime_rate
-            total_payment = regular_payment + ot_payment
+        elif total_payment > 0:
+            regular_payment = total_payment  # total_payment is usually just daily rate
         else:
-            # Use the recorded total_payment as-is
-            # Calculate breakdown: if we have both daily_rate and OT data, use them
-            if daily_rate > 0:
-                regular_payment = daily_rate
-                # OT payment is total minus daily rate
-                ot_payment = max(0, total_payment - daily_rate)
-            else:
-                # No daily rate recorded, use default for breakdown
-                regular_payment = min(total_payment, default_daily_rate)
-                ot_payment = max(0, total_payment - regular_payment)
+            regular_payment = default_daily_rate
+        
+        # Calculate OT payment separately using labourer's OT rate
+        ot_payment = overtime_hours * effective_ot_rate
+        
+        # Total for this day = regular + OT
+        day_total = regular_payment + ot_payment
         
         total_working_hours += working_hours
         total_overtime_hours += overtime_hours
@@ -522,11 +521,11 @@ async def get_labour_payroll_detail(
             "date": date,
             "working_hours": working_hours,
             "overtime_hours": overtime_hours,
-            "daily_rate": daily_rate,
-            "overtime_rate": overtime_rate or default_ot_rate,
+            "daily_rate": regular_payment,
+            "overtime_rate": effective_ot_rate,
             "regular_payment": regular_payment,
             "overtime_payment": ot_payment,
-            "total_payment": total_payment,
+            "total_payment": day_total,
             "is_paid_leave": is_paid_leave,
             "is_under_9_hours": working_hours < 9
         }

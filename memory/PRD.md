@@ -2,6 +2,21 @@
 
 ## Changelog (August 2026)
 
+### August 8, 2026 - Labour Cost Vertical Split in Dashboard ✅
+- **NEW FEATURE**: Labour costs now correctly allocated to Retail vs QC verticals in Dashboard P&L
+  - **Vertical Split Logic**: Labour costs split based on actual `retail_hours` and `qc_hours` from attendance records
+  - **Dashboard Integration**: Each vertical sub-dashboard (QC/Retail) now shows its portion of labour costs in Variable Expenses
+  - **Eye Button**: Added clickable eye icon on VAR. EXP blocks showing cost breakdown:
+    - Labour Cost (from allocated hours)
+    - Other Variable Expenses (Transportation, Maintenance, etc.)
+    - Labour Cost Split summary (Retail vs QC vs Total)
+  - **Backend Updated**: 
+    - `dashboard_analytics.py` - Labour costs calculated per-vertical based on hours allocation
+    - Response includes `labour_cost` in each vertical's data + `labour_breakdown` in expenses
+  - **Frontend Updated**: 
+    - `Dashboard.js` - Added eye button + Variable Expense Breakdown modal
+  - **Default Behavior**: If no vertical split in attendance, all labour costs go to Retail
+
 ### August 8, 2026 - Vertical Allocation for Labour Hours ✅
 - **NEW FEATURE**: Track labour hours split between Retail and Quick Commerce (QC) verticals
   - **Attendance Form Updated**: New columns for Retail Hrs, QC Hrs, Retail OT, QC OT

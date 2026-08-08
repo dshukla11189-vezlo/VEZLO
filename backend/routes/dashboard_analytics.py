@@ -2094,6 +2094,9 @@ async def get_pnl_report(
     
     total_labour_cost = 0
     labour_cost_by_date = {}
+    # NEW: Track labour costs by vertical
+    labour_cost_retail = 0
+    labour_cost_qc = 0
     
     for record in labour_attendance:
         if not record.get("present", False):
@@ -2103,13 +2106,51 @@ async def get_pnl_report(
         daily_rate = float(record.get("daily_rate", 0) or 0)
         overtime_hours = float(record.get("overtime_hours", 0) or 0)
         overtime_rate = float(record.get("overtime_rate", 0) or 0)
+        working_hours = float(record.get("working_hours", 9) or 9)
         
+        # Get vertical allocation hours
+        retail_hours = float(record.get("retail_hours", 0) or 0)
+        qc_hours = float(record.get("qc_hours", 0) or 0)
+        retail_ot_hours = float(record.get("retail_ot_hours", 0) or 0)
+        qc_ot_hours = float(record.get("qc_ot_hours", 0) or 0)
+        
+        # Calculate total cost for this day
         day_cost = daily_rate + (overtime_hours * overtime_rate)
         total_labour_cost += day_cost
         
+        # Calculate vertical split for regular hours
+        total_allocated_hours = retail_hours + qc_hours
+        if total_allocated_hours > 0 and working_hours > 0:
+            # Use actual allocated hours for split
+            retail_ratio = retail_hours / working_hours
+            qc_ratio = qc_hours / working_hours
+        elif working_hours > 0:
+            # No vertical allocation specified, default all to retail
+            retail_ratio = 1.0
+            qc_ratio = 0.0
+        else:
+            retail_ratio = 1.0
+            qc_ratio = 0.0
+        
+        # Split daily rate based on hours ratio
+        labour_cost_retail += daily_rate * retail_ratio
+        labour_cost_qc += daily_rate * qc_ratio
+        
+        # Split overtime based on vertical OT hours
+        total_ot = retail_ot_hours + qc_ot_hours
+        if total_ot > 0:
+            labour_cost_retail += retail_ot_hours * overtime_rate
+            labour_cost_qc += qc_ot_hours * overtime_rate
+        elif overtime_hours > 0:
+            # No OT split specified, use same ratio as regular hours
+            labour_cost_retail += overtime_hours * overtime_rate * retail_ratio
+            labour_cost_qc += overtime_hours * overtime_rate * qc_ratio
+        
         if att_date not in labour_cost_by_date:
-            labour_cost_by_date[att_date] = 0
-        labour_cost_by_date[att_date] += day_cost
+            labour_cost_by_date[att_date] = {"total": 0, "retail": 0, "qc": 0}
+        labour_cost_by_date[att_date]["total"] += day_cost
+        labour_cost_by_date[att_date]["retail"] += daily_rate * retail_ratio + (retail_ot_hours * overtime_rate if total_ot > 0 else overtime_hours * overtime_rate * retail_ratio)
+        labour_cost_by_date[att_date]["qc"] += daily_rate * qc_ratio + (qc_ot_hours * overtime_rate if total_ot > 0 else overtime_hours * overtime_rate * qc_ratio)
         
         # Add to daily breakdown
         if att_date in sales_by_date:
@@ -2121,7 +2162,9 @@ async def get_pnl_report(
     if total_labour_cost > 0:
         variable_by_category["Labour"] = total_labour_cost
         total_variable += total_labour_cost
-        variable_all += total_labour_cost  # Labour is shared across all verticals
+        # NEW: Add labour costs to vertical-specific totals instead of variable_all
+        variable_retail += labour_cost_retail
+        variable_qc += labour_cost_qc
     
     # ========== FIXED EXPENSES ==========
     # Get fixed expenses for the selected period based on date field or month/year
@@ -2846,6 +2889,7 @@ async def get_pnl_report(
                 "gross_profit": round(qc_gross_profit, 2),
                 "gross_margin_pct": round(qc_gross_margin, 1),
                 "variable_exp": round(qc_variable_exp, 2),
+                "labour_cost": round(labour_cost_qc, 2),  # QC-specific labour cost
                 "fixed_exp": round(qc_fixed_exp, 2),
                 "net_profit": round(qc_net_profit, 2),
                 "net_margin": round(qc_net_margin, 1)
@@ -2863,6 +2907,7 @@ async def get_pnl_report(
                 "gross_profit": round(retail_gross_profit, 2),
                 "gross_margin_pct": round(retail_gross_margin, 1),
                 "variable_exp": round(retail_variable_exp, 2),
+                "labour_cost": round(labour_cost_retail, 2),  # Retail-specific labour cost
                 "fixed_exp": round(retail_fixed_exp, 2),
                 "net_profit": round(retail_net_profit, 2),
                 "net_margin": round(retail_net_margin, 1)
@@ -2875,7 +2920,12 @@ async def get_pnl_report(
         "rejection_by_product_line": rejection_by_product_line,  # {date}_{retailer_id}_{product}_{variant} -> {value, cogs, qty}
         "expenses": {
             "variable_by_category": variable_by_category,
-            "fixed_by_category": fixed_by_category
+            "fixed_by_category": fixed_by_category,
+            "labour_breakdown": {
+                "total": round(total_labour_cost, 2),
+                "retail": round(labour_cost_retail, 2),
+                "qc": round(labour_cost_qc, 2)
+            }
         },
         "purchase_by_farmer": [
             {"farmer": f, "amount": round(d["amount"], 2), "qty": round(d["qty"], 2)} 

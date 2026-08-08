@@ -14,6 +14,12 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line, PieChart as RePieChart, Pie, Cell } from 'recharts';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Checkbox } from '../../components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog';
 import * as XLSX from 'xlsx';
 
 const COLORS = ['#14532D', '#D97706', '#3B82F6', '#8B5CF6', '#EF4444', '#10B981', '#F59E0B', '#6366F1'];
@@ -74,6 +80,10 @@ export default function AdminDashboard() {
   const [selectedVertical, setSelectedVertical] = useState(null); // 'qc' or 'retail' or null
   const [selectedRetailers, setSelectedRetailers] = useState([]); // For multi-select comparison
   const [showVerticalModal, setShowVerticalModal] = useState(false);
+  
+  // Variable Expense Breakdown Modal State
+  const [showVarExpModal, setShowVarExpModal] = useState(false);
+  const [varExpVertical, setVarExpVertical] = useState(null); // 'qc' or 'retail'
   
   // COGS Tab State
   const [cogsSnapshotDate, setCogsSnapshotDate] = useState(new Date().toISOString().split('T')[0]);
@@ -1771,8 +1781,17 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-purple-600 font-medium">GROSS MARGIN %</p>
                     <p className="text-sm font-bold text-purple-700">{pnlData.vertical_bifurcation.qc.gross_margin_pct}%</p>
                   </div>
-                  <div className="p-1.5 bg-gray-100/50 rounded">
-                    <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
+                  <div className="p-1.5 bg-gray-100/50 rounded relative group">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
+                      <button 
+                        onClick={() => { setVarExpVertical('qc'); setShowVarExpModal(true); }}
+                        className="p-0.5 hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="View breakdown"
+                      >
+                        <Eye size={12} className="text-gray-500" />
+                      </button>
+                    </div>
                     <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.qc.variable_exp)}</p>
                   </div>
                   <div className={`p-1.5 rounded ${(pnlData.vertical_bifurcation.qc.gross_profit - pnlData.vertical_bifurcation.qc.variable_exp) >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
@@ -1849,8 +1868,17 @@ export default function AdminDashboard() {
                     <p className="text-[9px] text-purple-600 font-medium">GROSS MARGIN %</p>
                     <p className="text-sm font-bold text-purple-700">{pnlData.vertical_bifurcation.retail.gross_margin_pct}%</p>
                   </div>
-                  <div className="p-1.5 bg-gray-100/50 rounded">
-                    <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
+                  <div className="p-1.5 bg-gray-100/50 rounded relative group">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] text-gray-600 font-medium">VAR. EXP</p>
+                      <button 
+                        onClick={() => { setVarExpVertical('retail'); setShowVarExpModal(true); }}
+                        className="p-0.5 hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="View breakdown"
+                      >
+                        <Eye size={12} className="text-gray-500" />
+                      </button>
+                    </div>
                     <p className="text-sm font-bold text-gray-700">{formatCurrency(pnlData.vertical_bifurcation.retail.variable_exp)}</p>
                   </div>
                   <div className={`p-1.5 rounded ${(pnlData.vertical_bifurcation.retail.gross_profit - pnlData.vertical_bifurcation.retail.variable_exp) >= 0 ? 'bg-green-100/50' : 'bg-red-100/50'}`}>
@@ -4522,6 +4550,92 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* Variable Expense Breakdown Modal */}
+      <Dialog open={showVarExpModal} onOpenChange={setShowVarExpModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye size={18} />
+              Variable Expenses - {varExpVertical === 'qc' ? 'Quick Commerce' : 'Retail'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {pnlData && varExpVertical && (
+              <>
+                {/* Labour Cost Section */}
+                <div className="bg-blue-50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-blue-800">Labour Cost</span>
+                    <span className="text-sm font-bold text-blue-900">
+                      {formatCurrency(pnlData.vertical_bifurcation[varExpVertical]?.labour_cost || 0)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-blue-600">
+                    Based on {varExpVertical === 'qc' ? 'QC' : 'Retail'} hours allocation from attendance
+                  </div>
+                </div>
+
+                {/* Other Variable Expenses */}
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">Other Variable Expenses</span>
+                    <span className="text-sm font-bold text-gray-900">
+                      {formatCurrency(
+                        (pnlData.vertical_bifurcation[varExpVertical]?.variable_exp || 0) - 
+                        (pnlData.vertical_bifurcation[varExpVertical]?.labour_cost || 0)
+                      )}
+                    </span>
+                  </div>
+                  
+                  {/* Breakdown by category (excluding Labour) */}
+                  <div className="space-y-1 mt-2 pt-2 border-t border-gray-200">
+                    {Object.entries(pnlData.expenses?.variable_by_category || {})
+                      .filter(([category]) => category !== 'Labour')
+                      .map(([category, amount]) => (
+                        <div key={category} className="flex justify-between text-xs">
+                          <span className="text-gray-600">{category}</span>
+                          <span className="text-gray-800">
+                            {formatCurrency(amount / 2)} {/* Split equally for now */}
+                          </span>
+                        </div>
+                      ))
+                    }
+                    {Object.entries(pnlData.expenses?.variable_by_category || {})
+                      .filter(([category]) => category !== 'Labour').length === 0 && (
+                      <div className="text-xs text-gray-500 text-center">No other expenses</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Total */}
+                <div className="bg-purple-100 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-purple-800">Total Variable Expenses</span>
+                    <span className="text-lg font-bold text-purple-900">
+                      {formatCurrency(pnlData.vertical_bifurcation[varExpVertical]?.variable_exp || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Labour Breakdown Info */}
+                {pnlData.expenses?.labour_breakdown && (
+                  <div className="text-xs text-gray-500 bg-gray-100 rounded p-2">
+                    <div className="font-medium mb-1">Labour Cost Split:</div>
+                    <div className="flex justify-between">
+                      <span>Retail: {formatCurrency(pnlData.expenses.labour_breakdown.retail)}</span>
+                      <span>QC: {formatCurrency(pnlData.expenses.labour_breakdown.qc)}</span>
+                    </div>
+                    <div className="mt-1 text-gray-400">
+                      Total: {formatCurrency(pnlData.expenses.labour_breakdown.total)}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

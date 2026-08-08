@@ -316,7 +316,7 @@ async def get_labour_costs_summary(
     
     NOTE: If attendance was recorded with total_payment=0 (rate not set at time of recording),
     we use the labourer's default_daily_rate to calculate pending dues.
-    This ensures inactive labourers' pending dues are still visible.
+    OT payment is always calculated separately using labourer's overtime_rate from profile.
     """
     # Get all attendance records in date range
     attendance = await db.labour_attendance.find(
@@ -339,22 +339,32 @@ async def get_labour_costs_summary(
         labour_id = record.get("labour_id")
         labour_name = record.get("labour_name", "Unknown")
         
-        # Get labourer details (for default_daily_rate fallback)
+        # Get labourer details (for default rates)
         labourer = labour_map.get(labour_id) or labour_name_map.get(labour_name) or {}
-        default_rate = labourer.get("default_daily_rate", 0)
+        default_daily_rate = labourer.get("default_daily_rate", 0) or 0
+        default_ot_rate = labourer.get("overtime_rate", 50) or 50  # Labourer's OT rate from profile
         
-        # Calculate effective payment: use recorded payment, or fallback to default rate
+        # Get recorded values
         recorded_payment = record.get("total_payment", 0) or 0
         recorded_daily_rate = record.get("daily_rate", 0) or 0
+        recorded_ot_rate = record.get("overtime_rate", 0) or 0
+        overtime_hours = record.get("overtime_hours", 0) or 0
         
-        # If present but payment is 0, use default rate as pending dues
-        if record.get("present") and recorded_payment == 0 and recorded_daily_rate == 0:
-            # Calculate based on default rate + overtime
-            overtime_hours = record.get("overtime_hours", 0) or 0
-            overtime_rate = labourer.get("overtime_rate", 50)  # Default OT rate
-            effective_payment = default_rate + (overtime_hours * overtime_rate)
+        # Calculate regular payment (daily rate)
+        if recorded_daily_rate > 0:
+            regular_payment = recorded_daily_rate
+        elif recorded_payment > 0:
+            regular_payment = recorded_payment  # recorded total_payment is usually daily rate
         else:
-            effective_payment = recorded_payment
+            regular_payment = default_daily_rate  # fallback to profile rate
+        
+        # Calculate OT payment using labourer's OT rate from profile
+        # (attendance records often have overtime_rate=0 even when OT hours are recorded)
+        effective_ot_rate = recorded_ot_rate if recorded_ot_rate > 0 else default_ot_rate
+        ot_payment = overtime_hours * effective_ot_rate
+        
+        # Total payment = regular + OT
+        effective_payment = regular_payment + ot_payment
         
         # Daily totals
         if date not in daily_totals:
@@ -368,7 +378,7 @@ async def get_labour_costs_summary(
         
         if record.get("present"):
             daily_totals[date]["total_present"] += 1
-            daily_totals[date]["total_overtime_hours"] += record.get("overtime_hours", 0) or 0
+            daily_totals[date]["total_overtime_hours"] += overtime_hours
             daily_totals[date]["total_payment"] += effective_payment
             daily_totals[date]["records"].append(record)
         
@@ -385,7 +395,7 @@ async def get_labour_costs_summary(
         
         if record.get("present"):
             labour_totals[labour_id]["days_present"] += 1
-            labour_totals[labour_id]["total_overtime_hours"] += record.get("overtime_hours", 0) or 0
+            labour_totals[labour_id]["total_overtime_hours"] += overtime_hours
             labour_totals[labour_id]["total_payment"] += effective_payment
     
     # Sort daily totals by date

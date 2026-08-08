@@ -678,8 +678,8 @@ async def sync_from_production_full(
                 'procurement_templates': '/api/procurement-templates?limit=50000',
                 'farmer_payments': '/api/farmer-payments?limit=50000',
                 'procurement_payments': '/api/procurement-payments?limit=50000',
-                # Labour (Critical - user reported missing)
-                'labours': '/api/labours?limit=50000',
+                # Labour (Critical - include_inactive=true to sync ALL labourers including inactive)
+                'labours': '/api/labours?include_inactive=true&limit=50000',
                 # Quick Commerce
                 'qc_customers': '/api/qc-customers?limit=50000',
                 'qc_indents': '/api/qc-indents?limit=50000',

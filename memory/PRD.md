@@ -4,17 +4,21 @@
 
 ### August 8, 2026 - Inactive Labour Pending Dues Fix ✅
 - **BUG FIX**: Inactive labourers' pending payment dues now show correctly in Payroll Processing
-  - **Problem**: When a labourer was marked inactive, their pending dues showed as ₹0 even though they had worked days
-  - **Root Cause**: Attendance records were stored with `total_payment=0` when daily rate wasn't set at time of recording. The payroll summary simply summed these zeros.
+  - **Problem 1**: When a labourer was marked inactive, their pending dues showed as ₹0
+  - **Problem 2**: Full Sync wasn't pulling inactive labourers, so 13 labourers were missing from Preview
+  - **Root Cause**: 
+    1. Attendance records stored with `total_payment=0` when daily rate wasn't set
+    2. Full Sync endpoint `/api/labours` didn't include `include_inactive=true` parameter
   - **Solution**: 
-    1. Updated `/api/labour-costs/summary` to use labourer's `default_daily_rate` when attendance record has `total_payment=0`
-    2. Added `is_active` flag to labour breakdown response
-    3. Updated frontend to highlight inactive labourers with red styling and "INACTIVE" badge
-  - **Example**: Apeksha Shinde (15 days worked) now correctly shows ₹4,500 (15 × ₹300) instead of ₹0
-  - **Total July Payroll**: Increased from ₹1,31,693 to ₹1,55,643 (includes all pending dues)
+    1. Updated `/api/labour-costs/summary` to use labourer's `default_daily_rate` when attendance has zero payment
+    2. Fixed Full Sync to include `include_inactive=true` for labours endpoint (now syncs all 50 labourers)
+    3. Added `is_active` flag to labour breakdown + red "INACTIVE" badge in frontend
+  - **Result**: July payroll increased from ₹131,693 → ₹175,956 (includes all pending dues for inactive labourers)
+  - **Remaining**: Lata & Nidhi still show ₹0 - their `default_daily_rate` is 0 in Production (need to be updated there)
   - **Files Changed**: 
-    - `backend/routes/labour.py` - Updated `get_labour_costs_summary` with default rate fallback
-    - `frontend/src/pages/admin/LaborCosts.js` - Added inactive labourer visual styling
+    - `backend/routes/labour.py` - Default rate fallback logic
+    - `backend/routes/backup_data.py` - Added `include_inactive=true` to labours sync
+    - `frontend/src/pages/admin/LaborCosts.js` - INACTIVE badge styling
 
 ### August 8, 2026 - Full Sync Missing Collections Fix ✅
 - **BUG FIX**: Production-to-Preview Full Sync now includes ALL database collections including historical data

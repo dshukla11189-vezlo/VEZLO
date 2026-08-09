@@ -2,6 +2,27 @@
 
 ## Changelog (August 2026)
 
+### August 9, 2026 - Salary Revision History + Monthly Salary + Sorting/Search ✅
+- **P0 - Salary Revision History Tracking**:
+  - Added `salary_history` array to labourers collection tracking rate changes with effective dates
+  - When daily_rate or overtime_rate is updated, old entry is closed with `effective_to` and new entry created
+  - Payroll calculations now use `get_rate_for_date()` to apply correct historical rates
+  - Payroll Detail modal shows "Salary History" section with all revisions and effective dates
+  - **Files Changed**: `backend/routes/labour.py`
+  
+- **P1 - Monthly Salary Auto-Calculation**:
+  - Added `monthly_salary` field to labourer form
+  - When Monthly Salary entered, Daily Rate auto-calculates (Monthly ÷ 30)
+  - OT Rate auto-calculates as Hourly Rate (Daily ÷ 9)
+  - Helper text guides users: "Daily & Hourly rates auto-calculate (Monthly÷30, Daily÷9)"
+  - **Files Changed**: `frontend/src/pages/admin/LaborCosts.js`
+  
+- **P2 - Sorting and Search**:
+  - **Manage Labourers Tab**: Added search bar + sortable columns (Name, Monthly, Daily, OT/Hr, Joining Date)
+  - **Payroll Processing Tab**: Added search bar + sortable columns (Name, Days, OT Hrs, Amount, Net Payable)
+  - Click column header to toggle asc/desc sort, arrow indicator shows current sort
+  - **Files Changed**: `frontend/src/pages/admin/LaborCosts.js`
+
 ### August 8, 2026 - Labour Cost Vertical Split in Dashboard ✅
 - **NEW FEATURE**: Labour costs now correctly allocated to Retail vs QC verticals in Dashboard P&L
   - **Vertical Split Logic**: Labour costs split based on actual `retail_hours` and `qc_hours` from attendance records

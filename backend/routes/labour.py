@@ -18,6 +18,59 @@ from dependencies import get_current_user, get_db
 router = APIRouter(prefix="/api", tags=["Labour Management"])
 
 
+# --- Helper Functions ---
+
+def get_rate_for_date(labourer: dict, target_date: str) -> dict:
+    """
+    Get the applicable daily_rate and overtime_rate for a specific date.
+    Uses salary_history to find the correct rate based on effective dates.
+    Falls back to default rates if no history exists.
+    """
+    salary_history = labourer.get("salary_history", [])
+    
+    # If no salary history, use current default rates
+    if not salary_history:
+        return {
+            "daily_rate": labourer.get("default_daily_rate", 0) or 0,
+            "overtime_rate": labourer.get("default_overtime_rate", 0) or 0,
+            "monthly_salary": labourer.get("monthly_salary", 0) or 0
+        }
+    
+    # Find the rate entry that was active on target_date
+    # Sort by effective_from descending to find the most recent applicable rate
+    sorted_history = sorted(salary_history, key=lambda x: x.get("effective_from", ""), reverse=True)
+    
+    for entry in sorted_history:
+        effective_from = entry.get("effective_from", "")
+        effective_to = entry.get("effective_to")
+        
+        # Check if target_date falls within this period
+        # effective_to is None means it's the current rate
+        if effective_from <= target_date:
+            if effective_to is None or target_date <= effective_to:
+                return {
+                    "daily_rate": entry.get("daily_rate", 0) or 0,
+                    "overtime_rate": entry.get("overtime_rate", 0) or 0,
+                    "monthly_salary": entry.get("monthly_salary", 0) or 0
+                }
+    
+    # Fallback: if target_date is before any recorded history, use the earliest rate
+    if sorted_history:
+        earliest = sorted_history[-1]  # Last in descending order = earliest
+        return {
+            "daily_rate": earliest.get("daily_rate", 0) or 0,
+            "overtime_rate": earliest.get("overtime_rate", 0) or 0,
+            "monthly_salary": earliest.get("monthly_salary", 0) or 0
+        }
+    
+    # Final fallback
+    return {
+        "daily_rate": labourer.get("default_daily_rate", 0) or 0,
+        "overtime_rate": labourer.get("default_overtime_rate", 0) or 0,
+        "monthly_salary": labourer.get("monthly_salary", 0) or 0
+    }
+
+
 # --- Labour CRUD Routes ---
 
 @router.get("/labours")
@@ -38,22 +91,39 @@ async def create_labour(
     current_user: dict = Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Create a new labourer"""
+    """Create a new labourer with optional monthly salary"""
     # Check for duplicate name
     existing = await db.labours.find_one({"name": {"$regex": f"^{labour.get('name', '')}$", "$options": "i"}})
     if existing:
         raise HTTPException(status_code=400, detail="A labourer with this name already exists")
     
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    daily_rate = float(labour.get("default_daily_rate", 0))
+    overtime_rate = float(labour.get("default_overtime_rate", 0))
+    monthly_salary = float(labour.get("monthly_salary", 0))
+    
+    # Initialize salary history with the starting rates
+    salary_history = [{
+        "daily_rate": daily_rate,
+        "overtime_rate": overtime_rate,
+        "monthly_salary": monthly_salary,
+        "effective_from": labour.get("joining_date") or today,
+        "effective_to": None,  # Current rate
+        "changed_at": datetime.now(timezone.utc).isoformat()
+    }]
+    
     doc = {
         "id": str(uuid.uuid4()),
         "name": labour.get("name"),
         "phone": labour.get("phone"),
-        "default_daily_rate": float(labour.get("default_daily_rate", 0)),
-        "default_overtime_rate": float(labour.get("default_overtime_rate", 0)),
+        "monthly_salary": monthly_salary,
+        "default_daily_rate": daily_rate,
+        "default_overtime_rate": overtime_rate,
         "bank_account_number": labour.get("bank_account_number"),
         "ifsc_code": labour.get("ifsc_code"),
         "joining_date": labour.get("joining_date"),
         "is_active": labour.get("is_active", True),
+        "salary_history": salary_history,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.labours.insert_one(doc)
@@ -68,12 +138,30 @@ async def update_labour(
     current_user: dict = Depends(get_current_user),
     db=Depends(get_db)
 ):
-    """Update a labourer's details"""
+    """Update a labourer's details. Rate changes are tracked in salary_history."""
     existing = await db.labours.find_one({"id": labour_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Labourer not found")
     
     update_data = {}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Track salary/rate changes in history
+    rate_changed = False
+    old_daily_rate = existing.get("default_daily_rate", 0)
+    old_overtime_rate = existing.get("default_overtime_rate", 0)
+    old_monthly_salary = existing.get("monthly_salary", 0)
+    
+    new_daily_rate = float(labour.get("default_daily_rate", old_daily_rate)) if "default_daily_rate" in labour else old_daily_rate
+    new_overtime_rate = float(labour.get("default_overtime_rate", old_overtime_rate)) if "default_overtime_rate" in labour else old_overtime_rate
+    new_monthly_salary = float(labour.get("monthly_salary", old_monthly_salary)) if "monthly_salary" in labour else old_monthly_salary
+    
+    # Check if any rate has changed
+    if (new_daily_rate != old_daily_rate or 
+        new_overtime_rate != old_overtime_rate or
+        new_monthly_salary != old_monthly_salary):
+        rate_changed = True
+    
     if "name" in labour:
         update_data["name"] = labour["name"]
     if "phone" in labour:
@@ -82,6 +170,8 @@ async def update_labour(
         update_data["default_daily_rate"] = float(labour["default_daily_rate"])
     if "default_overtime_rate" in labour:
         update_data["default_overtime_rate"] = float(labour["default_overtime_rate"])
+    if "monthly_salary" in labour:
+        update_data["monthly_salary"] = float(labour["monthly_salary"])
     if "bank_account_number" in labour:
         update_data["bank_account_number"] = labour["bank_account_number"]
     if "ifsc_code" in labour:
@@ -90,6 +180,28 @@ async def update_labour(
         update_data["joining_date"] = labour["joining_date"]
     if "is_active" in labour:
         update_data["is_active"] = labour["is_active"]
+    
+    # If rate changed, update salary history
+    if rate_changed:
+        # Get existing salary history or create new
+        salary_history = existing.get("salary_history", [])
+        
+        # If there's an existing current entry (no effective_to), close it
+        for entry in salary_history:
+            if entry.get("effective_to") is None:
+                entry["effective_to"] = today
+        
+        # Add new rate entry effective from today
+        salary_history.append({
+            "daily_rate": new_daily_rate,
+            "overtime_rate": new_overtime_rate,
+            "monthly_salary": new_monthly_salary,
+            "effective_from": today,
+            "effective_to": None,  # Current rate
+            "changed_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        update_data["salary_history"] = salary_history
     
     if update_data:
         await db.labours.update_one({"id": labour_id}, {"$set": update_data})
@@ -364,9 +476,7 @@ async def get_labour_costs_summary(
 ):
     """Get labour costs summary for a date range.
     
-    NOTE: If attendance was recorded with total_payment=0 (rate not set at time of recording),
-    we use the labourer's default_daily_rate to calculate pending dues.
-    OT payment is always calculated separately using labourer's overtime_rate from profile.
+    Uses salary_history to apply correct rates for each date.
     """
     # Get all attendance records in date range
     attendance = await db.labour_attendance.find(
@@ -374,7 +484,7 @@ async def get_labour_costs_summary(
         {"_id": 0}
     ).sort("date", 1).to_list(5000)
     
-    # Get ALL labourers (including inactive) for default rate lookup
+    # Get ALL labourers (including inactive) for rate lookup
     labours = await db.labours.find({}, {"_id": 0}).to_list(200)
     labour_map = {lab["id"]: lab for lab in labours}
     # Also create a name-based map for legacy records
@@ -385,33 +495,26 @@ async def get_labour_costs_summary(
     labour_totals = {}
     
     for record in attendance:
-        date = record["date"]
+        date = record["date"][:10]  # Ensure YYYY-MM-DD format
         labour_id = record.get("labour_id")
         labour_name = record.get("labour_name", "Unknown")
         
-        # Get labourer details (for default rates)
+        # Get labourer details (for salary history and rates)
         labourer = labour_map.get(labour_id) or labour_name_map.get(labour_name) or {}
-        default_daily_rate = labourer.get("default_daily_rate", 0) or 0
-        default_ot_rate = labourer.get("overtime_rate", 50) or 50  # Labourer's OT rate from profile
+        
+        # Get the applicable rate for this specific date using salary history
+        applicable_rate = get_rate_for_date(labourer, date)
+        date_daily_rate = applicable_rate["daily_rate"]
+        date_ot_rate = applicable_rate["overtime_rate"]
         
         # Get recorded values
-        recorded_payment = record.get("total_payment", 0) or 0
-        recorded_daily_rate = record.get("daily_rate", 0) or 0
-        recorded_ot_rate = record.get("overtime_rate", 0) or 0
         overtime_hours = record.get("overtime_hours", 0) or 0
         
-        # Calculate regular payment (daily rate)
-        if recorded_daily_rate > 0:
-            regular_payment = recorded_daily_rate
-        elif recorded_payment > 0:
-            regular_payment = recorded_payment  # recorded total_payment is usually daily rate
-        else:
-            regular_payment = default_daily_rate  # fallback to profile rate
+        # Calculate regular payment using date-specific rate
+        regular_payment = date_daily_rate
         
-        # Calculate OT payment using labourer's OT rate from profile
-        # (attendance records often have overtime_rate=0 even when OT hours are recorded)
-        effective_ot_rate = recorded_ot_rate if recorded_ot_rate > 0 else default_ot_rate
-        ot_payment = overtime_hours * effective_ot_rate
+        # Calculate OT payment using date-specific rate
+        ot_payment = overtime_hours * date_ot_rate
         
         # Total payment = regular + OT
         effective_payment = regular_payment + ot_payment
@@ -472,7 +575,7 @@ async def get_labour_costs_summary(
             labour_totals[labour_id]["retail_ot_hours"] += rec_retail_ot
             labour_totals[labour_id]["qc_ot_hours"] += rec_qc_ot
             
-            # Calculate vertical-wise payment
+            # Calculate vertical-wise payment using date-specific rates
             total_hrs = rec_retail_hours + rec_qc_hours
             if total_hrs > 0:
                 labour_totals[labour_id]["retail_payment"] += (rec_retail_hours / total_hrs) * regular_payment
@@ -482,8 +585,8 @@ async def get_labour_costs_summary(
             
             total_ot = rec_retail_ot + rec_qc_ot
             if total_ot > 0:
-                labour_totals[labour_id]["retail_payment"] += rec_retail_ot * effective_ot_rate
-                labour_totals[labour_id]["qc_payment"] += rec_qc_ot * effective_ot_rate
+                labour_totals[labour_id]["retail_payment"] += rec_retail_ot * date_ot_rate
+                labour_totals[labour_id]["qc_payment"] += rec_qc_ot * date_ot_rate
     
     # Get all labour payments for this date range
     all_payments = await db.labour_payments.find({
@@ -514,6 +617,15 @@ async def get_labour_costs_summary(
     
     # Sort labour totals by total payment (descending)
     labour_list = sorted(labour_totals.values(), key=lambda x: x["total_payment"], reverse=True)
+    
+    # Enrich labour_list with current rates and salary history
+    for lb in labour_list:
+        labourer = labour_map.get(lb["labour_id"]) or {}
+        lb["current_daily_rate"] = labourer.get("default_daily_rate", 0)
+        lb["current_ot_rate"] = labourer.get("default_overtime_rate", 0)
+        lb["monthly_salary"] = labourer.get("monthly_salary", 0)
+        lb["salary_history"] = labourer.get("salary_history", [])
+        lb["is_active"] = labourer.get("is_active", True)
     
     # Calculate grand totals
     grand_total_payment = sum(lb["total_payment"] for lb in labour_list)
@@ -592,14 +704,12 @@ async def get_labour_payroll_detail(
     """
     Get detailed payroll breakdown for a specific labourer.
     Shows day-by-day attendance with regular hours, overtime, and payment calculation.
+    Uses salary_history to apply correct rates for each date.
     """
     # Get labourer details
     labourer = await db.labours.find_one({"id": labour_id}, {"_id": 0})
     if not labourer:
         raise HTTPException(status_code=404, detail="Labourer not found")
-    
-    default_daily_rate = labourer.get("default_daily_rate", 0) or 0
-    default_ot_rate = labourer.get("overtime_rate", 50) or 50
     
     # Get attendance records for the date range
     attendance = await db.labour_attendance.find({
@@ -625,28 +735,21 @@ async def get_labour_payroll_detail(
             continue
         
         days_present += 1
-        date = record.get("date")
+        date = record.get("date", "")[:10]  # Ensure YYYY-MM-DD format
         working_hours = record.get("working_hours", 9) or 9
         overtime_hours = record.get("overtime_hours", 0) or 0
-        daily_rate = record.get("daily_rate", 0) or 0
-        recorded_ot_rate = record.get("overtime_rate", 0) or 0
-        total_payment = record.get("total_payment", 0) or 0
         is_paid_leave = record.get("paid_leave", False)
         
-        # Use labourer's overtime_rate from profile, not from attendance record
-        # (attendance record often has overtime_rate=0 even when OT hours are recorded)
-        effective_ot_rate = recorded_ot_rate if recorded_ot_rate > 0 else default_ot_rate
+        # Get the applicable rate for this specific date using salary history
+        applicable_rate = get_rate_for_date(labourer, date)
+        date_daily_rate = applicable_rate["daily_rate"]
+        date_ot_rate = applicable_rate["overtime_rate"]
         
         # Calculate regular payment (daily rate)
-        if daily_rate > 0:
-            regular_payment = daily_rate
-        elif total_payment > 0:
-            regular_payment = total_payment  # total_payment is usually just daily rate
-        else:
-            regular_payment = default_daily_rate
+        regular_payment = date_daily_rate
         
-        # Calculate OT payment separately using labourer's OT rate
-        ot_payment = overtime_hours * effective_ot_rate
+        # Calculate OT payment
+        ot_payment = overtime_hours * date_ot_rate
         
         # Total for this day = regular + OT
         day_total = regular_payment + ot_payment
@@ -661,7 +764,7 @@ async def get_labour_payroll_detail(
             "working_hours": working_hours,
             "overtime_hours": overtime_hours,
             "daily_rate": regular_payment,
-            "overtime_rate": effective_ot_rate,
+            "overtime_rate": date_ot_rate,
             "regular_payment": regular_payment,
             "overtime_payment": ot_payment,
             "total_payment": day_total,
@@ -685,12 +788,19 @@ async def get_labour_payroll_detail(
             paid_leave_days.append({"date": date, "payment": regular_payment})
             total_paid_leave_payment += regular_payment
     
+    # Get current rates (for display in return)
+    current_daily_rate = labourer.get("default_daily_rate", 0) or 0
+    current_ot_rate = labourer.get("default_overtime_rate", 0) or 0
+    salary_history = labourer.get("salary_history", [])
+    
     return {
         "labour_id": labour_id,
         "labour_name": labourer.get("name"),
         "is_active": labourer.get("is_active", True),
-        "default_daily_rate": default_daily_rate,
-        "default_overtime_rate": default_ot_rate,
+        "current_daily_rate": current_daily_rate,
+        "current_overtime_rate": current_ot_rate,
+        "monthly_salary": labourer.get("monthly_salary", 0),
+        "salary_history": salary_history,
         "from_date": from_date,
         "to_date": to_date,
         "summary": {

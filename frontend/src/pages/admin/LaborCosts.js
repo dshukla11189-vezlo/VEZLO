@@ -10,7 +10,7 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Users, Plus, Edit2, Trash2, RefreshCw, Calendar, DollarSign, 
   Clock, User, Phone, Save, X, ChevronDown, ChevronRight, Building2, CalendarDays,
-  Copy, CheckCircle2, XCircle, AlertCircle, Download, FileSpreadsheet, CreditCard, Pencil
+  Copy, CheckCircle2, XCircle, AlertCircle, Download, FileSpreadsheet, CreditCard, Pencil, TrendingUp
 } from 'lucide-react';
 import {
   Dialog,
@@ -53,12 +53,23 @@ export default function LaborCosts() {
   const [labourForm, setLabourForm] = useState({
     name: '',
     phone: '',
+    monthly_salary: '',
     default_daily_rate: '',
     default_overtime_rate: '',
     bank_account_number: '',
     ifsc_code: '',
     joining_date: ''
   });
+  
+  // Sorting and Search state for Manage Labourers
+  const [labourSearchTerm, setLabourSearchTerm] = useState('');
+  const [labourSortField, setLabourSortField] = useState('name');
+  const [labourSortOrder, setLabourSortOrder] = useState('asc');
+  
+  // Sorting and Search state for Payroll Processing
+  const [payrollSearchTerm, setPayrollSearchTerm] = useState('');
+  const [payrollSortField, setPayrollSortField] = useState('total_payment');
+  const [payrollSortOrder, setPayrollSortOrder] = useState('desc');
   
   // Costs state
   const [dateFrom, setDateFrom] = useState(() => {
@@ -679,6 +690,7 @@ export default function LaborCosts() {
     setLabourForm({
       name: '',
       phone: '',
+      monthly_salary: '',
       default_daily_rate: '',
       default_overtime_rate: '',
       bank_account_number: '',
@@ -693,6 +705,7 @@ export default function LaborCosts() {
     setLabourForm({
       name: labour.name,
       phone: labour.phone || '',
+      monthly_salary: labour.monthly_salary || '',
       default_daily_rate: labour.default_daily_rate || '',
       default_overtime_rate: labour.default_overtime_rate || '',
       bank_account_number: labour.bank_account_number || '',
@@ -712,6 +725,7 @@ export default function LaborCosts() {
       const data = {
         name: labourForm.name.trim(),
         phone: labourForm.phone.trim() || null,
+        monthly_salary: parseFloat(labourForm.monthly_salary) || 0,
         default_daily_rate: parseFloat(labourForm.default_daily_rate) || 0,
         default_overtime_rate: parseFloat(labourForm.default_overtime_rate) || 0,
         bank_account_number: labourForm.bank_account_number.trim() || null,
@@ -1275,17 +1289,89 @@ export default function LaborCosts() {
               </Button>
             </div>
 
+            {/* Search Bar */}
+            <div className="mb-3">
+              <Input
+                placeholder="Search by name..."
+                value={labourSearchTerm}
+                onChange={(e) => setLabourSearchTerm(e.target.value)}
+                className="max-w-xs"
+                data-testid="labour-search-input"
+              />
+            </div>
+
             <div className="data-table overflow-x-auto">
               <table>
                 <thead>
                   <tr>
-                    <th>NAME</th>
+                    <th 
+                      className="cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => {
+                        if (labourSortField === 'name') {
+                          setLabourSortOrder(labourSortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setLabourSortField('name');
+                          setLabourSortOrder('asc');
+                        }
+                      }}
+                    >
+                      NAME {labourSortField === 'name' && (labourSortOrder === 'asc' ? '↑' : '↓')}
+                    </th>
                     <th>PHONE</th>
-                    <th className="text-right">DAILY RATE</th>
-                    <th className="text-right">HOURLY RATE</th>
-                    <th className="text-right">OT RATE/HR</th>
-                    <th>JOINING DATE</th>
-                    <th>BANK INFO</th>
+                    <th 
+                      className="text-right cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => {
+                        if (labourSortField === 'monthly_salary') {
+                          setLabourSortOrder(labourSortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setLabourSortField('monthly_salary');
+                          setLabourSortOrder('desc');
+                        }
+                      }}
+                    >
+                      MONTHLY {labourSortField === 'monthly_salary' && (labourSortOrder === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className="text-right cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => {
+                        if (labourSortField === 'default_daily_rate') {
+                          setLabourSortOrder(labourSortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setLabourSortField('default_daily_rate');
+                          setLabourSortOrder('desc');
+                        }
+                      }}
+                    >
+                      DAILY {labourSortField === 'default_daily_rate' && (labourSortOrder === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="text-right">HOURLY</th>
+                    <th 
+                      className="text-right cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => {
+                        if (labourSortField === 'default_overtime_rate') {
+                          setLabourSortOrder(labourSortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setLabourSortField('default_overtime_rate');
+                          setLabourSortOrder('desc');
+                        }
+                      }}
+                    >
+                      OT/HR {labourSortField === 'default_overtime_rate' && (labourSortOrder === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className="cursor-pointer hover:bg-gray-100 select-none"
+                      onClick={() => {
+                        if (labourSortField === 'joining_date') {
+                          setLabourSortOrder(labourSortOrder === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setLabourSortField('joining_date');
+                          setLabourSortOrder('desc');
+                        }
+                      }}
+                    >
+                      JOINING {labourSortField === 'joining_date' && (labourSortOrder === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th>BANK</th>
                     <th className="text-center">STATUS</th>
                     <th className="text-center">ACTIONS</th>
                   </tr>
@@ -1293,6 +1379,31 @@ export default function LaborCosts() {
                 <tbody>
                   {labours
                     .filter(labour => showInactiveLabourers || labour.is_active !== false)
+                    .filter(labour => labour.name?.toLowerCase().includes(labourSearchTerm.toLowerCase()))
+                    .sort((a, b) => {
+                      let aVal = a[labourSortField];
+                      let bVal = b[labourSortField];
+                      
+                      // Handle numeric fields
+                      if (['monthly_salary', 'default_daily_rate', 'default_overtime_rate'].includes(labourSortField)) {
+                        aVal = parseFloat(aVal) || 0;
+                        bVal = parseFloat(bVal) || 0;
+                      }
+                      
+                      // Handle date fields
+                      if (labourSortField === 'joining_date') {
+                        aVal = aVal ? new Date(aVal).getTime() : 0;
+                        bVal = bVal ? new Date(bVal).getTime() : 0;
+                      }
+                      
+                      // Handle string fields
+                      if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                      if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+                      
+                      if (aVal < bVal) return labourSortOrder === 'asc' ? -1 : 1;
+                      if (aVal > bVal) return labourSortOrder === 'asc' ? 1 : -1;
+                      return 0;
+                    })
                     .map((labour) => (
                     <tr 
                       key={labour.id} 
@@ -1314,6 +1425,7 @@ export default function LaborCosts() {
                           </span>
                         ) : '-'}
                       </td>
+                      <td className="text-right font-semibold text-purple-700">₹{labour.monthly_salary || 0}</td>
                       <td className="text-right font-semibold text-green-700">₹{labour.default_daily_rate || 0}</td>
                       <td className="text-right font-medium text-blue-600">₹{((labour.default_daily_rate || 0) / 9).toFixed(1)}</td>
                       <td className="text-right font-medium text-orange-600">₹{labour.default_overtime_rate || 0}</td>
@@ -1717,6 +1829,27 @@ export default function LaborCosts() {
                   data-testid="labour-phone-input"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Monthly Salary (₹)</label>
+                <Input
+                  type="number"
+                  value={labourForm.monthly_salary}
+                  onChange={(e) => {
+                    const monthly = parseFloat(e.target.value) || 0;
+                    const daily = monthly > 0 ? (monthly / 30).toFixed(2) : '';
+                    const hourly = daily ? (parseFloat(daily) / 9).toFixed(2) : '';
+                    setLabourForm({ 
+                      ...labourForm, 
+                      monthly_salary: e.target.value,
+                      default_daily_rate: daily,
+                      default_overtime_rate: hourly
+                    });
+                  }}
+                  placeholder="e.g., 15000"
+                  data-testid="labour-monthly-salary-input"
+                />
+                <p className="text-xs text-gray-500 mt-1">Daily & Hourly rates auto-calculate (Monthly÷30, Daily÷9)</p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium text-gray-700">Daily Rate (₹)</label>
@@ -1971,25 +2104,115 @@ export default function LaborCosts() {
                     </span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-3">
+                  {/* Search Bar */}
+                  <div className="mb-3">
+                    <Input
+                      placeholder="Search by name..."
+                      value={payrollSearchTerm}
+                      onChange={(e) => setPayrollSearchTerm(e.target.value)}
+                      className="max-w-xs text-xs"
+                      data-testid="payroll-search-input"
+                    />
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 border-b">
                         <tr>
                           <th className="p-2 text-left font-medium text-gray-500">#</th>
-                          <th className="p-2 text-left font-medium text-gray-500">NAME</th>
+                          <th 
+                            className="p-2 text-left font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => {
+                              if (payrollSortField === 'labour_name') {
+                                setPayrollSortOrder(payrollSortOrder === 'asc' ? 'desc' : 'asc');
+                              } else {
+                                setPayrollSortField('labour_name');
+                                setPayrollSortOrder('asc');
+                              }
+                            }}
+                          >
+                            NAME {payrollSortField === 'labour_name' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
+                          </th>
                           <th className="p-2 text-left font-medium text-gray-500">BANK A/C</th>
                           <th className="p-2 text-left font-medium text-gray-500">IFSC</th>
-                          <th className="p-2 text-center font-medium text-gray-500">DAYS</th>
-                          <th className="p-2 text-center font-medium text-gray-500">OT HRS</th>
-                          <th className="p-2 text-right font-medium text-gray-500">AMOUNT</th>
+                          <th 
+                            className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => {
+                              if (payrollSortField === 'days_present') {
+                                setPayrollSortOrder(payrollSortOrder === 'asc' ? 'desc' : 'asc');
+                              } else {
+                                setPayrollSortField('days_present');
+                                setPayrollSortOrder('desc');
+                              }
+                            }}
+                          >
+                            DAYS {payrollSortField === 'days_present' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
+                          </th>
+                          <th 
+                            className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => {
+                              if (payrollSortField === 'total_overtime_hours') {
+                                setPayrollSortOrder(payrollSortOrder === 'asc' ? 'desc' : 'asc');
+                              } else {
+                                setPayrollSortField('total_overtime_hours');
+                                setPayrollSortOrder('desc');
+                              }
+                            }}
+                          >
+                            OT HRS {payrollSortField === 'total_overtime_hours' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
+                          </th>
+                          <th 
+                            className="p-2 text-right font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => {
+                              if (payrollSortField === 'total_payment') {
+                                setPayrollSortOrder(payrollSortOrder === 'asc' ? 'desc' : 'asc');
+                              } else {
+                                setPayrollSortField('total_payment');
+                                setPayrollSortOrder('desc');
+                              }
+                            }}
+                          >
+                            AMOUNT {payrollSortField === 'total_payment' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
+                          </th>
                           <th className="p-2 text-right font-medium text-gray-500">PAID</th>
-                          <th className="p-2 text-right font-medium text-gray-500">NET PAYABLE</th>
+                          <th 
+                            className="p-2 text-right font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                            onClick={() => {
+                              if (payrollSortField === 'net_payable') {
+                                setPayrollSortOrder(payrollSortOrder === 'asc' ? 'desc' : 'asc');
+                              } else {
+                                setPayrollSortField('net_payable');
+                                setPayrollSortOrder('desc');
+                              }
+                            }}
+                          >
+                            NET PAYABLE {payrollSortField === 'net_payable' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
+                          </th>
                           <th className="p-2 text-center font-medium text-gray-500">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {payrollData.labour_breakdown.map((lb, idx) => {
+                        {payrollData.labour_breakdown
+                          .filter(lb => lb.labour_name?.toLowerCase().includes(payrollSearchTerm.toLowerCase()))
+                          .sort((a, b) => {
+                            let aVal = a[payrollSortField];
+                            let bVal = b[payrollSortField];
+                            
+                            // Handle numeric fields
+                            if (['days_present', 'total_overtime_hours', 'total_payment', 'net_payable'].includes(payrollSortField)) {
+                              aVal = parseFloat(aVal) || 0;
+                              bVal = parseFloat(bVal) || 0;
+                            }
+                            
+                            // Handle string fields
+                            if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                            if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+                            
+                            if (aVal < bVal) return payrollSortOrder === 'asc' ? -1 : 1;
+                            if (aVal > bVal) return payrollSortOrder === 'asc' ? 1 : -1;
+                            return 0;
+                          })
+                          .map((lb, idx) => {
                           const labourDetails = labours.find(l => l.id === lb.labour_id) || {};
                           const isInactive = lb.is_active === false || labourDetails.is_active === false;
                           const totalPaid = lb.total_paid || 0;
@@ -2206,6 +2429,54 @@ export default function LaborCosts() {
                     </CardContent>
                   </Card>
                 </div>
+
+                {/* Salary History Section */}
+                {payrollDetailData.salary_history && payrollDetailData.salary_history.length > 0 && (
+                  <Card className="border-indigo-200 bg-indigo-50">
+                    <CardHeader className="py-2 px-3">
+                      <CardTitle className="text-sm text-indigo-800 flex items-center gap-2">
+                        <TrendingUp size={16} /> Salary History ({payrollDetailData.salary_history.length} revisions)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 pt-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-indigo-100">
+                            <tr>
+                              <th className="p-2 text-left text-indigo-800">EFFECTIVE FROM</th>
+                              <th className="p-2 text-left text-indigo-800">EFFECTIVE TO</th>
+                              <th className="p-2 text-right text-indigo-800">MONTHLY</th>
+                              <th className="p-2 text-right text-indigo-800">DAILY RATE</th>
+                              <th className="p-2 text-right text-indigo-800">OT RATE/HR</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {payrollDetailData.salary_history.map((entry, idx) => (
+                              <tr key={idx} className={`border-b border-indigo-200 ${entry.effective_to === null ? 'bg-indigo-100 font-medium' : ''}`}>
+                                <td className="p-2">
+                                  {new Date(entry.effective_from).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})}
+                                </td>
+                                <td className="p-2">
+                                  {entry.effective_to 
+                                    ? new Date(entry.effective_to).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})
+                                    : <span className="text-green-600 font-medium">Current</span>
+                                  }
+                                </td>
+                                <td className="p-2 text-right text-purple-700">₹{(entry.monthly_salary || 0).toLocaleString('en-IN')}</td>
+                                <td className="p-2 text-right text-green-700">₹{(entry.daily_rate || 0).toLocaleString('en-IN', {maximumFractionDigits: 2})}</td>
+                                <td className="p-2 text-right text-orange-700">₹{(entry.overtime_rate || 0).toLocaleString('en-IN')}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-xs text-indigo-600 mt-2">
+                        Current Rate: ₹{payrollDetailData.current_daily_rate?.toLocaleString('en-IN', {maximumFractionDigits: 2})}/day, 
+                        OT: ₹{payrollDetailData.current_overtime_rate?.toLocaleString('en-IN')}/hr
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Paid Leaves Section */}
                 {payrollDetailData.highlights.paid_leave_days?.length > 0 && (

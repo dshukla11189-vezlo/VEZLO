@@ -10,7 +10,7 @@ Moved from server.py as part of codebase refactoring.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 
 from dependencies import get_current_user, get_db
@@ -208,6 +208,135 @@ async def update_labour(
     
     updated = await db.labours.find_one({"id": labour_id}, {"_id": 0})
     return updated
+
+
+@router.post("/labours/{labour_id}/salary-revision")
+async def revise_labour_salary(
+    labour_id: str,
+    revision: dict,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """
+    Create a salary revision with a specific effective date.
+    This allows backdating or future-dating salary changes.
+    
+    Request body:
+    {
+        "monthly_salary": 15000,  # Optional
+        "daily_rate": 500,        # Required
+        "overtime_rate": 55,      # Required
+        "effective_from": "2026-08-01"  # Required - when this rate becomes effective
+    }
+    """
+    existing = await db.labours.find_one({"id": labour_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Labourer not found")
+    
+    # Validate required fields
+    if "daily_rate" not in revision or "overtime_rate" not in revision:
+        raise HTTPException(status_code=400, detail="daily_rate and overtime_rate are required")
+    if "effective_from" not in revision:
+        raise HTTPException(status_code=400, detail="effective_from date is required")
+    
+    new_daily_rate = float(revision["daily_rate"])
+    new_overtime_rate = float(revision["overtime_rate"])
+    new_monthly_salary = float(revision.get("monthly_salary", 0))
+    effective_from = revision["effective_from"]  # YYYY-MM-DD format
+    
+    # Get existing salary history or create new
+    salary_history = existing.get("salary_history", [])
+    
+    # Check if this is updating the current rate or inserting a historical revision
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    if effective_from >= today:
+        # Future or current date - close any current entry and add new
+        for entry in salary_history:
+            if entry.get("effective_to") is None:
+                # Close the previous current entry at the day before the new effective date
+                close_date = (datetime.strptime(effective_from, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+                entry["effective_to"] = close_date
+        
+        # Add new rate entry
+        salary_history.append({
+            "daily_rate": new_daily_rate,
+            "overtime_rate": new_overtime_rate,
+            "monthly_salary": new_monthly_salary,
+            "effective_from": effective_from,
+            "effective_to": None,  # Current rate
+            "changed_at": datetime.now(timezone.utc).isoformat()
+        })
+        
+        # Also update the current default rates
+        update_data = {
+            "default_daily_rate": new_daily_rate,
+            "default_overtime_rate": new_overtime_rate,
+            "monthly_salary": new_monthly_salary,
+            "salary_history": salary_history
+        }
+    else:
+        # Historical/backdated revision - insert into history maintaining chronological order
+        # Find where to insert this entry
+        inserted = False
+        for i, entry in enumerate(salary_history):
+            entry_from = entry.get("effective_from", "")
+            entry_to = entry.get("effective_to")
+            
+            # If the new effective_from falls within this entry's period
+            if entry_from <= effective_from and (entry_to is None or entry_to >= effective_from):
+                # Split this entry
+                if entry_from < effective_from:
+                    # Create a new entry for the period before
+                    new_entry_end = (datetime.strptime(effective_from, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+                    entry["effective_to"] = new_entry_end
+                
+                # Insert the new revision
+                new_revision_entry = {
+                    "daily_rate": new_daily_rate,
+                    "overtime_rate": new_overtime_rate,
+                    "monthly_salary": new_monthly_salary,
+                    "effective_from": effective_from,
+                    "effective_to": entry_to,  # Takes the original end date
+                    "changed_at": datetime.now(timezone.utc).isoformat()
+                }
+                salary_history.insert(i + 1, new_revision_entry)
+                inserted = True
+                break
+        
+        if not inserted:
+            # No existing history, just add it
+            salary_history.append({
+                "daily_rate": new_daily_rate,
+                "overtime_rate": new_overtime_rate,
+                "monthly_salary": new_monthly_salary,
+                "effective_from": effective_from,
+                "effective_to": None,
+                "changed_at": datetime.now(timezone.utc).isoformat()
+            })
+        
+        # Sort salary history by effective_from date
+        salary_history = sorted(salary_history, key=lambda x: x.get("effective_from", ""))
+        
+        # Don't update current rates for historical revisions unless it's the latest
+        latest_entry = max(salary_history, key=lambda x: x.get("effective_from", ""))
+        if latest_entry.get("effective_to") is None:
+            update_data = {
+                "default_daily_rate": latest_entry["daily_rate"],
+                "default_overtime_rate": latest_entry["overtime_rate"],
+                "monthly_salary": latest_entry.get("monthly_salary", 0),
+                "salary_history": salary_history
+            }
+        else:
+            update_data = {"salary_history": salary_history}
+    
+    await db.labours.update_one({"id": labour_id}, {"$set": update_data})
+    
+    updated = await db.labours.find_one({"id": labour_id}, {"_id": 0})
+    return {
+        "message": f"Salary revision effective from {effective_from} saved successfully",
+        "labourer": updated
+    }
 
 
 @router.delete("/labours/{labour_id}")

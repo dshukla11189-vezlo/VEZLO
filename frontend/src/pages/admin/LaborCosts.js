@@ -61,6 +61,20 @@ export default function LaborCosts() {
     joining_date: ''
   });
   
+  // Salary Revision Modal State
+  const [showSalaryRevisionModal, setShowSalaryRevisionModal] = useState(false);
+  const [salaryRevisionLabour, setSalaryRevisionLabour] = useState(null);
+  const [salaryRevisionForm, setSalaryRevisionForm] = useState({
+    monthly_salary: '',
+    daily_rate: '',
+    overtime_rate: '',
+    effective_from: new Date().toISOString().split('T')[0]
+  });
+  
+  // Salary History Modal State
+  const [showSalaryHistoryModal, setShowSalaryHistoryModal] = useState(false);
+  const [salaryHistoryLabour, setSalaryHistoryLabour] = useState(null);
+  
   // Sorting and Search state for Manage Labourers
   const [labourSearchTerm, setLabourSearchTerm] = useState('');
   const [labourSortField, setLabourSortField] = useState('name');
@@ -722,7 +736,15 @@ export default function LaborCosts() {
     }
 
     try {
-      const data = {
+      // For editing, only send non-salary fields (salary changes go through revision modal)
+      // For creating, send all fields including salary
+      const data = editingLabour ? {
+        name: labourForm.name.trim(),
+        phone: labourForm.phone.trim() || null,
+        bank_account_number: labourForm.bank_account_number.trim() || null,
+        ifsc_code: labourForm.ifsc_code.trim() || null,
+        joining_date: labourForm.joining_date || null
+      } : {
         name: labourForm.name.trim(),
         phone: labourForm.phone.trim() || null,
         monthly_salary: parseFloat(labourForm.monthly_salary) || 0,
@@ -768,6 +790,67 @@ export default function LaborCosts() {
     } catch (error) {
       toast.error('Failed to update labourer');
     }
+  };
+
+  // Open Salary Revision Modal
+  const openSalaryRevisionModal = (labour) => {
+    setSalaryRevisionLabour(labour);
+    setSalaryRevisionForm({
+      monthly_salary: '',
+      daily_rate: '',
+      overtime_rate: '',
+      effective_from: new Date().toISOString().split('T')[0]
+    });
+    setShowSalaryRevisionModal(true);
+  };
+
+  // Handle Salary Revision Form Change (with auto-calculate)
+  const handleSalaryRevisionChange = (field, value) => {
+    if (field === 'monthly_salary') {
+      const monthly = parseFloat(value) || 0;
+      const daily = monthly > 0 ? (monthly / 30).toFixed(2) : '';
+      const hourly = daily ? (parseFloat(daily) / 9).toFixed(2) : '';
+      setSalaryRevisionForm(prev => ({
+        ...prev,
+        monthly_salary: value,
+        daily_rate: daily,
+        overtime_rate: hourly
+      }));
+    } else {
+      setSalaryRevisionForm(prev => ({ ...prev, [field]: value }));
+    }
+  };
+
+  // Submit Salary Revision
+  const handleSalaryRevision = async () => {
+    if (!salaryRevisionForm.daily_rate || !salaryRevisionForm.overtime_rate) {
+      toast.error('Please enter Daily Rate and OT Rate');
+      return;
+    }
+    if (!salaryRevisionForm.effective_from) {
+      toast.error('Please select Effective From date');
+      return;
+    }
+
+    try {
+      const response = await api.post(`/api/labours/${salaryRevisionLabour.id}/salary-revision`, {
+        monthly_salary: parseFloat(salaryRevisionForm.monthly_salary) || 0,
+        daily_rate: parseFloat(salaryRevisionForm.daily_rate),
+        overtime_rate: parseFloat(salaryRevisionForm.overtime_rate),
+        effective_from: salaryRevisionForm.effective_from
+      });
+      toast.success(response.data.message || 'Salary revision saved');
+      setShowSalaryRevisionModal(false);
+      loadLabours();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save salary revision');
+    }
+  };
+
+  // Open Salary History Modal
+  const openSalaryHistoryModal = (labour) => {
+    setSalaryHistoryLabour(labour);
+    setShowSalaryHistoryModal(true);
   };
 
   const toggleDateExpand = (date) => {
@@ -1466,14 +1549,27 @@ export default function LaborCosts() {
                             variant="ghost"
                             onClick={() => openEditLabour(labour)}
                             data-testid={`edit-labour-${labour.id}`}
+                            title="Edit"
                           >
                             <Edit2 size={14} className="text-blue-600" />
                           </Button>
+                          {labour.salary_history && labour.salary_history.length > 0 && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => openSalaryHistoryModal(labour)}
+                              data-testid={`history-labour-${labour.id}`}
+                              title="View Salary History"
+                            >
+                              <Clock size={14} className="text-purple-600" />
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDeleteLabour(labour)}
                             data-testid={`delete-labour-${labour.id}`}
+                            title="Delete"
                           >
                             <Trash2 size={14} className="text-red-600" />
                           </Button>
@@ -1829,49 +1925,110 @@ export default function LaborCosts() {
                   data-testid="labour-phone-input"
                 />
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Monthly Salary (₹)</label>
-                <Input
-                  type="number"
-                  value={labourForm.monthly_salary}
-                  onChange={(e) => {
-                    const monthly = parseFloat(e.target.value) || 0;
-                    const daily = monthly > 0 ? (monthly / 30).toFixed(2) : '';
-                    const hourly = daily ? (parseFloat(daily) / 9).toFixed(2) : '';
-                    setLabourForm({ 
-                      ...labourForm, 
-                      monthly_salary: e.target.value,
-                      default_daily_rate: daily,
-                      default_overtime_rate: hourly
-                    });
-                  }}
-                  placeholder="e.g., 15000"
-                  data-testid="labour-monthly-salary-input"
-                />
-                <p className="text-xs text-gray-500 mt-1">Daily & Hourly rates auto-calculate (Monthly÷30, Daily÷9)</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700">Daily Rate (₹)</label>
-                  <Input
-                    type="number"
-                    value={labourForm.default_daily_rate}
-                    onChange={(e) => setLabourForm({ ...labourForm, default_daily_rate: e.target.value })}
-                    placeholder="e.g., 500"
-                    data-testid="labour-daily-rate-input"
-                  />
+              
+              {/* For NEW labourers - show editable salary fields */}
+              {!editingLabour && (
+                <>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Monthly Salary (₹)</label>
+                    <Input
+                      type="number"
+                      value={labourForm.monthly_salary}
+                      onChange={(e) => {
+                        const monthly = parseFloat(e.target.value) || 0;
+                        const daily = monthly > 0 ? (monthly / 30).toFixed(2) : '';
+                        const hourly = daily ? (parseFloat(daily) / 9).toFixed(2) : '';
+                        setLabourForm({ 
+                          ...labourForm, 
+                          monthly_salary: e.target.value,
+                          default_daily_rate: daily,
+                          default_overtime_rate: hourly
+                        });
+                      }}
+                      placeholder="e.g., 15000"
+                      data-testid="labour-monthly-salary-input"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Daily & Hourly rates auto-calculate (Monthly÷30, Daily÷9)</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Daily Rate (₹)</label>
+                      <Input
+                        type="number"
+                        value={labourForm.default_daily_rate}
+                        onChange={(e) => setLabourForm({ ...labourForm, default_daily_rate: e.target.value })}
+                        placeholder="e.g., 500"
+                        data-testid="labour-daily-rate-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">OT Rate/Hr (₹)</label>
+                      <Input
+                        type="number"
+                        value={labourForm.default_overtime_rate}
+                        onChange={(e) => setLabourForm({ ...labourForm, default_overtime_rate: e.target.value })}
+                        placeholder="e.g., 50"
+                        data-testid="labour-ot-rate-input"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* For EXISTING labourers - show read-only current rates with Update Salary button */}
+              {editingLabour && (
+                <div className="bg-gray-50 rounded-lg p-4 border">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-gray-700">Current Salary Rates</h4>
+                    <div className="flex gap-2">
+                      {editingLabour.salary_history && editingLabour.salary_history.length > 0 && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => {
+                            setShowLabourModal(false);
+                            openSalaryHistoryModal(editingLabour);
+                          }}
+                          className="text-purple-600 border-purple-300 hover:bg-purple-50"
+                          data-testid="view-history-btn"
+                        >
+                          <Clock size={14} className="mr-1" /> View History ({editingLabour.salary_history.length})
+                        </Button>
+                      )}
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => {
+                          setShowLabourModal(false);
+                          openSalaryRevisionModal(editingLabour);
+                        }}
+                        className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                        data-testid="update-salary-btn"
+                      >
+                        <TrendingUp size={14} className="mr-1" /> Update Salary
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="bg-white rounded p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Monthly</p>
+                      <p className="text-lg font-bold text-purple-700">₹{labourForm.monthly_salary || 0}</p>
+                    </div>
+                    <div className="bg-white rounded p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">Daily Rate</p>
+                      <p className="text-lg font-bold text-green-700">₹{labourForm.default_daily_rate || 0}</p>
+                    </div>
+                    <div className="bg-white rounded p-2 border">
+                      <p className="text-[10px] text-gray-500 uppercase">OT Rate/Hr</p>
+                      <p className="text-lg font-bold text-orange-700">₹{labourForm.default_overtime_rate || 0}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    Use "Update Salary" to revise rates with a specific effective date
+                  </p>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700">OT Rate/Hr (₹)</label>
-                  <Input
-                    type="number"
-                    value={labourForm.default_overtime_rate}
-                    onChange={(e) => setLabourForm({ ...labourForm, default_overtime_rate: e.target.value })}
-                    placeholder="e.g., 50"
-                    data-testid="labour-ot-rate-input"
-                  />
-                </div>
-              </div>
+              )}
+              
               <div>
                 <label className="text-sm font-medium text-gray-700">Bank Account Number</label>
                 <Input
@@ -1906,6 +2063,228 @@ export default function LaborCosts() {
               </Button>
               <Button onClick={handleSaveLabour} className="bg-[#14532D]" data-testid="save-labour-btn">
                 <Save size={16} className="mr-1" /> Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Salary Revision Modal */}
+        <Dialog open={showSalaryRevisionModal} onOpenChange={setShowSalaryRevisionModal}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <TrendingUp size={20} className="text-blue-600" />
+                Update Salary - {salaryRevisionLabour?.name}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              {/* Current Rates Display */}
+              {salaryRevisionLabour && (
+                <div className="bg-gray-100 rounded-lg p-3 mb-4">
+                  <p className="text-xs text-gray-600 font-medium mb-2">CURRENT RATES</p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[10px] text-gray-500">Monthly</p>
+                      <p className="text-sm font-bold text-gray-700">₹{salaryRevisionLabour.monthly_salary || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500">Daily</p>
+                      <p className="text-sm font-bold text-gray-700">₹{salaryRevisionLabour.default_daily_rate || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500">OT/Hr</p>
+                      <p className="text-sm font-bold text-gray-700">₹{salaryRevisionLabour.default_overtime_rate || 0}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* New Rates Form */}
+              <div className="border-t pt-4">
+                <p className="text-sm font-semibold text-blue-700 mb-3">NEW SALARY RATES</p>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Effective From *</label>
+                    <Input
+                      type="date"
+                      value={salaryRevisionForm.effective_from}
+                      onChange={(e) => handleSalaryRevisionChange('effective_from', e.target.value)}
+                      data-testid="salary-effective-from"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Date from when new salary applies</p>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">New Monthly Salary (₹)</label>
+                    <Input
+                      type="number"
+                      value={salaryRevisionForm.monthly_salary}
+                      onChange={(e) => handleSalaryRevisionChange('monthly_salary', e.target.value)}
+                      placeholder="e.g., 15000"
+                      data-testid="salary-monthly-input"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Daily & OT rates auto-calculate</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Daily Rate (₹) *</label>
+                      <Input
+                        type="number"
+                        value={salaryRevisionForm.daily_rate}
+                        onChange={(e) => handleSalaryRevisionChange('daily_rate', e.target.value)}
+                        placeholder="e.g., 500"
+                        data-testid="salary-daily-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">OT Rate/Hr (₹) *</label>
+                      <Input
+                        type="number"
+                        value={salaryRevisionForm.overtime_rate}
+                        onChange={(e) => handleSalaryRevisionChange('overtime_rate', e.target.value)}
+                        placeholder="e.g., 50"
+                        data-testid="salary-ot-input"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowSalaryRevisionModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSalaryRevision} className="bg-blue-600 hover:bg-blue-700" data-testid="save-salary-revision-btn">
+                <TrendingUp size={16} className="mr-1" /> Save Revision
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Salary History Modal */}
+        <Dialog open={showSalaryHistoryModal} onOpenChange={setShowSalaryHistoryModal}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Clock size={20} className="text-purple-600" />
+                Salary History - {salaryHistoryLabour?.name}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              {salaryHistoryLabour?.salary_history && salaryHistoryLabour.salary_history.length > 0 ? (
+                <div className="space-y-3">
+                  {/* Current Rate Highlight */}
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-green-800 uppercase">Current Rate</span>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                      <div>
+                        <p className="text-[10px] text-green-600">Monthly</p>
+                        <p className="text-sm font-bold text-green-800">₹{salaryHistoryLabour.monthly_salary?.toLocaleString('en-IN') || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-green-600">Daily</p>
+                        <p className="text-sm font-bold text-green-800">₹{salaryHistoryLabour.default_daily_rate?.toLocaleString('en-IN', {maximumFractionDigits: 2}) || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-green-600">OT/Hr</p>
+                        <p className="text-sm font-bold text-green-800">₹{salaryHistoryLabour.default_overtime_rate?.toLocaleString('en-IN', {maximumFractionDigits: 2}) || 0}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* History Timeline */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-gray-100 px-3 py-2 border-b">
+                      <p className="text-xs font-semibold text-gray-700">REVISION HISTORY ({salaryHistoryLabour.salary_history.length} records)</p>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="p-2 text-left text-gray-600">#</th>
+                            <th className="p-2 text-left text-gray-600">EFFECTIVE FROM</th>
+                            <th className="p-2 text-left text-gray-600">EFFECTIVE TO</th>
+                            <th className="p-2 text-right text-gray-600">MONTHLY</th>
+                            <th className="p-2 text-right text-gray-600">DAILY</th>
+                            <th className="p-2 text-right text-gray-600">OT/HR</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...salaryHistoryLabour.salary_history]
+                            .sort((a, b) => new Date(b.effective_from) - new Date(a.effective_from))
+                            .map((entry, idx) => {
+                              const isCurrent = entry.effective_to === null;
+                              return (
+                                <tr 
+                                  key={idx} 
+                                  className={`border-b ${isCurrent ? 'bg-green-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                                >
+                                  <td className="p-2 text-gray-400">{salaryHistoryLabour.salary_history.length - idx}</td>
+                                  <td className="p-2">
+                                    <span className="font-medium">
+                                      {new Date(entry.effective_from).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})}
+                                    </span>
+                                  </td>
+                                  <td className="p-2">
+                                    {entry.effective_to ? (
+                                      <span className="text-gray-600">
+                                        {new Date(entry.effective_to).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})}
+                                      </span>
+                                    ) : (
+                                      <span className="text-green-600 font-semibold">Current</span>
+                                    )}
+                                  </td>
+                                  <td className="p-2 text-right font-medium text-purple-700">
+                                    ₹{(entry.monthly_salary || 0).toLocaleString('en-IN')}
+                                  </td>
+                                  <td className="p-2 text-right font-medium text-gray-700">
+                                    ₹{(entry.daily_rate || 0).toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                                  </td>
+                                  <td className="p-2 text-right font-medium text-orange-600">
+                                    ₹{(entry.overtime_rate || 0).toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Info Note */}
+                  <div className="bg-blue-50 border border-blue-200 rounded p-2 text-xs text-blue-700">
+                    <AlertCircle size={14} className="inline mr-1" />
+                    Payroll calculations automatically use the correct rate based on each attendance date.
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Clock size={40} className="mx-auto mb-3 text-gray-300" />
+                  <p className="font-medium">No Salary History Found</p>
+                  <p className="text-xs mt-1">Use "Update Salary" to create the first revision</p>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowSalaryHistoryModal(false);
+                  if (salaryHistoryLabour) {
+                    openSalaryRevisionModal(salaryHistoryLabour);
+                  }
+                }}
+                className="text-blue-600 border-blue-300"
+              >
+                <TrendingUp size={14} className="mr-1" /> Add New Revision
+              </Button>
+              <Button onClick={() => setShowSalaryHistoryModal(false)}>
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>

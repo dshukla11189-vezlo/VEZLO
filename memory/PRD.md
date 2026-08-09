@@ -8,7 +8,13 @@
   - When daily_rate or overtime_rate is updated, old entry is closed with `effective_to` and new entry created
   - Payroll calculations now use `get_rate_for_date()` to apply correct historical rates
   - Payroll Detail modal shows "Salary History" section with all revisions and effective dates
-  - **Files Changed**: `backend/routes/labour.py`
+  - **NEW: Dedicated Salary Revision UI Flow**:
+    - Edit modal shows read-only current rates with "Update Salary" and "View History" buttons
+    - "Update Salary" modal allows setting new rates with specific effective date
+    - "Salary History" modal shows complete revision timeline with effective dates
+    - Clock icon in Actions column for quick access to salary history
+    - API endpoint: `POST /api/labours/{id}/salary-revision` for creating revisions with effective dates
+  - **Files Changed**: `backend/routes/labour.py`, `frontend/src/pages/admin/LaborCosts.js`
   
 - **P1 - Monthly Salary Auto-Calculation**:
   - Added `monthly_salary` field to labourer form

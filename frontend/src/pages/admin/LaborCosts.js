@@ -87,11 +87,19 @@ export default function LaborCosts() {
   
   // Costs state
   const [dateFrom, setDateFrom] = useState(() => {
+    // Try to get from localStorage first
+    const saved = localStorage.getItem('labourCosts_dateFrom');
+    if (saved) return saved;
+    // Default to first day of current month
     const d = new Date();
-    d.setDate(1); // First day of current month
+    d.setDate(1);
     return d.toISOString().split('T')[0];
   });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [dateTo, setDateTo] = useState(() => {
+    const saved = localStorage.getItem('labourCosts_dateTo');
+    if (saved) return saved;
+    return new Date().toISOString().split('T')[0];
+  });
   const [costsSummary, setCostsSummary] = useState(null);
   const [loadingCosts, setLoadingCosts] = useState(false);
   const [expandedDates, setExpandedDates] = useState({});
@@ -115,11 +123,17 @@ export default function LaborCosts() {
 
   // Payroll Processing state
   const [payrollDateFrom, setPayrollDateFrom] = useState(() => {
+    const saved = localStorage.getItem('labourCosts_payrollDateFrom');
+    if (saved) return saved;
     const d = new Date();
     d.setDate(1);
     return d.toISOString().split('T')[0];
   });
-  const [payrollDateTo, setPayrollDateTo] = useState(() => new Date().toISOString().split('T')[0]);
+  const [payrollDateTo, setPayrollDateTo] = useState(() => {
+    const saved = localStorage.getItem('labourCosts_payrollDateTo');
+    if (saved) return saved;
+    return new Date().toISOString().split('T')[0];
+  });
   const [payrollData, setPayrollData] = useState(null);
   const [loadingPayroll, setLoadingPayroll] = useState(false);
   const [showPayrollExportModal, setShowPayrollExportModal] = useState(false);
@@ -302,6 +316,23 @@ export default function LaborCosts() {
   useEffect(() => {
     loadLabours();
   }, [loadLabours]);
+
+  // Persist date selections to localStorage
+  useEffect(() => {
+    localStorage.setItem('labourCosts_dateFrom', dateFrom);
+  }, [dateFrom]);
+  
+  useEffect(() => {
+    localStorage.setItem('labourCosts_dateTo', dateTo);
+  }, [dateTo]);
+  
+  useEffect(() => {
+    localStorage.setItem('labourCosts_payrollDateFrom', payrollDateFrom);
+  }, [payrollDateFrom]);
+  
+  useEffect(() => {
+    localStorage.setItem('labourCosts_payrollDateTo', payrollDateTo);
+  }, [payrollDateTo]);
 
   useEffect(() => {
     if (activeTab === 'costs') {

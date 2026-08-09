@@ -1104,6 +1104,7 @@ export default function LaborCosts() {
                     <table className="w-full text-xs">
                       <thead className="bg-gray-50 border-b">
                         <tr>
+                          <th className="p-2 text-center font-medium text-gray-400 w-10">#</th>
                           <th className="p-2 w-6"></th>
                           <th className="p-2 text-left font-medium text-gray-500">LABOUR NAME</th>
                           <th className="p-2 text-center font-medium text-gray-500">DAYS PRESENT</th>
@@ -1119,6 +1120,7 @@ export default function LaborCosts() {
                               onClick={() => toggleLabourExpand(labour.labour_id)}
                               data-testid={`labour-row-${labour.labour_id}`}
                             >
+                              <td className="p-2 text-center text-gray-400 font-medium">{idx + 1}</td>
                               <td className="p-2 text-center text-gray-400">
                                 {expandedLabours[labour.labour_id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                               </td>
@@ -1134,6 +1136,7 @@ export default function LaborCosts() {
                                 {/* Header row for expanded section */}
                                 <tr className="bg-blue-50 border-b">
                                   <td></td>
+                                  <td></td>
                                   <td className="p-1 pl-4 text-[10px] font-medium text-blue-700">DATE</td>
                                   <td className="p-1 text-center text-[10px] font-medium text-blue-700">HOURS</td>
                                   <td className="p-1 text-center text-[10px] font-medium text-blue-700">OVERTIME</td>
@@ -1146,6 +1149,7 @@ export default function LaborCosts() {
                                   
                                   return (
                                     <tr key={`${labour.labour_id}-${record.date}`} className="bg-gray-50 border-b hover:bg-gray-100">
+                                      <td></td>
                                       <td></td>
                                       <td className="p-1 pl-4 text-gray-600 text-[11px]">
                                         <Calendar size={10} className="inline mr-1" />
@@ -1387,6 +1391,7 @@ export default function LaborCosts() {
               <table>
                 <thead>
                   <tr>
+                    <th className="text-center w-10">#</th>
                     <th 
                       className="cursor-pointer hover:bg-gray-100 select-none"
                       onClick={() => {
@@ -1487,12 +1492,13 @@ export default function LaborCosts() {
                       if (aVal > bVal) return labourSortOrder === 'asc' ? 1 : -1;
                       return 0;
                     })
-                    .map((labour) => (
+                    .map((labour, idx) => (
                     <tr 
                       key={labour.id} 
                       className={labour.is_active === false ? 'bg-gray-50' : ''} 
                       data-testid={`labour-row-${labour.id}`}
                     >
+                      <td className="text-center text-gray-400 font-medium">{idx + 1}</td>
                       <td className={`font-medium ${labour.is_active === false ? 'text-gray-400 line-through' : ''}`}>
                         {labour.name}
                         {labour.is_active === false && (
@@ -1736,6 +1742,7 @@ export default function LaborCosts() {
                 <table>
                   <thead>
                     <tr>
+                      <th className="text-center w-10">#</th>
                       <th>LABOURER</th>
                       <th className="text-center">STATUS</th>
                       <th className="text-center">WORKING HRS</th>
@@ -1750,17 +1757,18 @@ export default function LaborCosts() {
                   <tbody>
                     {attendance.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="text-center text-gray-500 py-8">
+                        <td colSpan={10} className="text-center text-gray-500 py-8">
                           No labourers found. Add labourers in "Manage Labourers" tab first.
                         </td>
                       </tr>
                     ) : (
-                      attendance.map((record) => (
+                      attendance.map((record, idx) => (
                         <tr 
                           key={record.labour_id} 
                           className={`${record.present ? '' : record.paid_leave ? 'bg-purple-50' : 'bg-gray-50'}`} 
                           data-testid={`attendance-row-${record.labour_id}`}
                         >
+                          <td className="text-center text-gray-400 font-medium">{idx + 1}</td>
                           <td className="font-medium">{record.labour_name}</td>
                           <td className="text-center">
                             <button
@@ -1879,6 +1887,7 @@ export default function LaborCosts() {
                   </tbody>
                   <tfoot className="bg-gray-100">
                     <tr>
+                      <td className="p-2 font-bold text-gray-400"></td>
                       <td className="p-2 font-bold">TOTAL</td>
                       <td className="p-2 text-center font-bold">
                         <span className="text-green-700">{attendance.filter(a => a.present).length}</span>

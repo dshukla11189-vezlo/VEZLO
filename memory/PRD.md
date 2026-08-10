@@ -2,7 +2,14 @@
 
 ## Changelog (August 2026)
 
-### August 10, 2026 - Paid Leave in Payroll + Summary Cards Split ✅
+### August 10, 2026 - OT Payment Display Fix + Summary Cards ✅
+- **OT Payment Display Fix (P0)**:
+  - **FIXED**: OT Payment column in Payroll Details modal was showing blank (only ₹ symbol)
+  - **Root Cause**: Backend wasn't including `payment` field in `days_with_overtime` array
+  - **Solution**: Modified `labour.py` line 946 to include `payment: ot_payment` in overtime day records
+  - **Verification**: API now returns `{date, hours, payment}` for each overtime day (e.g., `{date: "2026-08-02", hours: 3.5, payment: 175.0}`)
+  - **Files Changed**: `backend/routes/labour.py`
+
 - **Paid Leave Payment Fix**:
   - Backend now properly includes paid leave days in payroll calculations
   - Records with `present: false` AND `paid_leave: true` get full daily rate

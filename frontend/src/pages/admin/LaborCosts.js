@@ -2857,13 +2857,37 @@ export default function LaborCosts() {
             ) : payrollDetailData ? (
               <div className="overflow-y-auto flex-1 space-y-4 pr-2">
                 {/* Summary Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  <Card className="bg-gray-50 border-gray-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-gray-700 font-medium">TOTAL MONTH DAYS</p>
+                      <p className="text-xl font-bold text-gray-900">{payrollDetailData.summary.total_month_days || '-'}</p>
+                    </CardContent>
+                  </Card>
                   <Card className="bg-blue-50 border-blue-200">
                     <CardContent className="p-3">
-                      <p className="text-[10px] text-blue-800 font-medium">DAYS PRESENT</p>
+                      <p className="text-[10px] text-blue-800 font-medium">PRESENT DAYS</p>
                       <p className="text-xl font-bold text-blue-900">{payrollDetailData.summary.days_present}</p>
                     </CardContent>
                   </Card>
+                  <Card className="bg-red-50 border-red-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-red-700 font-medium">ABSENT DAYS</p>
+                      <p className="text-xl font-bold text-red-800">{payrollDetailData.summary.absent_days || 0}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-cyan-50 border-cyan-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-cyan-800 font-medium">PAID LEAVE DAYS</p>
+                      <p className="text-xl font-bold text-cyan-900">{payrollDetailData.summary.paid_leave_days || 0}</p>
+                      {payrollDetailData.summary.total_paid_leave_payment > 0 && (
+                        <p className="text-xs text-cyan-600">₹{payrollDetailData.summary.total_paid_leave_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <Card className="bg-purple-50 border-purple-200">
                     <CardContent className="p-3">
                       <p className="text-[10px] text-purple-800 font-medium">REGULAR HOURS</p>
@@ -2876,6 +2900,12 @@ export default function LaborCosts() {
                       <p className="text-[10px] text-orange-800 font-medium">OVERTIME HOURS</p>
                       <p className="text-xl font-bold text-orange-900">{payrollDetailData.summary.total_overtime_hours}</p>
                       <p className="text-xs text-orange-600">₹{payrollDetailData.summary.total_overtime_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-indigo-50 border-indigo-200">
+                    <CardContent className="p-3">
+                      <p className="text-[10px] text-indigo-800 font-medium">TOTAL SALARY</p>
+                      <p className="text-xl font-bold text-indigo-900">₹{(payrollDetailData.summary.total_regular_payment + payrollDetailData.summary.total_overtime_payment).toLocaleString('en-IN', {maximumFractionDigits: 2})}</p>
                     </CardContent>
                   </Card>
                   <Card className="bg-green-50 border-green-200">
@@ -2944,15 +2974,25 @@ export default function LaborCosts() {
                     </CardHeader>
                     <CardContent className="p-3 pt-0">
                       <div className="flex flex-wrap gap-2">
-                        {payrollDetailData.highlights.paid_leave_days.map((day, idx) => (
-                          <span key={idx} className="text-xs bg-cyan-100 text-cyan-800 px-2 py-1 rounded">
-                            {new Date(day.date).toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})} - ₹{day.payment?.toLocaleString('en-IN')}
-                          </span>
-                        ))}
+                        {payrollDetailData.highlights.paid_leave_days.map((day, idx) => {
+                          // Handle both string dates and object format
+                          const dateStr = typeof day === 'string' ? day : day.date;
+                          const dateObj = new Date(dateStr + 'T00:00:00');
+                          const formattedDate = !isNaN(dateObj) 
+                            ? dateObj.toLocaleDateString('en-IN', {day: '2-digit', month: 'short'})
+                            : dateStr;
+                          return (
+                            <span key={idx} className="text-xs bg-cyan-100 text-cyan-800 px-2 py-1 rounded">
+                              {formattedDate}
+                            </span>
+                          );
+                        })}
                       </div>
-                      <p className="text-sm text-cyan-700 mt-2 font-medium">
-                        Total Paid Leave: ₹{payrollDetailData.summary.total_paid_leave_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}
-                      </p>
+                      {payrollDetailData.summary.total_paid_leave_payment > 0 && (
+                        <p className="text-sm text-cyan-700 mt-2 font-medium">
+                          Total Paid Leave: ₹{payrollDetailData.summary.total_paid_leave_payment?.toLocaleString('en-IN', {maximumFractionDigits: 2})}
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
                 )}

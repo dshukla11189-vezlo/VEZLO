@@ -943,7 +943,7 @@ async def get_labour_payroll_detail(
             if working_hours < 9:
                 days_under_9_hours.append(date)
             if overtime_hours > 0:
-                days_with_overtime.append({"date": date, "hours": overtime_hours})
+                days_with_overtime.append({"date": date, "hours": overtime_hours, "payment": ot_payment})
         
         elif is_paid_leave:
             # Paid leave - gets full daily rate
@@ -970,6 +970,13 @@ async def get_labour_payroll_detail(
     current_ot_rate = labourer.get("default_overtime_rate", 0) or 0
     salary_history = labourer.get("salary_history", [])
     
+    # Calculate total month days and absent days
+    from_dt = datetime.strptime(from_date, "%Y-%m-%d")
+    to_dt = datetime.strptime(to_date, "%Y-%m-%d")
+    total_month_days = (to_dt - from_dt).days + 1
+    total_working_days = days_present + len(paid_leave_days)
+    absent_days = total_month_days - total_working_days
+    
     return {
         "labour_id": labour_id,
         "labour_name": labourer.get("name"),
@@ -981,8 +988,10 @@ async def get_labour_payroll_detail(
         "from_date": from_date,
         "to_date": to_date,
         "summary": {
+            "total_month_days": total_month_days,
             "days_present": days_present,
             "paid_leave_days": len(paid_leave_days),
+            "absent_days": max(0, absent_days),
             "total_working_hours": total_working_hours,
             "total_overtime_hours": total_overtime_hours,
             "total_regular_payment": total_regular_payment,

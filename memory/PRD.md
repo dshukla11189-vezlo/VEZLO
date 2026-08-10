@@ -2,6 +2,25 @@
 
 ## Changelog (August 2026)
 
+### August 10, 2026 - Retailer Summary Cards Enhancement ✅
+- **Retailer Orders Page - Summary Cards Added**:
+  - Added 4 retailer summary cards below the existing dashboard cards
+  - Total Retailers, Active Retailers, Live Retailers, Churned Retailers
+  - "Pending to go live" button under Live Retailers opens modal with list
+  - **Files Changed**: `frontend/src/pages/admin/RetailerOrders.js`
+
+- **"Pending to Go Live" Feature**:
+  - New modal showing active retailers without any invoices
+  - Displays: Shop Name, Contact, City, Onboarded Date
+  - New API endpoint: `GET /api/retailers-pending-to-go-live`
+  - Added to both User Management and Retailer Orders pages
+  - **Files Changed**: `backend/routes/users.py`, `frontend/src/pages/admin/UserManagement.js`, `frontend/src/pages/admin/RetailerOrders.js`
+
+- **Field Team Dashboard - Updated Labels**:
+  - Changed labels from "Total", "Active", "Live", "Churned" to full names
+  - "Total Retailers", "Active Retailers", "Live Retailers", "Churned Retailers"
+  - **Files Changed**: `frontend/src/pages/field_team/Dashboard.js`
+
 ### August 10, 2026 - Retailer Summary Cards for Admin & Field Team ✅
 - **User Management - Retailer Tab Summary Cards**:
   - Added 4 summary cards when Retailer tab is selected:

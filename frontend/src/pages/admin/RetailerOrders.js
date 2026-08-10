@@ -22,7 +22,8 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { 
   Plus, Package, Truck, AlertTriangle, AlertCircle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, ChevronLeft, FileText, Download, Check,
-  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench
+  Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench,
+  UserPlus, UserCheck, Activity, UserX
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -301,6 +302,12 @@ export default function RetailerOrders() {
   const [packagings, setPackagings] = useState([]);
   const [retailerCatalogue, setRetailerCatalogue] = useState([]);
   const [selectedRetailer, setSelectedRetailer] = useState('');
+  
+  // Retailer summary stats
+  const [retailerStats, setRetailerStats] = useState(null);
+  const [showPendingToGoLiveModal, setShowPendingToGoLiveModal] = useState(false);
+  const [pendingToGoLiveRetailers, setPendingToGoLiveRetailers] = useState([]);
+  const [loadingPendingRetailers, setLoadingPendingRetailers] = useState(false);
   
   // Date filters - default to today (IST timezone)
   const today = getISTDate();
@@ -797,6 +804,37 @@ export default function RetailerOrders() {
       console.error('Failed to load base data:', error);
     }
   }, []);
+
+  // Load retailer stats for summary cards
+  const loadRetailerStats = useCallback(async () => {
+    try {
+      const response = await api.get('/api/retailer-stats');
+      setRetailerStats(response.data);
+    } catch (error) {
+      console.error('Failed to load retailer stats:', error);
+    }
+  }, []);
+
+  // Load pending to go live retailers
+  const loadPendingToGoLiveRetailers = useCallback(async () => {
+    setLoadingPendingRetailers(true);
+    try {
+      const response = await api.get('/api/retailers-pending-to-go-live');
+      setPendingToGoLiveRetailers(response.data.retailers || []);
+    } catch (error) {
+      console.error('Failed to load pending retailers:', error);
+      toast.error('Failed to load pending retailers');
+    } finally {
+      setLoadingPendingRetailers(false);
+    }
+  }, []);
+
+  // Load pending retailers when modal opens
+  useEffect(() => {
+    if (showPendingToGoLiveModal) {
+      loadPendingToGoLiveRetailers();
+    }
+  }, [showPendingToGoLiveModal, loadPendingToGoLiveRetailers]);
 
   const loadIndents = useCallback(async () => {
     try {
@@ -2615,9 +2653,10 @@ export default function RetailerOrders() {
       loadRejections();
       loadPayments();
       loadCreditNotes();
+      loadRetailerStats();
     };
     loadAll();
-  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable, loadCreditNotes]);
+  }, [loadBaseData, loadIndents, loadDispatches, loadInvoices, loadRejections, loadPayments, loadStaffUsers, loadImmediatelyPayable, loadCreditNotes, loadRetailerStats]);
 
   // Server handles date filtering now - just pass through indents
   useEffect(() => {
@@ -8922,6 +8961,73 @@ export default function RetailerOrders() {
             </p>
           </div>
         </div>
+        
+        {/* Retailer Summary Cards */}
+        {retailerStats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <Card className="bg-blue-50 border-blue-200">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <UserPlus className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-blue-700 font-medium uppercase">Total Retailers</p>
+                    <p className="text-xl font-bold text-blue-800">{retailerStats.total_onboarded}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-green-50 border-green-200">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <UserCheck className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-green-700 font-medium uppercase">Active Retailers</p>
+                    <p className="text-xl font-bold text-green-800">{retailerStats.active_retailers}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-emerald-50 border-emerald-200">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-100 rounded-lg">
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-emerald-700 font-medium uppercase">Live Retailers</p>
+                    <p className="text-xl font-bold text-emerald-800">{retailerStats.live_retailers}</p>
+                    <button 
+                      onClick={() => setShowPendingToGoLiveModal(true)}
+                      className="text-[9px] text-orange-600 hover:text-orange-800 hover:underline cursor-pointer"
+                    >
+                      {retailerStats.pending_to_go_live || 0} Pending to go live →
+                    </button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-gray-50 border-gray-300">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-gray-200 rounded-lg">
+                    <UserX className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-600 font-medium uppercase">Churned Retailers</p>
+                    <p className="text-xl font-bold text-gray-700">{retailerStats.churned_retailers}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
         
         {/* Rejection Loss Block */}
         <div key={`rejection-loss-${rejectionLossDateFrom}-${rejectionLossDateTo}`} className="bg-red-50 rounded-lg border border-red-200 p-4 mb-4">
@@ -19728,6 +19834,65 @@ export default function RetailerOrders() {
               setStickerOverrideEditItem(null);
             }}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Pending to Go Live Modal */}
+      <Dialog open={showPendingToGoLiveModal} onOpenChange={setShowPendingToGoLiveModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-700">
+              <Clock size={20} />
+              Pending to Go Live ({pendingToGoLiveRetailers.length})
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-500 mb-3">
+            These retailers are active but have not received their first invoice yet.
+          </p>
+          
+          {loadingPendingRetailers ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+            </div>
+          ) : pendingToGoLiveRetailers.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Activity size={48} className="mx-auto mb-2 text-green-500" />
+              <p>All active retailers are live!</p>
+            </div>
+          ) : (
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-sm">
+                <thead className="bg-orange-50 sticky top-0">
+                  <tr>
+                    <th className="p-2 text-left text-orange-700 font-medium">#</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Shop Name</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Contact</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">City</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Onboarded</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingToGoLiveRetailers.map((retailer, idx) => (
+                    <tr key={retailer.id} className="border-b hover:bg-orange-50">
+                      <td className="p-2 text-gray-500">{idx + 1}</td>
+                      <td className="p-2">
+                        <div className="font-medium">{retailer.company_name || retailer.name}</div>
+                        <div className="text-xs text-gray-500">{retailer.email}</div>
+                      </td>
+                      <td className="p-2 text-gray-600">{retailer.contact || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.city || '-'}</td>
+                      <td className="p-2 text-gray-600 text-xs">
+                        {retailer.created_at 
+                          ? new Date(retailer.created_at).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})
+                          : '-'
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </Layout>

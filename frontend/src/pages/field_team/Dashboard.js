@@ -1067,7 +1067,7 @@ export default function FieldTeamDashboard() {
                     <UserPlus className="w-3 h-3 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-[9px] text-blue-700 font-medium uppercase">Total</p>
+                    <p className="text-[9px] text-blue-700 font-medium uppercase">Total Retailers</p>
                     <p className="text-base font-bold text-blue-800">{portfolioSummary?.total_retailers || 0}</p>
                   </div>
                 </div>
@@ -1081,7 +1081,7 @@ export default function FieldTeamDashboard() {
                     <UserCheck className="w-3 h-3 text-green-600" />
                   </div>
                   <div>
-                    <p className="text-[9px] text-green-700 font-medium uppercase">Active</p>
+                    <p className="text-[9px] text-green-700 font-medium uppercase">Active Retailers</p>
                     <p className="text-base font-bold text-green-800">{portfolioSummary?.active_retailers || 0}</p>
                   </div>
                 </div>
@@ -1095,7 +1095,7 @@ export default function FieldTeamDashboard() {
                     <Activity className="w-3 h-3 text-emerald-600" />
                   </div>
                   <div>
-                    <p className="text-[9px] text-emerald-700 font-medium uppercase">Live</p>
+                    <p className="text-[9px] text-emerald-700 font-medium uppercase">Live Retailers</p>
                     <p className="text-base font-bold text-emerald-800">{portfolioSummary?.live_retailers || 0}</p>
                   </div>
                 </div>
@@ -1109,7 +1109,7 @@ export default function FieldTeamDashboard() {
                     <UserX className="w-3 h-3 text-gray-600" />
                   </div>
                   <div>
-                    <p className="text-[9px] text-gray-600 font-medium uppercase">Churned</p>
+                    <p className="text-[9px] text-gray-600 font-medium uppercase">Churned Retailers</p>
                     <p className="text-base font-bold text-gray-700">{portfolioSummary?.churned_retailers || 0}</p>
                   </div>
                 </div>

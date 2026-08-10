@@ -459,5 +459,55 @@ async def get_retailer_stats(current_user: dict = Depends(get_current_user)):
         "total_onboarded": total_onboarded,
         "active_retailers": active_retailers,
         "live_retailers": live_retailers,
-        "churned_retailers": churned_retailers
+        "churned_retailers": churned_retailers,
+        "pending_to_go_live": active_retailers - live_retailers
+    }
+
+
+@router.get("/retailers-pending-to-go-live")
+async def get_retailers_pending_to_go_live(current_user: dict = Depends(get_current_user)):
+    """
+    Get list of active retailers who don't have any invoice yet.
+    These are retailers who are onboarded but haven't made their first order.
+    """
+    if current_user["role"] not in ["admin", "staff", "field_team"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all active retailers
+    retailers = await db.users.find(
+        {"role": "retailer", "status": {"$ne": "churned"}},
+        {"_id": 0, "id": 1, "name": 1, "company_name": 1, "email": 1, "contact": 1, "city": 1, "assigned_to": 1, "created_at": 1}
+    ).to_list(10000)
+    
+    retailer_ids = [r["id"] for r in retailers]
+    
+    # Get retailers with at least 1 invoice
+    retailers_with_invoices = await db.retailer_invoices.distinct(
+        "retailer_id",
+        {"retailer_id": {"$in": retailer_ids}}
+    )
+    retailers_with_invoices_set = set(retailers_with_invoices)
+    
+    # Filter to get only those WITHOUT invoices
+    pending_retailers = [
+        {
+            "id": r["id"],
+            "name": r.get("name", ""),
+            "company_name": r.get("company_name", ""),
+            "email": r.get("email", ""),
+            "contact": r.get("contact", ""),
+            "city": r.get("city", ""),
+            "assigned_to": r.get("assigned_to", ""),
+            "created_at": r.get("created_at", "")
+        }
+        for r in retailers
+        if r["id"] not in retailers_with_invoices_set
+    ]
+    
+    # Sort by created_at descending (newest first)
+    pending_retailers.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    return {
+        "count": len(pending_retailers),
+        "retailers": pending_retailers
     }

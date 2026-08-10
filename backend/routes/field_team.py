@@ -280,12 +280,16 @@ async def get_field_team_portfolio_summary(
         if r.get("status", "active") == "active" and r["id"] in retailers_with_invoices_set
     )
     
+    # Pending to go live = active but no invoice
+    pending_to_go_live = active_count - live_count
+    
     return {
         "field_team_id": field_team_id,
         "total_retailers": len(retailers),
         "active_retailers": active_count,
         "live_retailers": live_count,
         "churned_retailers": churned_count,
+        "pending_to_go_live": pending_to_go_live,
         "summary": {
             "total_outstanding": round(total_outstanding, 2),
             "immediately_payable": round(total_immediately_payable, 2),
@@ -295,6 +299,56 @@ async def get_field_team_portfolio_summary(
             "today_dispatch_value": round(sum(d["value"] for d in dispatches_by_retailer.values()), 2)
         },
         "retailer_summaries": retailer_summaries
+    }
+
+
+@router.get("/field-team/pending-to-go-live")
+async def get_field_team_pending_to_go_live(current_user: dict = Depends(get_current_user)):
+    """
+    Get list of assigned retailers who are active but don't have any invoice yet.
+    These are retailers assigned to this field team member who haven't made their first order.
+    """
+    if current_user.get("role") != "field_team":
+        raise HTTPException(status_code=403, detail="Only field team members can access this endpoint")
+    
+    field_team_id = current_user.get("user_id")
+    
+    # Get retailers assigned to this field team member (active only)
+    retailers = await db.users.find(
+        {"role": "retailer", "assigned_to": field_team_id, "status": {"$ne": "churned"}},
+        {"_id": 0, "id": 1, "name": 1, "company_name": 1, "email": 1, "contact": 1, "city": 1, "created_at": 1}
+    ).to_list(500)
+    
+    retailer_ids = [r["id"] for r in retailers]
+    
+    # Get retailers with at least 1 invoice
+    retailers_with_invoices = await db.retailer_invoices.distinct(
+        "retailer_id",
+        {"retailer_id": {"$in": retailer_ids}}
+    )
+    retailers_with_invoices_set = set(retailers_with_invoices)
+    
+    # Filter to get only those WITHOUT invoices
+    pending_retailers = [
+        {
+            "id": r["id"],
+            "name": r.get("name", ""),
+            "company_name": r.get("company_name", ""),
+            "email": r.get("email", ""),
+            "contact": r.get("contact", ""),
+            "city": r.get("city", ""),
+            "created_at": r.get("created_at", "")
+        }
+        for r in retailers
+        if r["id"] not in retailers_with_invoices_set
+    ]
+    
+    # Sort by created_at descending (newest first)
+    pending_retailers.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    
+    return {
+        "count": len(pending_retailers),
+        "retailers": pending_retailers
     }
 
 

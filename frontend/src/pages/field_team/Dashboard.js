@@ -6,12 +6,13 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { 
   Users, TrendingUp, AlertTriangle, IndianRupee, 
   ChevronDown, ChevronUp, RefreshCw, Eye, Plus, 
   ShoppingCart, Calendar, X, Search, Menu, LogOut, User,
   DollarSign, Home, Truck, FileText, CreditCard, ClipboardList,
-  ChevronLeft, Pencil, Trash2, Check, Package, UserPlus, UserCheck, Activity, UserX
+  ChevronLeft, Pencil, Trash2, Check, Package, UserPlus, UserCheck, Activity, UserX, Clock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -63,6 +64,11 @@ export default function FieldTeamDashboard() {
   // ========== VIEW MODALS FOR AVG NET SALES & REJECTION % ==========
   const [showNetSalesModal, setShowNetSalesModal] = useState(false);
   const [showRejectionPctModal, setShowRejectionPctModal] = useState(false);
+  
+  // ========== PENDING TO GO LIVE MODAL ==========
+  const [showPendingToGoLiveModal, setShowPendingToGoLiveModal] = useState(false);
+  const [pendingToGoLiveRetailers, setPendingToGoLiveRetailers] = useState([]);
+  const [loadingPendingRetailers, setLoadingPendingRetailers] = useState(false);
   
   // ========== INDENTS MODAL ==========
   const [showIndentsModal, setShowIndentsModal] = useState(false);
@@ -225,6 +231,26 @@ export default function FieldTeamDashboard() {
     };
     loadInitialData();
   }, [fetchPortfolioData]);
+
+  // Load pending to go live retailers when modal opens
+  const loadPendingToGoLiveRetailers = useCallback(async () => {
+    setLoadingPendingRetailers(true);
+    try {
+      const response = await api.get('/api/field-team/pending-to-go-live');
+      setPendingToGoLiveRetailers(response.data.retailers || []);
+    } catch (error) {
+      console.error('Failed to load pending retailers:', error);
+      toast.error('Failed to load pending retailers');
+    } finally {
+      setLoadingPendingRetailers(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showPendingToGoLiveModal) {
+      loadPendingToGoLiveRetailers();
+    }
+  }, [showPendingToGoLiveModal, loadPendingToGoLiveRetailers]);
 
   // Refresh data
   const handleRefresh = async () => {
@@ -1097,6 +1123,14 @@ export default function FieldTeamDashboard() {
                   <div>
                     <p className="text-[9px] text-emerald-700 font-medium uppercase">Live Retailers</p>
                     <p className="text-base font-bold text-emerald-800">{portfolioSummary?.live_retailers || 0}</p>
+                    {(portfolioSummary?.pending_to_go_live || 0) > 0 && (
+                      <button 
+                        onClick={() => setShowPendingToGoLiveModal(true)}
+                        className="text-[9px] text-orange-600 hover:text-orange-800 hover:underline cursor-pointer"
+                      >
+                        {portfolioSummary.pending_to_go_live} Pending to go live →
+                      </button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -2035,6 +2069,70 @@ export default function FieldTeamDashboard() {
             </div>
           </div>
         )}
+
+        {/* Pending to Go Live Modal */}
+        <Dialog open={showPendingToGoLiveModal} onOpenChange={setShowPendingToGoLiveModal}>
+          <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-orange-700">
+                <Clock size={20} />
+                Pending to Go Live ({pendingToGoLiveRetailers.length})
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-500 mb-3">
+              Your assigned retailers who have not received their first invoice yet.
+            </p>
+            
+            {loadingPendingRetailers ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+              </div>
+            ) : pendingToGoLiveRetailers.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Activity size={48} className="mx-auto mb-2 text-green-500" />
+                <p>All your retailers are live!</p>
+              </div>
+            ) : (
+              <div className="overflow-y-auto flex-1">
+                <table className="w-full text-sm">
+                  <thead className="bg-orange-50 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left text-orange-700 font-medium">#</th>
+                      <th className="p-2 text-left text-orange-700 font-medium">Shop Name</th>
+                      <th className="p-2 text-left text-orange-700 font-medium">Contact</th>
+                      <th className="p-2 text-left text-orange-700 font-medium">Onboarded</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingToGoLiveRetailers.map((retailer, idx) => (
+                      <tr 
+                        key={retailer.id} 
+                        className="border-b hover:bg-orange-50 cursor-pointer"
+                        onClick={() => {
+                          setShowPendingToGoLiveModal(false);
+                          handleViewRetailer(retailer.id);
+                        }}
+                      >
+                        <td className="p-2 text-gray-500">{idx + 1}</td>
+                        <td className="p-2">
+                          <div className="font-medium">{retailer.company_name || retailer.name}</div>
+                          <div className="text-xs text-gray-500">{retailer.city || '-'}</div>
+                        </td>
+                        <td className="p-2 text-gray-600">{retailer.contact || '-'}</td>
+                        <td className="p-2 text-gray-600 text-xs">
+                          {retailer.created_at 
+                            ? new Date(retailer.created_at).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})
+                            : '-'
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

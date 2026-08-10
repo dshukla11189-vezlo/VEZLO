@@ -1138,11 +1138,8 @@ export default function LaborCosts() {
                           <th className="p-2 text-center font-medium text-gray-400 w-10">#</th>
                           <th className="p-2 w-6"></th>
                           <th className="p-2 text-left font-medium text-gray-500">LABOUR NAME</th>
-                          <th className="p-2 text-center font-medium text-gray-500">PRESENT</th>
-                          <th className="p-2 text-center font-medium text-gray-500">ABSENT</th>
-                          <th className="p-2 text-center font-medium text-gray-500">PAID LEAVES</th>
-                          <th className="p-2 text-center font-medium text-green-600">PAYABLE DAYS</th>
-                          <th className="p-2 text-center font-medium text-gray-500">OT (HRS)</th>
+                          <th className="p-2 text-center font-medium text-gray-500">DAYS PRESENT</th>
+                          <th className="p-2 text-center font-medium text-gray-500">OVERTIME (HRS)</th>
                           <th className="p-2 text-right font-medium text-gray-500">TOTAL PAYMENT</th>
                         </tr>
                       </thead>
@@ -1159,10 +1156,7 @@ export default function LaborCosts() {
                                 {expandedLabours[labour.labour_id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                               </td>
                               <td className="p-2 font-medium">{labour.labour_name}</td>
-                              <td className="p-2 text-center text-green-600">{labour.days_present}</td>
-                              <td className="p-2 text-center text-red-500">{labour.absent_days || 0}</td>
-                              <td className="p-2 text-center text-blue-600">{labour.paid_leave_days || 0}</td>
-                              <td className="p-2 text-center font-semibold text-green-700">{labour.total_payable_days || labour.days_present}</td>
+                              <td className="p-2 text-center">{labour.days_present}</td>
                               <td className="p-2 text-center text-orange-600">{labour.total_overtime_hours.toFixed(1)}</td>
                               <td className="p-2 text-right font-semibold text-green-700">₹{labour.total_payment.toLocaleString()}</td>
                             </tr>
@@ -1175,7 +1169,7 @@ export default function LaborCosts() {
                                   <td></td>
                                   <td></td>
                                   <td className="p-1 pl-4 text-[10px] font-medium text-blue-700">DATE</td>
-                                  <td colSpan="4" className="p-1 text-center text-[10px] font-medium text-blue-700">HOURS WORKED</td>
+                                  <td className="p-1 text-center text-[10px] font-medium text-blue-700">HOURS</td>
                                   <td className="p-1 text-center text-[10px] font-medium text-blue-700">OVERTIME</td>
                                   <td className="p-1 text-right text-[10px] font-medium text-blue-700">PAYMENT</td>
                                 </tr>
@@ -1192,7 +1186,7 @@ export default function LaborCosts() {
                                         <Calendar size={10} className="inline mr-1" />
                                         {formatDate(record.date)}
                                       </td>
-                                      <td colSpan="4" className="p-1 text-center">
+                                      <td className="p-1 text-center">
                                         {isEditing ? (
                                           <Input
                                             type="number"
@@ -2598,7 +2592,7 @@ export default function LaborCosts() {
                           <th className="p-2 text-left font-medium text-gray-500">BANK A/C</th>
                           <th className="p-2 text-left font-medium text-gray-500">IFSC</th>
                           <th 
-                            className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                            className="p-2 text-center font-medium text-green-600 cursor-pointer hover:bg-gray-100 select-none"
                             onClick={() => {
                               if (payrollSortField === 'days_present') {
                                 setPayrollSortOrder(payrollSortOrder === 'asc' ? 'desc' : 'asc');
@@ -2608,8 +2602,11 @@ export default function LaborCosts() {
                               }
                             }}
                           >
-                            DAYS {payrollSortField === 'days_present' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
+                            PRESENT {payrollSortField === 'days_present' && (payrollSortOrder === 'asc' ? '↑' : '↓')}
                           </th>
+                          <th className="p-2 text-center font-medium text-red-500">ABSENT</th>
+                          <th className="p-2 text-center font-medium text-blue-600">PAID LEAVES</th>
+                          <th className="p-2 text-center font-medium text-green-700 bg-green-50">PAYABLE DAYS</th>
                           <th 
                             className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
                             onClick={() => {
@@ -2694,7 +2691,10 @@ export default function LaborCosts() {
                               <td className="p-2 text-gray-600 font-mono text-[10px]">
                                 {labourDetails.ifsc_code || <span className="text-gray-400">-</span>}
                               </td>
-                              <td className="p-2 text-center">{lb.days_present}</td>
+                              <td className="p-2 text-center text-green-600">{lb.days_present}</td>
+                              <td className="p-2 text-center text-red-500">{lb.absent_days || 0}</td>
+                              <td className="p-2 text-center text-blue-600">{lb.paid_leave_days || 0}</td>
+                              <td className="p-2 text-center font-semibold text-green-700 bg-green-50">{lb.total_payable_days || lb.days_present}</td>
                               <td className="p-2 text-center text-orange-600">{(lb.total_overtime_hours || 0).toFixed(1)}</td>
                               <td className={`p-2 text-right font-medium ${isInactive ? 'text-red-700' : 'text-gray-700'}`}>
                                 ₹{(lb.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
@@ -2741,7 +2741,14 @@ export default function LaborCosts() {
                         })}
                         <tr className="bg-gray-100 font-semibold">
                           <td className="p-2" colSpan={4}>TOTAL</td>
-                          <td className="p-2 text-center">{payrollData.summary?.total_man_days || 0}</td>
+                          <td className="p-2 text-center text-green-600">{payrollData.summary?.total_man_days || 0}</td>
+                          <td className="p-2 text-center text-red-500">
+                            {payrollData.labour_breakdown?.reduce((sum, lb) => sum + (lb.absent_days || 0), 0) || 0}
+                          </td>
+                          <td className="p-2 text-center text-blue-600">{payrollData.summary?.total_paid_leave_days || 0}</td>
+                          <td className="p-2 text-center font-bold text-green-700 bg-green-50">
+                            {(payrollData.summary?.total_man_days || 0) + (payrollData.summary?.total_paid_leave_days || 0)}
+                          </td>
                           <td className="p-2 text-center text-orange-600">{(payrollData.summary?.total_overtime_hours || 0).toFixed(1)}</td>
                           <td className="p-2 text-right text-gray-700">
                             ₹{(payrollData.summary?.total_payment || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}

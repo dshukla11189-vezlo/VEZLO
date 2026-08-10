@@ -607,6 +607,12 @@ async def get_labour_costs_summary(
     
     Uses salary_history to apply correct rates for each date.
     """
+    # Calculate total days in the date range
+    from datetime import datetime as dt
+    start_dt = dt.strptime(from_date, "%Y-%m-%d")
+    end_dt = dt.strptime(to_date, "%Y-%m-%d")
+    total_month_days = (end_dt - start_dt).days + 1
+    
     # Get all attendance records in date range
     attendance = await db.labour_attendance.find(
         {"date": {"$gte": from_date, "$lte": to_date}},
@@ -773,7 +779,7 @@ async def get_labour_costs_summary(
     # Sort labour totals by total payment (descending)
     labour_list = sorted(labour_totals.values(), key=lambda x: x["total_payment"], reverse=True)
     
-    # Enrich labour_list with current rates and salary history
+    # Enrich labour_list with current rates, salary history, and absent days calculation
     for lb in labour_list:
         labourer = labour_map.get(lb["labour_id"]) or {}
         lb["current_daily_rate"] = labourer.get("default_daily_rate", 0)
@@ -781,6 +787,11 @@ async def get_labour_costs_summary(
         lb["monthly_salary"] = labourer.get("monthly_salary", 0)
         lb["salary_history"] = labourer.get("salary_history", [])
         lb["is_active"] = labourer.get("is_active", True)
+        # Calculate absent days = total days - present days - paid leave days
+        lb["total_month_days"] = total_month_days
+        lb["absent_days"] = total_month_days - lb["days_present"] - lb["paid_leave_days"]
+        # Total payable days = present + paid leave
+        lb["total_payable_days"] = lb["days_present"] + lb["paid_leave_days"]
     
     # Calculate grand totals
     grand_total_payment = sum(lb["total_payment"] for lb in labour_list)

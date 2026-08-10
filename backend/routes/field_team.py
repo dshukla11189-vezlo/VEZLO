@@ -267,10 +267,24 @@ async def get_field_team_portfolio_summary(
     active_count = sum(1 for r in retailers if r.get("status", "active") == "active")
     churned_count = len(retailers) - active_count
     
+    # Count live retailers (active + has at least 1 invoice)
+    # Get all retailer_ids that have at least one invoice
+    retailers_with_invoices = await db.retailer_invoices.distinct(
+        "retailer_id", 
+        {"retailer_id": {"$in": retailer_ids}}
+    )
+    retailers_with_invoices_set = set(retailers_with_invoices)
+    
+    live_count = sum(
+        1 for r in retailers 
+        if r.get("status", "active") == "active" and r["id"] in retailers_with_invoices_set
+    )
+    
     return {
         "field_team_id": field_team_id,
         "total_retailers": len(retailers),
         "active_retailers": active_count,
+        "live_retailers": live_count,
         "churned_retailers": churned_count,
         "summary": {
             "total_outstanding": round(total_outstanding, 2),

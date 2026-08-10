@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronUp, RefreshCw, Eye, Plus, 
   ShoppingCart, Calendar, X, Search, Menu, LogOut, User,
   DollarSign, Home, Truck, FileText, CreditCard, ClipboardList,
-  ChevronLeft, Pencil, Trash2, Check, Package
+  ChevronLeft, Pencil, Trash2, Check, Package, UserPlus, UserCheck, Activity, UserX
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -1058,21 +1058,67 @@ export default function FieldTeamDashboard() {
           </div>
 
           {/* Summary Cards Row */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <Card className="bg-white" data-testid="total-retailers-card">
-              <CardContent className="p-3">
+          {/* Retailer Breakdown Cards */}
+          <div className="grid grid-cols-4 gap-2 mb-3">
+            <Card className="bg-blue-50 border-blue-200" data-testid="total-retailers-card">
+              <CardContent className="p-2">
                 <div className="flex items-center gap-2">
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Users className="w-4 h-4 text-blue-600" />
+                  <div className="p-1.5 bg-blue-100 rounded">
+                    <UserPlus className="w-3 h-3 text-blue-600" />
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 uppercase">Retailers</p>
-                    <p className="text-lg font-bold">{portfolioSummary?.total_retailers || 0}</p>
+                    <p className="text-[9px] text-blue-700 font-medium uppercase">Total</p>
+                    <p className="text-base font-bold text-blue-800">{portfolioSummary?.total_retailers || 0}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
             
+            <Card className="bg-green-50 border-green-200" data-testid="active-retailers-card">
+              <CardContent className="p-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-green-100 rounded">
+                    <UserCheck className="w-3 h-3 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-green-700 font-medium uppercase">Active</p>
+                    <p className="text-base font-bold text-green-800">{portfolioSummary?.active_retailers || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-emerald-50 border-emerald-200" data-testid="live-retailers-card">
+              <CardContent className="p-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-emerald-100 rounded">
+                    <Activity className="w-3 h-3 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-emerald-700 font-medium uppercase">Live</p>
+                    <p className="text-base font-bold text-emerald-800">{portfolioSummary?.live_retailers || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-gray-50 border-gray-300" data-testid="churned-retailers-card">
+              <CardContent className="p-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-gray-200 rounded">
+                    <UserX className="w-3 h-3 text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-gray-600 font-medium uppercase">Churned</p>
+                    <p className="text-base font-bold text-gray-700">{portfolioSummary?.churned_retailers || 0}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Financial Summary Cards */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
             <Card className="bg-white" data-testid="immediately-payable-card">
               <CardContent className="p-3">
                 <div className="flex items-center gap-2">

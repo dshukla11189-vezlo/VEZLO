@@ -2,6 +2,22 @@
 
 ## Changelog (August 2026)
 
+### August 10, 2026 - Retailer Summary Cards for Admin & Field Team ✅
+- **User Management - Retailer Tab Summary Cards**:
+  - Added 4 summary cards when Retailer tab is selected:
+    - **Total Onboarded**: Total count of all retailers (31)
+    - **Active**: Retailers with status="active" (26)
+    - **Live**: Active retailers with at least 1 invoice (21)
+    - **Churned**: Retailers with status="churned" (5)
+  - New API endpoint: `GET /api/retailer-stats` returns all 4 counts
+  - **Files Changed**: `backend/routes/users.py`, `frontend/src/pages/admin/UserManagement.js`
+
+- **Field Team Dashboard - Retailer Breakdown**:
+  - Replaced single "Retailers" card with 4 breakdown cards: Total, Active, Live, Churned
+  - Financial cards (Immediately Payable, Overdue, Outstanding) now in separate row
+  - Backend returns `live_retailers` count in portfolio summary
+  - **Files Changed**: `backend/routes/field_team.py`, `frontend/src/pages/field_team/Dashboard.js`
+
 ### August 10, 2026 - OT Payment Display Fix + Summary Cards ✅
 - **OT Payment Display Fix (P0)**:
   - **FIXED**: OT Payment column in Payroll Details modal was showing blank (only ₹ symbol)

@@ -413,3 +413,51 @@ async def get_assignable_users(current_user: dict = Depends(get_current_user)):
     ).to_list(1000)
     
     return users
+
+
+
+@router.get("/retailer-stats")
+async def get_retailer_stats(current_user: dict = Depends(get_current_user)):
+    """
+    Get retailer summary statistics for admin dashboard.
+    Returns:
+    - total_onboarded: Total count of all retailers
+    - active_retailers: Retailers with status="active"
+    - live_retailers: Active retailers with at least 1 invoice
+    - churned_retailers: Retailers with status="churned"
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all retailers
+    retailers = await db.users.find(
+        {"role": "retailer"},
+        {"_id": 0, "id": 1, "status": 1}
+    ).to_list(10000)
+    
+    total_onboarded = len(retailers)
+    retailer_ids = [r["id"] for r in retailers]
+    
+    # Count active and churned
+    active_retailers = sum(1 for r in retailers if r.get("status", "active") == "active")
+    churned_retailers = sum(1 for r in retailers if r.get("status") == "churned")
+    
+    # Get retailers with at least 1 invoice (for live count)
+    retailers_with_invoices = await db.retailer_invoices.distinct(
+        "retailer_id",
+        {"retailer_id": {"$in": retailer_ids}}
+    )
+    retailers_with_invoices_set = set(retailers_with_invoices)
+    
+    # Live = active + has invoice
+    live_retailers = sum(
+        1 for r in retailers
+        if r.get("status", "active") == "active" and r["id"] in retailers_with_invoices_set
+    )
+    
+    return {
+        "total_onboarded": total_onboarded,
+        "active_retailers": active_retailers,
+        "live_retailers": live_retailers,
+        "churned_retailers": churned_retailers
+    }

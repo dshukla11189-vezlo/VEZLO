@@ -9,7 +9,8 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { 
   Users, Plus, Edit, Trash2, Shield, UserCheck, Store, 
-  Search, Eye, EyeOff, Mail, Phone, X, MapPin, ChevronDown, ChevronUp
+  Search, Eye, EyeOff, Mail, Phone, X, MapPin, ChevronDown, ChevronUp,
+  UserPlus, UserCheck2, Activity, UserX
 } from 'lucide-react';
 
 const ROLE_CONFIG = {
@@ -55,6 +56,7 @@ export default function UserManagement() {
   
   const [assignableUsers, setAssignableUsers] = useState([]);
   const [expandedRows, setExpandedRows] = useState({});  // Track which rows are expanded
+  const [retailerStats, setRetailerStats] = useState(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -78,10 +80,20 @@ export default function UserManagement() {
     }
   }, []);
 
+  const loadRetailerStats = useCallback(async () => {
+    try {
+      const response = await api.get('/api/retailer-stats');
+      setRetailerStats(response.data);
+    } catch (error) {
+      console.error('Failed to load retailer stats:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadUsers();
     loadAssignableUsers();
-  }, [loadUsers, loadAssignableUsers]);
+    loadRetailerStats();
+  }, [loadUsers, loadAssignableUsers, loadRetailerStats]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -320,6 +332,68 @@ export default function UserManagement() {
             </Button>
           ))}
         </div>
+
+        {/* Retailer Summary Cards - Only show when Retailer tab is active */}
+        {filterRole === 'retailer' && retailerStats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <Card className="bg-blue-50 border-blue-200">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <UserPlus className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-blue-700 font-medium uppercase">Total Onboarded</p>
+                    <p className="text-xl font-bold text-blue-800">{retailerStats.total_onboarded}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-green-50 border-green-200">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <UserCheck2 className="w-4 h-4 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-green-700 font-medium uppercase">Active</p>
+                    <p className="text-xl font-bold text-green-800">{retailerStats.active_retailers}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-emerald-50 border-emerald-200">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-100 rounded-lg">
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-emerald-700 font-medium uppercase">Live</p>
+                    <p className="text-xl font-bold text-emerald-800">{retailerStats.live_retailers}</p>
+                    <p className="text-[9px] text-emerald-600">Active + Has Invoice</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="bg-gray-50 border-gray-300">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-gray-200 rounded-lg">
+                    <UserX className="w-4 h-4 text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-600 font-medium uppercase">Churned</p>
+                    <p className="text-xl font-bold text-gray-700">{retailerStats.churned_retailers}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative mb-4">

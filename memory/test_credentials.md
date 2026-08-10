@@ -40,6 +40,7 @@
 | Narang Super Mart | Narangsupermart@gmail.com |
 
 ## Notes
+- **August 10, 2026**: Reset Field Team passwords to 'fieldteam123' for all 3 field team users
 - **August 3, 2026**: Fixed Field Team backend queries to use `assigned_to` array instead of Staff model
 - **August 1, 2026**: Field Team Dashboard implemented. Ayaz has 1 retailer assigned (Tamanna Mart)
 - **July 13, 2026**: Retailer passwords set to 'retailer123' for Tamanna Mart and Bagwan

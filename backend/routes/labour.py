@@ -653,15 +653,29 @@ async def get_labour_costs_summary(
             daily_totals[date] = {
                 "date": date,
                 "total_present": 0,
+                "total_paid_leave": 0,
                 "total_overtime_hours": 0,
                 "total_payment": 0,
+                "total_regular_payment": 0,
+                "total_ot_payment": 0,
                 "records": []
             }
         
-        if record.get("present"):
+        is_present = record.get("present", False)
+        is_paid_leave = record.get("paid_leave", False)
+        
+        if is_present:
             daily_totals[date]["total_present"] += 1
             daily_totals[date]["total_overtime_hours"] += overtime_hours
             daily_totals[date]["total_payment"] += effective_payment
+            daily_totals[date]["total_regular_payment"] += regular_payment
+            daily_totals[date]["total_ot_payment"] += ot_payment
+            daily_totals[date]["records"].append(record)
+        elif is_paid_leave:
+            # Paid leave - count as paid but not present
+            daily_totals[date]["total_paid_leave"] += 1
+            daily_totals[date]["total_payment"] += regular_payment  # Full day rate for paid leave
+            daily_totals[date]["total_regular_payment"] += regular_payment
             daily_totals[date]["records"].append(record)
         
         # Labour totals
@@ -670,8 +684,11 @@ async def get_labour_costs_summary(
                 "labour_id": labour_id,
                 "labour_name": labour_name,
                 "days_present": 0,
+                "paid_leave_days": 0,
                 "total_overtime_hours": 0,
                 "total_payment": 0,
+                "total_regular_payment": 0,
+                "total_ot_payment": 0,
                 "retail_hours": 0,
                 "qc_hours": 0,
                 "retail_ot_hours": 0,
@@ -681,10 +698,12 @@ async def get_labour_costs_summary(
                 "is_active": labourer.get("is_active", True)
             }
         
-        if record.get("present"):
+        if is_present:
             labour_totals[labour_id]["days_present"] += 1
             labour_totals[labour_id]["total_overtime_hours"] += overtime_hours
             labour_totals[labour_id]["total_payment"] += effective_payment
+            labour_totals[labour_id]["total_regular_payment"] += regular_payment
+            labour_totals[labour_id]["total_ot_payment"] += ot_payment
             
             # Add vertical hours and payment
             rec_retail_hours = record.get("retail_hours", 0) or 0
@@ -716,6 +735,13 @@ async def get_labour_costs_summary(
             if total_ot > 0:
                 labour_totals[labour_id]["retail_payment"] += rec_retail_ot * date_ot_rate
                 labour_totals[labour_id]["qc_payment"] += rec_qc_ot * date_ot_rate
+        elif is_paid_leave:
+            # Paid leave - add to payment but track separately
+            labour_totals[labour_id]["paid_leave_days"] += 1
+            labour_totals[labour_id]["total_payment"] += regular_payment
+            labour_totals[labour_id]["total_regular_payment"] += regular_payment
+            # Paid leave defaults to retail vertical
+            labour_totals[labour_id]["retail_payment"] += regular_payment
     
     # Get all labour payments for this date range
     all_payments = await db.labour_payments.find({
@@ -759,8 +785,11 @@ async def get_labour_costs_summary(
     # Calculate grand totals
     grand_total_payment = sum(lb["total_payment"] for lb in labour_list)
     grand_total_paid = sum(lb.get("total_paid", 0) for lb in labour_list)
+    grand_total_regular = sum(lb.get("total_regular_payment", 0) for lb in labour_list)
+    grand_total_ot = sum(lb.get("total_ot_payment", 0) for lb in labour_list)
     total_days = len(daily_list)
     total_man_days = sum(d["total_present"] for d in daily_list)
+    total_paid_leave_days = sum(d.get("total_paid_leave", 0) for d in daily_list)
     total_overtime_hours = sum(d["total_overtime_hours"] for d in daily_list)
     
     # Vertical totals
@@ -776,10 +805,13 @@ async def get_labour_costs_summary(
         "to_date": to_date,
         "summary": {
             "total_payment": grand_total_payment,
+            "total_regular_payment": round(grand_total_regular, 2),
+            "total_ot_payment": round(grand_total_ot, 2),
             "total_paid": grand_total_paid,
             "net_payable": grand_total_payment - grand_total_paid,
             "total_days": total_days,
             "total_man_days": total_man_days,
+            "total_paid_leave_days": total_paid_leave_days,
             "total_overtime_hours": total_overtime_hours,
             "daily_avg_cost": grand_total_payment / total_days if total_days > 0 else 0,
             # Vertical breakdown
@@ -860,62 +892,78 @@ async def get_labour_payroll_detail(
     total_paid_leave_payment = 0
     
     for record in attendance:
-        if not record.get("present"):
+        is_present = record.get("present", False)
+        is_paid_leave = record.get("paid_leave", False)
+        
+        # Skip if neither present nor paid leave
+        if not is_present and not is_paid_leave:
             continue
         
-        days_present += 1
         date = record.get("date", "")[:10]  # Ensure YYYY-MM-DD format
-        working_hours = record.get("working_hours", 9) or 9
-        overtime_hours = record.get("overtime_hours", 0) or 0
-        is_paid_leave = record.get("paid_leave", False)
         
         # Get the applicable rate for this specific date using salary history
         applicable_rate = get_rate_for_date(labourer, date)
         date_daily_rate = applicable_rate["daily_rate"]
         date_ot_rate = applicable_rate["overtime_rate"]
         
-        # Calculate regular payment (daily rate)
-        regular_payment = date_daily_rate
+        if is_present:
+            days_present += 1
+            working_hours = record.get("working_hours", 9) or 9
+            overtime_hours = record.get("overtime_hours", 0) or 0
+            
+            # Calculate regular payment (daily rate)
+            regular_payment = date_daily_rate
+            
+            # Calculate OT payment
+            ot_payment = overtime_hours * date_ot_rate
+            
+            # Total for this day = regular + OT
+            day_total = regular_payment + ot_payment
+            
+            total_working_hours += working_hours
+            total_overtime_hours += overtime_hours
+            total_regular_payment += regular_payment
+            total_overtime_payment += ot_payment
+            
+            day_record = {
+                "date": date,
+                "working_hours": working_hours,
+                "overtime_hours": overtime_hours,
+                "daily_rate": regular_payment,
+                "overtime_rate": date_ot_rate,
+                "regular_payment": regular_payment,
+                "overtime_payment": ot_payment,
+                "total_payment": day_total,
+                "is_paid_leave": False,
+                "is_under_9_hours": working_hours < 9
+            }
+            daily_records.append(day_record)
+            
+            # Track anomalies
+            if working_hours < 9:
+                days_under_9_hours.append(date)
+            if overtime_hours > 0:
+                days_with_overtime.append({"date": date, "hours": overtime_hours})
         
-        # Calculate OT payment
-        ot_payment = overtime_hours * date_ot_rate
-        
-        # Total for this day = regular + OT
-        day_total = regular_payment + ot_payment
-        
-        total_working_hours += working_hours
-        total_overtime_hours += overtime_hours
-        total_regular_payment += regular_payment
-        total_overtime_payment += ot_payment
-        
-        day_record = {
-            "date": date,
-            "working_hours": working_hours,
-            "overtime_hours": overtime_hours,
-            "daily_rate": regular_payment,
-            "overtime_rate": date_ot_rate,
-            "regular_payment": regular_payment,
-            "overtime_payment": ot_payment,
-            "total_payment": day_total,
-            "is_paid_leave": is_paid_leave,
-            "is_under_9_hours": working_hours < 9
-        }
-        daily_records.append(day_record)
-        
-        # Track anomalies
-        if working_hours < 9 and working_hours > 0:
-            days_under_9_hours.append({"date": date, "hours": working_hours})
-        
-        if overtime_hours > 0:
-            days_with_overtime.append({
-                "date": date, 
-                "hours": overtime_hours,
-                "payment": ot_payment
-            })
-        
-        if is_paid_leave:
-            paid_leave_days.append({"date": date, "payment": regular_payment})
-            total_paid_leave_payment += regular_payment
+        elif is_paid_leave:
+            # Paid leave - gets full daily rate
+            total_paid_leave_payment += date_daily_rate
+            total_regular_payment += date_daily_rate
+            paid_leave_days.append(date)
+            
+            day_record = {
+                "date": date,
+                "working_hours": 0,
+                "overtime_hours": 0,
+                "daily_rate": date_daily_rate,
+                "overtime_rate": date_ot_rate,
+                "regular_payment": date_daily_rate,
+                "overtime_payment": 0,
+                "total_payment": date_daily_rate,
+                "is_paid_leave": True,
+                "is_under_9_hours": False
+            }
+            daily_records.append(day_record)
     
     # Get current rates (for display in return)
     current_daily_rate = labourer.get("default_daily_rate", 0) or 0
@@ -934,6 +982,7 @@ async def get_labour_payroll_detail(
         "to_date": to_date,
         "summary": {
             "days_present": days_present,
+            "paid_leave_days": len(paid_leave_days),
             "total_working_hours": total_working_hours,
             "total_overtime_hours": total_overtime_hours,
             "total_regular_payment": total_regular_payment,

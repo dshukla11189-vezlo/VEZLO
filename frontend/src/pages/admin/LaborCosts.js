@@ -2451,7 +2451,7 @@ export default function LaborCosts() {
 
             {/* Summary Cards */}
             {payrollData && payrollData.summary && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
                   <CardContent className="p-3">
                     <div className="flex items-center gap-2">
@@ -2462,6 +2462,38 @@ export default function LaborCosts() {
                         <p className="text-[10px] text-green-800 font-medium uppercase">Total Payroll</p>
                         <p className="text-lg font-bold text-green-900">
                           ₹{(payrollData.summary.total_payment || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-indigo-600 rounded-lg">
+                        <DollarSign className="text-white" size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-indigo-800 font-medium uppercase">Regular Salary</p>
+                        <p className="text-lg font-bold text-indigo-900">
+                          ₹{(payrollData.summary.total_regular_payment || 0).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-orange-600 rounded-lg">
+                        <Clock className="text-white" size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-orange-800 font-medium uppercase">OT Amount</p>
+                        <p className="text-lg font-bold text-orange-900">
+                          ₹{(payrollData.summary.total_ot_payment || 0).toLocaleString('en-IN')}
                         </p>
                       </div>
                     </div>
@@ -2490,21 +2522,26 @@ export default function LaborCosts() {
                       </div>
                       <div>
                         <p className="text-[10px] text-purple-800 font-medium uppercase">Man Days</p>
-                        <p className="text-lg font-bold text-purple-900">{payrollData.summary.total_man_days || 0}</p>
+                        <p className="text-lg font-bold text-purple-900">
+                          {payrollData.summary.total_man_days || 0}
+                          {payrollData.summary.total_paid_leave_days > 0 && (
+                            <span className="text-xs text-purple-600 ml-1">(+{payrollData.summary.total_paid_leave_days} PL)</span>
+                          )}
+                        </p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+                <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
                   <CardContent className="p-3">
                     <div className="flex items-center gap-2">
-                      <div className="p-2 bg-orange-600 rounded-lg">
+                      <div className="p-2 bg-amber-600 rounded-lg">
                         <Clock className="text-white" size={16} />
                       </div>
                       <div>
-                        <p className="text-[10px] text-orange-800 font-medium uppercase">OT Hours</p>
-                        <p className="text-lg font-bold text-orange-900">{(payrollData.summary.total_overtime_hours || 0).toFixed(1)}</p>
+                        <p className="text-[10px] text-amber-800 font-medium uppercase">OT Hours</p>
+                        <p className="text-lg font-bold text-amber-900">{(payrollData.summary.total_overtime_hours || 0).toFixed(1)}</p>
                       </div>
                     </div>
                   </CardContent>

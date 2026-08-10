@@ -2,6 +2,21 @@
 
 ## Changelog (August 2026)
 
+### August 10, 2026 - Paid Leave in Payroll + Summary Cards Split ✅
+- **Paid Leave Payment Fix**:
+  - Backend now properly includes paid leave days in payroll calculations
+  - Records with `present: false` AND `paid_leave: true` get full daily rate
+  - Added `paid_leave_days` tracking in summary and breakdown
+  - Payroll detail endpoint shows paid leave days separately
+  - **Files Changed**: `backend/routes/labour.py`
+
+- **Summary Cards - Regular vs OT Split**:
+  - Payroll Processing tab now shows 6 summary cards (was 4)
+  - New cards: **Regular Salary** (total daily rates) and **OT Amount** (total overtime payment)
+  - Man Days card now shows paid leave count: "189 (+2 PL)"
+  - Helps quickly understand salary composition
+  - **Files Changed**: `frontend/src/pages/admin/LaborCosts.js`
+
 ### August 9, 2026 - Salary Revision History + Monthly Salary + Sorting/Search ✅
 - **P0 - Salary Revision History Tracking**:
   - Added `salary_history` array to labourers collection tracking rate changes with effective dates

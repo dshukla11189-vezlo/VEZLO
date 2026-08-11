@@ -7902,6 +7902,13 @@ async def generate_single_auto_indent(
         is_field_team = current_user.get("role") == "field_team"
         generated_by = "Field Team" if is_field_team else "Admin"
         
+        # Get the user's name from database
+        user_info = await db.users.find_one(
+            {"id": current_user.get("user_id")},
+            {"_id": 0, "name": 1}
+        )
+        generated_by_name = user_info.get("name", "") if user_info else ""
+        
         base_remarks = f"Auto-generated based on {len(same_weekday_invoices)} weeks of {weekday_names[target_weekday]} invoice data"
         if has_closing_data:
             base_remarks += f" (Closing: {yesterday_str})"
@@ -7924,7 +7931,7 @@ async def generate_single_auto_indent(
             "generation_basis": "sales",  # Historical sales based
             "generated_by": generated_by,  # Track who generated (Field Team or Admin)
             "generated_by_user_id": current_user.get("user_id"),
-            "generated_by_name": current_user.get("name", ""),
+            "generated_by_name": generated_by_name,
             "closing_date_used": yesterday_str if has_closing_data else None,
             "dispatch_adjustment_applied": dispatch_adjustment_applied,
             "last_closing_time": last_closing_time if has_closing_data else None,

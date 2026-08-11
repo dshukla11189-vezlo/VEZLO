@@ -17,8 +17,8 @@ async def generate_single_auto_indent(
     current_user: dict = Depends(get_current_user)
 ):
     """Generate auto-indent for a single retailer for a specific date"""
-    if current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Only admin can generate auto indents")
+    if current_user["role"] not in ["admin", "staff", "field_team"]:
+        raise HTTPException(status_code=403, detail="Only admin, staff, or field team can generate auto indents")
     
     retailer_id = request.get("retailer_id")
     target_date_str = request.get("target_date")

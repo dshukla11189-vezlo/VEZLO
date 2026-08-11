@@ -12,7 +12,7 @@ import {
   ChevronDown, ChevronUp, RefreshCw, Eye, Plus, 
   ShoppingCart, Calendar, X, Search, Menu, LogOut, User,
   DollarSign, Home, Truck, FileText, CreditCard, ClipboardList,
-  ChevronLeft, Pencil, Trash2, Check, Package, UserPlus, UserCheck, Activity, UserX, Clock
+  ChevronLeft, Pencil, Trash2, Check, Package, UserPlus, UserCheck, Activity, UserX, Clock, Zap
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -69,6 +69,12 @@ export default function FieldTeamDashboard() {
   const [showPendingToGoLiveModal, setShowPendingToGoLiveModal] = useState(false);
   const [pendingToGoLiveRetailers, setPendingToGoLiveRetailers] = useState([]);
   const [loadingPendingRetailers, setLoadingPendingRetailers] = useState(false);
+  
+  // ========== AUTO INDENT MODAL ==========
+  const [showAutoIndentModal, setShowAutoIndentModal] = useState(false);
+  const [autoIndentRetailer, setAutoIndentRetailer] = useState(null);
+  const [autoIndentDate, setAutoIndentDate] = useState('');
+  const [autoIndentLoading, setAutoIndentLoading] = useState(false);
   
   // ========== INDENTS MODAL ==========
   const [showIndentsModal, setShowIndentsModal] = useState(false);
@@ -268,6 +274,49 @@ export default function FieldTeamDashboard() {
   // Go back to cumulative view
   const handleBackToPortfolio = () => {
     setViewMode('cumulative');
+  };
+
+  // Open Auto Indent modal
+  const handleOpenAutoIndent = (retailer) => {
+    setAutoIndentRetailer(retailer);
+    // Default to tomorrow's date
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    setAutoIndentDate(tomorrow.toISOString().split('T')[0]);
+    setShowAutoIndentModal(true);
+  };
+
+  // Generate Auto Indent
+  const handleGenerateAutoIndent = async () => {
+    if (!autoIndentRetailer || !autoIndentDate) {
+      toast.error('Please select a date');
+      return;
+    }
+
+    setAutoIndentLoading(true);
+    try {
+      const response = await api.post('/api/admin/generate-auto-indent', {
+        retailer_id: autoIndentRetailer.retailer_id,
+        date: autoIndentDate,
+        method: 'historical',  // Always use historical method
+        boost_percent: 0       // No boost for field team
+      });
+
+      if (response.data.indent_id) {
+        toast.success(`Indent generated for ${autoIndentRetailer.retailer_name} with ${response.data.items_count || 0} items`);
+        setShowAutoIndentModal(false);
+        setAutoIndentRetailer(null);
+        // Refresh portfolio data to show updated indent count
+        await fetchPortfolioData();
+      } else if (response.data.message) {
+        toast.info(response.data.message);
+      }
+    } catch (error) {
+      console.error('Auto indent error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to generate indent');
+    } finally {
+      setAutoIndentLoading(false);
+    }
   };
 
   // Filter retailers by search term
@@ -1509,18 +1558,33 @@ export default function FieldTeamDashboard() {
                         </div>
                       </div>
                       
-                      <Button
-                        size="sm"
-                        className="bg-[#14532D] hover:bg-[#166534]"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewRetailer(retailer.retailer_id);
-                        }}
-                        data-testid={`view-retailer-${retailer.retailer_id}`}
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        View Full Dashboard
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenAutoIndent(retailer);
+                          }}
+                          data-testid={`auto-indent-${retailer.retailer_id}`}
+                        >
+                          <Zap className="w-4 h-4 mr-1" />
+                          Auto Indent
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-[#14532D] hover:bg-[#166534]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewRetailer(retailer.retailer_id);
+                          }}
+                          data-testid={`view-retailer-${retailer.retailer_id}`}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          View Dashboard
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </Card>
@@ -2129,6 +2193,82 @@ export default function FieldTeamDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* ==================== AUTO INDENT MODAL ==================== */}
+        <Dialog open={showAutoIndentModal} onOpenChange={setShowAutoIndentModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-orange-700">
+                <Zap size={20} />
+                Auto Indent Generation
+              </DialogTitle>
+            </DialogHeader>
+            
+            {autoIndentRetailer && (
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-600">Retailer</p>
+                  <p className="font-semibold text-lg">{autoIndentRetailer.retailer_name}</p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Select Date for Indent
+                  </label>
+                  <Input
+                    type="date"
+                    value={autoIndentDate}
+                    onChange={(e) => setAutoIndentDate(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <Calendar className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-blue-800">Historical Sales Method</p>
+                      <p className="text-sm text-blue-600 mt-1">
+                        Indent will be generated based on the average of the last 4 same weekdays 
+                        from historical sales data.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowAutoIndentModal(false);
+                      setAutoIndentRetailer(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="flex-1 bg-orange-600 hover:bg-orange-700"
+                    onClick={handleGenerateAutoIndent}
+                    disabled={autoIndentLoading || !autoIndentDate}
+                  >
+                    {autoIndentLoading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 mr-1" />
+                        Generate Indent
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
           </DialogContent>

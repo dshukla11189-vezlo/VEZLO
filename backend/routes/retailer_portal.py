@@ -1224,8 +1224,12 @@ async def get_retailer_rejections(
         rejection_dates = list(set(r.get("rejection_date", "")[:10] for r in rejections if r.get("rejection_date")))
         
         # Build daily_cogs_map: (product_name, date) -> cogs_price
+        # Also build a latest_cogs_map for carry-forward: product_name -> (cogs_price, date)
         daily_cogs_map = {}
+        latest_cogs_map = {}  # product_name -> {"cogs": value, "date": date}
+        
         if rejection_dates:
+            # Get COGS for exact dates
             daily_cogs_docs = await db.daily_cogs.find(
                 {"date": {"$in": rejection_dates}},
                 {"_id": 0, "product_name": 1, "date": 1, "daily_cogs": 1}
@@ -1233,6 +1237,25 @@ async def get_retailer_rejections(
             for doc in daily_cogs_docs:
                 key = (doc.get("product_name", ""), doc.get("date", ""))
                 daily_cogs_map[key] = doc.get("daily_cogs", 0) or 0
+            
+            # Get latest COGS for each product (for carry-forward when exact date not available)
+            # Get the most recent COGS per product from all dates up to max rejection date
+            max_rej_date = max(rejection_dates)
+            latest_cogs_pipeline = [
+                {"$match": {"date": {"$lte": max_rej_date}}},
+                {"$sort": {"date": -1}},
+                {"$group": {
+                    "_id": "$product_name",
+                    "latest_cogs": {"$first": "$daily_cogs"},
+                    "latest_date": {"$first": "$date"}
+                }}
+            ]
+            latest_cogs_docs = await db.daily_cogs.aggregate(latest_cogs_pipeline).to_list(1000)
+            for doc in latest_cogs_docs:
+                latest_cogs_map[doc.get("_id", "")] = {
+                    "cogs": doc.get("latest_cogs", 0) or 0,
+                    "date": doc.get("latest_date", "")
+                }
         
         # Calculate rejection_cogs for each rejection
         for rejection in rejections:
@@ -1257,6 +1280,15 @@ async def get_retailer_rejections(
             if cogs_price_per_kg == 0 and lookup_product != product_name:
                 daily_cogs_key = (product_name, rej_date)
                 cogs_price_per_kg = daily_cogs_map.get(daily_cogs_key, 0)
+            
+            # CARRY-FORWARD: If no exact date match, use the most recent COGS for this product
+            if cogs_price_per_kg == 0:
+                # Try with lookup_product first
+                if lookup_product in latest_cogs_map:
+                    cogs_price_per_kg = latest_cogs_map[lookup_product].get("cogs", 0)
+                # Try original product name
+                elif product_name in latest_cogs_map:
+                    cogs_price_per_kg = latest_cogs_map[product_name].get("cogs", 0)
             
             # Calculate COGS value
             rejection["rejection_cogs"] = round(kg_rejected * cogs_price_per_kg, 2)

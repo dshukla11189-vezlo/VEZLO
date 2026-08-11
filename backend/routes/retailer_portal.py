@@ -10282,21 +10282,31 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
             
             if product_id and variant_id and mrp > 0:
                 key = f"{product_id}_{variant_id}"
-                # Only insert if NOT already in mrp_lookup with a positive value
-                if key not in mrp_lookup or mrp_lookup[key].get("mrp", 0) <= 0:
-                    mrp_data = {
-                        "mrp": mrp,
-                        "date": dispatch_date,
-                        "product_name": item.get("product_name", ""),
-                        "variant_name": item.get("variant_name", ""),
-                        "source": "dispatch"
-                    }
+                mrp_data = {
+                    "mrp": mrp,
+                    "date": dispatch_date,
+                    "product_name": item.get("product_name", ""),
+                    "variant_name": item.get("variant_name", ""),
+                    "source": "dispatch"
+                }
+                
+                # Prefer dispatch data if: no existing entry, existing MRP is 0, 
+                # OR dispatch date is >= existing date (dispatch is authoritative source of truth)
+                existing = mrp_lookup.get(key)
+                should_update = (
+                    not existing or 
+                    existing.get("mrp", 0) <= 0 or
+                    dispatch_date >= existing.get("date", "")
+                )
+                
+                if should_update:
                     mrp_lookup[key] = mrp_data
                     dispatch_mrp_count += 1
                     # Dual-key insertion for Piece/Packet products
                     if product_id in piece_products:
                         piece_key = f"{product_id}_{piece_products[product_id]}"
-                        if piece_key not in mrp_lookup or mrp_lookup[piece_key].get("mrp", 0) <= 0:
+                        existing_piece = mrp_lookup.get(piece_key)
+                        if not existing_piece or existing_piece.get("mrp", 0) <= 0 or dispatch_date >= existing_piece.get("date", ""):
                             mrp_lookup[piece_key] = mrp_data
     
     # Global dispatch fallback for new retailers with no dispatch history
@@ -10317,19 +10327,29 @@ async def get_retailer_catalogue_mrp(current_user: dict = Depends(get_current_us
 
                 if product_id and variant_id and mrp > 0:
                     key = f"{product_id}_{variant_id}"
-                    if key not in mrp_lookup or mrp_lookup[key].get("mrp", 0) <= 0:
-                        mrp_data = {
-                            "mrp": mrp,
-                            "date": dispatch_date,
-                            "product_name": item.get("product_name", ""),
-                            "variant_name": item.get("variant_name", ""),
-                            "source": "global_dispatch"
-                        }
+                    mrp_data = {
+                        "mrp": mrp,
+                        "date": dispatch_date,
+                        "product_name": item.get("product_name", ""),
+                        "variant_name": item.get("variant_name", ""),
+                        "source": "global_dispatch"
+                    }
+                    
+                    # Prefer dispatch data for same or newer date
+                    existing = mrp_lookup.get(key)
+                    should_update = (
+                        not existing or 
+                        existing.get("mrp", 0) <= 0 or
+                        dispatch_date >= existing.get("date", "")
+                    )
+                    
+                    if should_update:
                         mrp_lookup[key] = mrp_data
                         global_mrp_count += 1
                         if product_id in piece_products:
                             piece_key = f"{product_id}_{piece_products[product_id]}"
-                            if piece_key not in mrp_lookup or mrp_lookup[piece_key].get("mrp", 0) <= 0:
+                            existing_piece = mrp_lookup.get(piece_key)
+                            if not existing_piece or existing_piece.get("mrp", 0) <= 0 or dispatch_date >= existing_piece.get("date", ""):
                                 mrp_lookup[piece_key] = mrp_data
     
     return {

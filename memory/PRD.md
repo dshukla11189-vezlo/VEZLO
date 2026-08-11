@@ -2,6 +2,30 @@
 
 ## Changelog (August 2026)
 
+
+### August 11, 2026 - Retailer Catalogue MRP Sync & Variant Display Fix ✅
+- **P0 - MRP Sync Issue Fixed**:
+  - **Problem**: Retailer catalogue was showing outdated MRP (e.g., Onion 500gm showing ₹15 instead of ₹18)
+  - **Root Cause**: Backend prioritized stale `daily_mrp` data over recent dispatch data even when dates were equal
+  - **Solution**: Modified `/api/retailer-catalogue/mrp` endpoint to prefer dispatch MRP when dates are >= daily_mrp date
+  - **Logic Change**: Dispatch data (actual charged prices) now takes precedence as authoritative source of truth
+  - **Files Changed**: `backend/routes/retailer_portal.py` (lines 10276-10350)
+
+- **P0 - Variant UUID Display Issue Fixed**:
+  - **Problem**: Some product variants (like Ginger) were displaying raw UUIDs instead of human-readable names
+  - **Root Cause**: `getVariantName` returned raw variantId when not found in packagings, and `resolveVariantName` didn't use mrpData as fallback
+  - **Solution**: Enhanced both functions to:
+    1. Accept optional `productId` parameter
+    2. Use `mrpData` as fallback source for variant names when packagings lookup fails
+    3. Return empty string or 'Kg' default instead of raw UUIDs
+  - **Files Changed**: `frontend/src/pages/retailer/Dashboard.js` (lines 1302-1370, plus ~10 call sites updated)
+
+- **Technical Details**:
+  - Backend: Changed date comparison from `>` to `>=` so dispatch data wins on same day
+  - Frontend: Added mrpData fallback in variant resolution chain: packagings → mrpData → graceful fallback
+  - Both fixes ensure retailers see correct prices and readable variant names when ordering
+
+
 ### August 10, 2026 - Retailer Summary Cards Enhancement ✅
 - **Retailer Orders Page - Summary Cards Added**:
   - Added 4 retailer summary cards below the existing dashboard cards

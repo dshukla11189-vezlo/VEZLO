@@ -1298,8 +1298,8 @@ export default function RetailerDashboard({
     }
   };
 
-  // Get variant name from ID
-  const getVariantName = (variantId) => {
+  // Get variant name from ID - with mrpData fallback
+  const getVariantName = (variantId, productId = null) => {
     // Handle unit-based variants (Piece/Packet)
     if (variantId && variantId.startsWith('unit_')) {
       const unitName = variantId.replace('unit_', '');
@@ -1307,28 +1307,67 @@ export default function RetailerDashboard({
     }
     // Regular packaging variant
     const variant = packagings.find(v => v.id === variantId);
-    return variant ? variant.name : variantId;
+    if (variant) return variant.name;
+    
+    // Fallback: Check mrpData for variant_name (if productId is provided)
+    if (productId && variantId) {
+      const key = `${productId}_${variantId}`;
+      const mrpEntry = mrpData[key];
+      if (mrpEntry?.variant_name && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mrpEntry.variant_name)) {
+        return mrpEntry.variant_name;
+      }
+    }
+    
+    // If variantId is a UUID and we couldn't resolve it, return empty string instead of raw UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (variantId && uuidRegex.test(variantId)) {
+      return ''; // Don't show raw UUIDs
+    }
+    
+    return variantId || '';
   };
   
   // Helper to resolve variant name - handles legacy UUIDs stored as variant_name
-  const resolveVariantName = (variantName, variantId) => {
-    // If variant_name is a UUID pattern, look it up from packagings
+  const resolveVariantName = (variantName, variantId, productId = null) => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     
     // First check if variant_name itself is a UUID (legacy data issue)
     if (variantName && uuidRegex.test(variantName)) {
       const pkg = packagings.find(p => p.id === variantName);
       if (pkg) return pkg.name;
+      
+      // Try mrpData as fallback
+      if (productId && variantName) {
+        const key = `${productId}_${variantName}`;
+        const mrpEntry = mrpData[key];
+        if (mrpEntry?.variant_name && !uuidRegex.test(mrpEntry.variant_name)) {
+          return mrpEntry.variant_name;
+        }
+      }
     }
     
     // If variant_id is available, try to resolve from that
     if (variantId && uuidRegex.test(variantId)) {
       const pkg = packagings.find(p => p.id === variantId);
       if (pkg) return pkg.name;
+      
+      // Try mrpData as fallback
+      if (productId) {
+        const key = `${productId}_${variantId}`;
+        const mrpEntry = mrpData[key];
+        if (mrpEntry?.variant_name && !uuidRegex.test(mrpEntry.variant_name)) {
+          return mrpEntry.variant_name;
+        }
+      }
     }
     
-    // Return original name or look up by variant_id
-    return variantName || getVariantName(variantId) || '';
+    // If variantName is valid (not UUID), return it
+    if (variantName && !uuidRegex.test(variantName)) {
+      return variantName;
+    }
+    
+    // Final fallback
+    return getVariantName(variantId, productId) || 'Kg';
   };
 
   // Add item to cart
@@ -1903,7 +1942,7 @@ export default function RetailerDashboard({
               const storageType = productMatch?.storage_type || 'Outdoor';
               const storageColor = storageType === 'Fridge' ? '#1d4ed8' : '#b45309';
               // Resolve variant name in case it's a UUID
-              const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+              const displayVariant = resolveVariantName(item.variant_name, item.variant_id, item.product_id);
               return `
                 <tr>
                   <td>${idx + 1}</td>
@@ -4304,7 +4343,7 @@ export default function RetailerDashboard({
                         </td>
                         <td className="p-3 text-center">
                           {indent.items?.map((item, idx) => {
-                            const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+                            const displayVariant = resolveVariantName(item.variant_name, item.variant_id, item.product_id);
                             return (
                               <div key={idx} className="text-xs">
                                 {getProductName(item)} {displayVariant && `(${displayVariant})`} x {item.quantity}
@@ -4611,7 +4650,7 @@ export default function RetailerDashboard({
                                       return (item.variants || [])
                                         .filter(v => !v.startsWith('unit_'))
                                         .map(variantId => {
-                                          const variantName = getVariantName(variantId);
+                                          const variantName = getVariantName(variantId, item.product_id);
                                           const cartItem = getCartItem(item.product_id, variantId);
                                           const mrp = getMrp(item.product_id, variantId);
                                           const totalValue = cartItem ? mrp * cartItem.quantity : 0;
@@ -4746,8 +4785,8 @@ export default function RetailerDashboard({
                           <p className="text-xs text-gray-500">
                             {/* For Pieces/Packets, show with weight info */}
                             {item.variant_id?.startsWith('unit_') && item.purchase_weight_name 
-                              ? `${resolveVariantName(item.variant_name, item.variant_id)} of ${item.purchase_weight_name}`
-                              : resolveVariantName(item.variant_name, item.variant_id)}
+                              ? `${resolveVariantName(item.variant_name, item.variant_id, item.product_id)} of ${item.purchase_weight_name}`
+                              : resolveVariantName(item.variant_name, item.variant_id, item.product_id)}
                           </p>
                           {mrp > 0 && (
                             <span className="text-xs text-green-600 font-medium">₹{mrp}/unit</span>
@@ -5089,7 +5128,7 @@ export default function RetailerDashboard({
                                             <div className="border-t bg-white p-3">
                                               <div className="space-y-2">
                                                 {indent.items?.map((item, idx) => {
-                                                  const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+                                                  const displayVariant = resolveVariantName(item.variant_name, item.variant_id, item.product_id);
                                                   return (
                                                     <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 px-3 py-2 rounded border">
                                                       <div className="flex items-center gap-2">
@@ -5218,7 +5257,7 @@ export default function RetailerDashboard({
                                           {dispatch.items?.map((item, idx) => (
                                             <tr key={idx}>
                                               <td className="p-2 font-medium">{getProductName(item)}</td>
-                                              <td className="p-2 text-gray-600">{resolveVariantName(item.variant_name, item.variant_id) || '-'}</td>
+                                              <td className="p-2 text-gray-600">{resolveVariantName(item.variant_name, item.variant_id, item.product_id) || '-'}</td>
                                               <td className="p-2 text-center">{item.supplied_qty}</td>
                                               <td className="p-2 text-right">{formatCurrency(item.mrp)}</td>
                                               <td className="p-2 text-right">{formatCurrency(item.total_value)}</td>
@@ -5430,7 +5469,7 @@ export default function RetailerDashboard({
                                               <tr key={idx} className={`border-t ${rejectedQty > 0 ? 'bg-red-50/50' : ''}`}>
                                                 <td className="p-2 text-center text-gray-500">{idx + 1}</td>
                                                 <td className="p-2 font-medium">{getProductName(item)}</td>
-                                                <td className="p-2 text-gray-600">{resolveVariantName(item.variant_name, item.variant_id) || '-'}</td>
+                                                <td className="p-2 text-gray-600">{resolveVariantName(item.variant_name, item.variant_id, item.product_id) || '-'}</td>
                                                 <td className="p-2 text-center">{suppliedQty}</td>
                                                 <td className="p-2 text-center text-red-600 font-medium">
                                                   {rejectedQty > 0 ? `-${rejectedQty}` : '-'}
@@ -6996,7 +7035,7 @@ export default function RetailerDashboard({
                           <tr key={`${item.product_id}-${item.variant_id || 'default'}`} className="border-b hover:bg-gray-50">
                             <td className="px-3 py-1.5 whitespace-nowrap">
                               <div className="font-medium text-gray-800">{getProductName(item)}</div>
-                              <div className="text-xs text-gray-400">{resolveVariantName(item.variant_name, item.variant_id) || item.unit || 'Kg'}</div>
+                              <div className="text-xs text-gray-400">{resolveVariantName(item.variant_name, item.variant_id, item.product_id) || item.unit || 'Kg'}</div>
                             </td>
                             <td className="px-3 py-1.5 text-center">
                               {editingItemId === item.id ? (
@@ -7103,7 +7142,7 @@ export default function RetailerDashboard({
                             const product = products.find(p => p.id === item.product_id);
                             return {
                               'Product Name': item.product_name || '',
-                              'Variant': resolveVariantName(item.variant_name, item.variant_id) || 'Kg',
+                              'Variant': resolveVariantName(item.variant_name, item.variant_id, item.product_id) || 'Kg',
                               'Type': product?.product_type || 'N/A',
                               'Category': product?.category || 'N/A',
                               'Closing Qty': item.closing_qty ?? 0
@@ -7212,7 +7251,7 @@ export default function RetailerDashboard({
                                 <td className="px-2 py-1 whitespace-nowrap">
                                   <div className="font-medium text-gray-800">{item.product_name}</div>
                                   {(() => {
-                                    const displayVariant = resolveVariantName(item.variant_name, item.variant_id);
+                                    const displayVariant = resolveVariantName(item.variant_name, item.variant_id, item.product_id);
                                     return displayVariant && displayVariant !== 'Kg' ? (
                                       <div className="text-[10px] text-gray-500">{displayVariant}</div>
                                     ) : null;

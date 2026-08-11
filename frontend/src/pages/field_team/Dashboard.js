@@ -302,8 +302,12 @@ export default function FieldTeamDashboard() {
         boost_percent: 0       // No boost for field team
       });
 
-      if (response.data.indent_id) {
-        toast.success(`Indent generated for ${autoIndentRetailer.retailer_name} with ${response.data.items_count || 0} items`);
+      if (response.data.success === false) {
+        // Show info message for things like "indent already exists"
+        toast.info(response.data.message);
+      } else if (response.data.indent_id) {
+        const itemsCount = response.data.products_count || response.data.items_count || 0;
+        toast.success(`Indent generated for ${autoIndentRetailer.retailer_name} with ${itemsCount} products`);
         setShowAutoIndentModal(false);
         setAutoIndentRetailer(null);
         // Refresh portfolio data to show updated indent count

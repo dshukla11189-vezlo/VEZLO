@@ -589,8 +589,16 @@ async def get_retailers_zero_orders_yesterday(current_user: dict = Depends(get_c
             
             zero_order_retailers.append(entry)
     
-    # Sort alphabetically by name
-    zero_order_retailers.sort(key=lambda x: x.get("name", "").lower())
+    # Sort by zone priority: Pune East, Pune West, Pune South, Pune North, then others alphabetically
+    zone_priority = {"Pune East": 0, "Pune West": 1, "Pune South": 2, "Pune North": 3}
+    
+    def get_sort_key(retailer):
+        zone = retailer.get("zone", "") or ""
+        zone_order = zone_priority.get(zone, 99)  # Unknown zones get 99
+        name = retailer.get("name", "").lower()
+        return (zone_order, zone.lower() if zone_order == 99 else "", name)
+    
+    zero_order_retailers.sort(key=get_sort_key)
     
     return {
         "count": len(zero_order_retailers),

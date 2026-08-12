@@ -314,6 +314,7 @@ export default function RetailerOrders() {
   const [zeroOrdersRetailers, setZeroOrdersRetailers] = useState([]);
   const [loadingZeroOrders, setLoadingZeroOrders] = useState(false);
   const [zeroOrdersDate, setZeroOrdersDate] = useState('');
+  const [zeroOrdersCount, setZeroOrdersCount] = useState(0);
   
   // Date filters - default to today (IST timezone)
   const today = getISTDate();
@@ -849,12 +850,26 @@ export default function RetailerOrders() {
       const response = await api.get('/api/retailers-zero-orders-yesterday');
       setZeroOrdersRetailers(response.data.retailers || []);
       setZeroOrdersDate(response.data.date || '');
+      setZeroOrdersCount(response.data.count || 0);
     } catch (error) {
       console.error('Failed to load zero orders retailers:', error);
       toast.error('Failed to load retailers data');
     } finally {
       setLoadingZeroOrders(false);
     }
+  }, []);
+
+  // Load zero orders count on component mount
+  useEffect(() => {
+    const fetchZeroOrdersCount = async () => {
+      try {
+        const response = await api.get('/api/retailers-zero-orders-yesterday');
+        setZeroOrdersCount(response.data.count || 0);
+      } catch (error) {
+        console.error('Failed to load zero orders count:', error);
+      }
+    };
+    fetchZeroOrdersCount();
   }, []);
 
   // Load zero orders retailers when modal opens
@@ -9020,7 +9035,7 @@ export default function RetailerOrders() {
                       onClick={() => setShowZeroOrdersModal(true)}
                       className="text-[9px] text-red-600 hover:text-red-800 hover:underline cursor-pointer"
                     >
-                      0 Orders Yesterday →
+                      {zeroOrdersCount} Retailers with 0 Orders yesterday →
                     </button>
                   </div>
                 </div>

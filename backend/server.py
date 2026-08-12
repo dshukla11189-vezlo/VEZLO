@@ -280,6 +280,7 @@ logger = logging.getLogger("freshflow")
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(
     mongo_url,
+    timeoutMS=60000,
     maxPoolSize=30,              # Increased pool size for production load
     minPoolSize=5,               # More minimum connections ready
     maxIdleTimeMS=30000,         # Close idle connections after 30s

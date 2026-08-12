@@ -222,7 +222,8 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
         from datetime import datetime as dt
         
         try:
-            workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
+            import asyncio
+            workbook = await asyncio.get_running_loop().run_in_executor(None, lambda: openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True))
             sheet = workbook.active
             
             # Get headers from first row - try to find the actual header row

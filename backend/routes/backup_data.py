@@ -204,7 +204,8 @@ async def sync_from_production(
             
             # Step 3: Parse Excel and import data
             excel_data = BytesIO(backup_response.content)
-            wb = openpyxl.load_workbook(excel_data)
+            import asyncio
+            wb = await asyncio.get_running_loop().run_in_executor(None, lambda: openpyxl.load_workbook(excel_data))
             
             # Helper function to parse JSON fields
             def safe_parse_json(value):
@@ -756,7 +757,8 @@ async def sync_from_production_full(
                     import json as json_lib
                     
                     excel_data = BytesIO(backup_response.content)
-                    wb = openpyxl.load_workbook(excel_data)
+                    import asyncio
+                    wb = await asyncio.get_running_loop().run_in_executor(None, lambda: openpyxl.load_workbook(excel_data))
                     
                     # Check if labour_attendance sheet exists
                     if 'labour_attendance' in wb.sheetnames:

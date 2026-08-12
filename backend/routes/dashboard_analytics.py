@@ -3193,7 +3193,7 @@ async def export_pnl_excel(
         farmer_sheet.write(row, 2, farmer.get("amount", 0), currency_format)
         row += 1
     
-    workbook.close()
+    await asyncio.get_running_loop().run_in_executor(None, workbook.close)
     output.seek(0)
     
     filename = f"PnL_Report_{from_date}_to_{to_date}.xlsx"

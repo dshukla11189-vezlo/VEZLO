@@ -33,6 +33,7 @@ logger = logging.getLogger("freshflow")
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(
     mongo_url,
+    timeoutMS=60000,
     maxPoolSize=30,
     minPoolSize=5,
     maxIdleTimeMS=30000,

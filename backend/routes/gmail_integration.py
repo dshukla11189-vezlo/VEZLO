@@ -400,7 +400,8 @@ async def auto_sync_ninjacart_grn(current_user: dict = Depends(get_current_user)
                             try:
                                 from openpyxl import load_workbook
                                 import io
-                                wb = load_workbook(io.BytesIO(attachment_data))
+                                import asyncio
+                                wb = await asyncio.get_running_loop().run_in_executor(None, lambda: load_workbook(io.BytesIO(attachment_data)))
                                 ws = wb.active
                                 rows = list(ws.iter_rows(values_only=True))
                                 if rows:

@@ -11431,7 +11431,8 @@ export default function RetailerOrders() {
                     <tr>
                       <th className="p-3 text-center w-10 font-medium text-gray-500">#</th>
                       <th className="p-3 text-left w-8"></th>
-                      <th className="p-3 text-left font-medium text-gray-500">DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">INDENT DATE</th>
+                      <th className="p-3 text-left font-medium text-gray-500">DISPATCH DATE</th>
                       <th className="p-3 text-left font-medium text-gray-500">RETAILER</th>
                       <th className="p-3 text-center font-medium text-gray-500">ITEMS</th>
                       <th className="p-3 text-center font-medium text-gray-500">STATUS</th>
@@ -11440,7 +11441,7 @@ export default function RetailerOrders() {
                   </thead>
                   <tbody>
                     {filteredIndents.length === 0 ? (
-                      <tr><td colSpan={7} className="p-8 text-center text-gray-400">{(indentDateFrom || indentDateTo) ? `No indents for selected date range` : 'No indents found'}</td></tr>
+                      <tr><td colSpan={8} className="p-8 text-center text-gray-400">{(indentDateFrom || indentDateTo) ? `No indents for selected date range` : 'No indents found'}</td></tr>
                     ) : filteredIndents.map((indent, indentIdx) => (
                       <React.Fragment key={indent.id}>
                         <tr className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => toggleIndentExpand(indent.id)}>
@@ -11449,6 +11450,13 @@ export default function RetailerOrders() {
                             {expandedIndents[indent.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </td>
                           <td className="p-3">{formatDate(indent.indent_date)}</td>
+                          <td className="p-3">
+                            {indent.dispatch_date ? (
+                              <span className="text-blue-600">{formatDate(indent.dispatch_date)}</span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
                           <td className="p-3 font-medium">
                             {getRetailerNameById(indent.retailer_id) || indent.retailer_name}
                             {indent.created_by_retailer && (

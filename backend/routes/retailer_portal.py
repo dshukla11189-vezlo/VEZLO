@@ -331,6 +331,29 @@ async def get_retailer_indents(
         query["indent_date"] = date_query
     
     indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(limit)
+    
+    # Get dispatch dates for dispatched indents
+    indent_ids = [i["id"] for i in indents]
+    dispatches = await db.retailer_dispatches.find(
+        {"indent_id": {"$in": indent_ids}},
+        {"_id": 0, "indent_id": 1, "dispatch_date": 1}
+    ).to_list(len(indent_ids))
+    
+    # Create a map of indent_id -> dispatch_date
+    dispatch_date_map = {d["indent_id"]: d.get("dispatch_date") for d in dispatches}
+    
+    # Add dispatch_date to each indent
+    for indent in indents:
+        dispatch_date = dispatch_date_map.get(indent["id"])
+        if dispatch_date:
+            # Format the dispatch date to just the date portion if it's a datetime string
+            if isinstance(dispatch_date, str) and "T" in dispatch_date:
+                indent["dispatch_date"] = dispatch_date.split("T")[0]
+            else:
+                indent["dispatch_date"] = str(dispatch_date)[:10] if dispatch_date else None
+        else:
+            indent["dispatch_date"] = None
+    
     return indents
 
 @router.post("/retailer-indents")

@@ -19933,7 +19933,7 @@ export default function RetailerOrders() {
 
       {/* Pending to Go Live Modal */}
       <Dialog open={showPendingToGoLiveModal} onOpenChange={setShowPendingToGoLiveModal}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-orange-700">
               <Clock size={20} />
@@ -19958,29 +19958,21 @@ export default function RetailerOrders() {
               <table className="w-full text-sm">
                 <thead className="bg-orange-50 sticky top-0">
                   <tr>
-                    <th className="p-2 text-left text-orange-700 font-medium">#</th>
-                    <th className="p-2 text-left text-orange-700 font-medium">Shop Name</th>
-                    <th className="p-2 text-left text-orange-700 font-medium">Contact</th>
-                    <th className="p-2 text-left text-orange-700 font-medium">City</th>
-                    <th className="p-2 text-left text-orange-700 font-medium">Onboarded</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">S.No</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Name</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Locality</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Zone</th>
+                    <th className="p-2 text-left text-orange-700 font-medium">Assigned To</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pendingToGoLiveRetailers.map((retailer, idx) => (
                     <tr key={retailer.id} className="border-b hover:bg-orange-50">
                       <td className="p-2 text-gray-500">{idx + 1}</td>
-                      <td className="p-2">
-                        <div className="font-medium">{retailer.company_name || retailer.name}</div>
-                        <div className="text-xs text-gray-500">{retailer.email}</div>
-                      </td>
-                      <td className="p-2 text-gray-600">{retailer.contact || '-'}</td>
-                      <td className="p-2 text-gray-600">{retailer.city || '-'}</td>
-                      <td className="p-2 text-gray-600 text-xs">
-                        {retailer.created_at 
-                          ? new Date(retailer.created_at).toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'})
-                          : '-'
-                        }
-                      </td>
+                      <td className="p-2 font-medium">{retailer.company_name || retailer.name || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.area || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.zone || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.assigned_to || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

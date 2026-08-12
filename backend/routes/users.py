@@ -476,7 +476,7 @@ async def get_retailers_pending_to_go_live(current_user: dict = Depends(get_curr
     # Get all active retailers
     retailers = await db.users.find(
         {"role": "retailer", "status": {"$ne": "churned"}},
-        {"_id": 0, "id": 1, "name": 1, "company_name": 1, "email": 1, "contact": 1, "city": 1, "assigned_to": 1, "created_at": 1}
+        {"_id": 0, "id": 1, "name": 1, "company_name": 1, "email": 1, "contact": 1, "city": 1, "area": 1, "zone": 1, "assigned_to": 1, "created_at": 1}
     ).to_list(10000)
     
     retailer_ids = [r["id"] for r in retailers]
@@ -488,21 +488,44 @@ async def get_retailers_pending_to_go_live(current_user: dict = Depends(get_curr
     )
     retailers_with_invoices_set = set(retailers_with_invoices)
     
+    # For admin/staff, resolve assigned_to to field team member names
+    field_team_map = {}
+    if current_user["role"] in ["admin", "staff"]:
+        field_team_members = await db.users.find(
+            {"role": "field_team"},
+            {"_id": 0, "id": 1, "email": 1, "name": 1}
+        ).to_list(1000)
+        for ft in field_team_members:
+            field_team_map[ft["id"]] = ft.get("name") or ft.get("email", "")
+            field_team_map[ft.get("email", "")] = ft.get("name") or ft.get("email", "")
+    
     # Filter to get only those WITHOUT invoices
-    pending_retailers = [
-        {
-            "id": r["id"],
-            "name": r.get("name", ""),
-            "company_name": r.get("company_name", ""),
-            "email": r.get("email", ""),
-            "contact": r.get("contact", ""),
-            "city": r.get("city", ""),
-            "assigned_to": r.get("assigned_to", ""),
-            "created_at": r.get("created_at", "")
-        }
-        for r in retailers
-        if r["id"] not in retailers_with_invoices_set
-    ]
+    pending_retailers = []
+    for r in retailers:
+        if r["id"] not in retailers_with_invoices_set:
+            assigned_to_raw = r.get("assigned_to", "")
+            # Resolve assigned_to to actual name for admin/staff
+            if current_user["role"] in ["admin", "staff"]:
+                if isinstance(assigned_to_raw, list):
+                    assigned_names = [field_team_map.get(a, a) for a in assigned_to_raw if a]
+                    assigned_to_display = ", ".join(assigned_names) if assigned_names else ""
+                else:
+                    assigned_to_display = field_team_map.get(assigned_to_raw, assigned_to_raw) if assigned_to_raw else ""
+            else:
+                assigned_to_display = assigned_to_raw
+            
+            pending_retailers.append({
+                "id": r["id"],
+                "name": r.get("name", ""),
+                "company_name": r.get("company_name", ""),
+                "email": r.get("email", ""),
+                "contact": r.get("contact", ""),
+                "city": r.get("city", ""),
+                "area": r.get("area", "") or "",
+                "zone": r.get("zone", "") or "",
+                "assigned_to": assigned_to_display,
+                "created_at": r.get("created_at", "")
+            })
     
     # Sort by created_at descending (newest first)
     pending_retailers.sort(key=lambda x: x.get("created_at", ""), reverse=True)

@@ -302,7 +302,7 @@ export default function RetailerOrders() {
   const [packagings, setPackagings] = useState([]);
   const [retailerCatalogue, setRetailerCatalogue] = useState([]);
   const [selectedRetailer, setSelectedRetailer] = useState('');
-  const [retailerSearchQuery, setRetailerSearchQuery] = useState('');
+  const [retailerDropdownOpen, setRetailerDropdownOpen] = useState(false);
   
   // Retailer summary stats
   const [retailerStats, setRetailerStats] = useState(null);
@@ -8910,83 +8910,79 @@ export default function RetailerOrders() {
   return (
     <Layout title="Retailer Orders">
       <div data-testid="retailer-orders-page" className="min-w-0 overflow-x-hidden max-w-full">
-        {/* Header with Retailer Search */}
-        <div className="mb-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+        {/* Header */}
+        <div className="flex flex-col gap-3 mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
               <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
               <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
             </div>
           </div>
           
-          {/* Retailer Filter - Searchable with full list */}
-          <div className="bg-white border rounded-lg p-3">
-            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-              <div className="flex items-center gap-2 text-sm text-gray-600 font-medium whitespace-nowrap">
-                <Users size={16} />
-                <span>Filter by Retailer:</span>
-              </div>
-              <div className="flex-1 w-full sm:w-auto">
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search retailers..."
-                    value={retailerSearchQuery || ''}
-                    onChange={(e) => setRetailerSearchQuery(e.target.value)}
-                    className="w-full sm:w-64 h-9 pl-9 pr-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-              {selectedRetailer && (
+          {/* Retailer Filter - Searchable Dropdown, Left Aligned */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600 font-medium whitespace-nowrap">Filter:</span>
+            <Popover open={retailerDropdownOpen} onOpenChange={setRetailerDropdownOpen}>
+              <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedRetailer('')}
-                  className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                  role="combobox"
+                  className="w-64 justify-between h-9 text-sm"
                 >
-                  <X size={14} className="mr-1" />
-                  Clear Filter
+                  <span className="truncate">
+                    {selectedRetailer 
+                      ? (activeRetailers.find(r => r.id === selectedRetailer)?.company_name || 
+                         activeRetailers.find(r => r.id === selectedRetailer)?.name || 'Selected')
+                      : 'All Retailers'}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
-              )}
-            </div>
-            
-            {/* Retailer Pills/Chips */}
-            <div className="mt-3 flex flex-wrap gap-2 max-h-24 overflow-y-auto">
-              <button
+              </PopoverTrigger>
+              <PopoverContent className="w-72 p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search retailers..." />
+                  <CommandList>
+                    <CommandEmpty>No retailer found.</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="all-retailers"
+                        onSelect={() => {
+                          setSelectedRetailer('');
+                          setRetailerDropdownOpen(false);
+                        }}
+                      >
+                        <Check className={`mr-2 h-4 w-4 ${!selectedRetailer ? 'opacity-100' : 'opacity-0'}`} />
+                        All Retailers ({activeRetailers.length})
+                      </CommandItem>
+                      {activeRetailers.map(r => (
+                        <CommandItem
+                          key={r.id}
+                          value={`${r.company_name || r.name} ${r.area || ''}`}
+                          onSelect={() => {
+                            setSelectedRetailer(r.id);
+                            setRetailerDropdownOpen(false);
+                          }}
+                        >
+                          <Check className={`mr-2 h-4 w-4 ${selectedRetailer === r.id ? 'opacity-100' : 'opacity-0'}`} />
+                          <span className="truncate">{r.company_name || r.name}</span>
+                          {r.area && <span className="ml-1 text-xs text-gray-400">({r.area})</span>}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {selectedRetailer && (
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => setSelectedRetailer('')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  !selectedRetailer 
-                    ? 'bg-green-600 text-white' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+                className="h-8 px-2 text-gray-500 hover:text-red-600"
               >
-                All Retailers ({activeRetailers.length})
-              </button>
-              {activeRetailers
-                .filter(r => {
-                  if (!retailerSearchQuery) return true;
-                  const name = (r.company_name || r.name || '').toLowerCase();
-                  const area = (r.area || '').toLowerCase();
-                  const query = retailerSearchQuery.toLowerCase();
-                  return name.includes(query) || area.includes(query);
-                })
-                .map(r => (
-                  <button
-                    key={r.id}
-                    onClick={() => setSelectedRetailer(r.id)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                      selectedRetailer === r.id 
-                        ? 'bg-green-600 text-white' 
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {r.company_name || r.name}
-                    {r.area && <span className="text-[10px] opacity-70 ml-1">({r.area})</span>}
-                  </button>
-                ))
-              }
-            </div>
+                <X size={16} />
+              </Button>
+            )}
           </div>
         </div>
 

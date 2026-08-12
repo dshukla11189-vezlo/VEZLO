@@ -332,27 +332,50 @@ async def get_retailer_indents(
     
     indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(limit)
     
-    # Get dispatch dates for dispatched indents
+    # Get ALL dispatch dates for all indents (one indent can have multiple partial dispatches)
     indent_ids = [i["id"] for i in indents]
     dispatches = await db.retailer_dispatches.find(
         {"indent_id": {"$in": indent_ids}},
-        {"_id": 0, "indent_id": 1, "dispatch_date": 1}
-    ).to_list(len(indent_ids))
+        {"_id": 0, "indent_id": 1, "dispatch_date": 1, "id": 1, "items": 1}
+    ).sort("dispatch_date", -1).to_list(50000)
     
-    # Create a map of indent_id -> dispatch_date
-    dispatch_date_map = {d["indent_id"]: d.get("dispatch_date") for d in dispatches}
-    
-    # Add dispatch_date to each indent
-    for indent in indents:
-        dispatch_date = dispatch_date_map.get(indent["id"])
+    # Create a map of indent_id -> list of dispatch info (date + items)
+    dispatch_map = {}
+    for d in dispatches:
+        iid = d["indent_id"]
+        if iid not in dispatch_map:
+            dispatch_map[iid] = []
+        
+        dispatch_date = d.get("dispatch_date")
         if dispatch_date:
-            # Format the dispatch date to just the date portion if it's a datetime string
             if isinstance(dispatch_date, str) and "T" in dispatch_date:
-                indent["dispatch_date"] = dispatch_date.split("T")[0]
+                formatted_date = dispatch_date.split("T")[0]
             else:
-                indent["dispatch_date"] = str(dispatch_date)[:10] if dispatch_date else None
+                formatted_date = str(dispatch_date)[:10] if dispatch_date else None
+        else:
+            formatted_date = None
+        
+        # Store dispatch info with items for product-wise tracking
+        dispatch_info = {
+            "dispatch_id": d.get("id"),
+            "dispatch_date": formatted_date,
+            "items": d.get("items", [])
+        }
+        dispatch_map[iid].append(dispatch_info)
+    
+    # Add dispatch info to each indent
+    for indent in indents:
+        dispatch_list = dispatch_map.get(indent["id"], [])
+        if dispatch_list:
+            # Get unique dispatch dates (sorted descending - most recent first)
+            unique_dates = sorted(list(set(d["dispatch_date"] for d in dispatch_list if d["dispatch_date"])), reverse=True)
+            indent["dispatch_date"] = unique_dates[0] if unique_dates else None  # Most recent for display
+            indent["all_dispatch_dates"] = unique_dates  # All dates for reference
+            indent["dispatch_info"] = dispatch_list  # Full dispatch info with items
         else:
             indent["dispatch_date"] = None
+            indent["all_dispatch_dates"] = []
+            indent["dispatch_info"] = []
     
     return indents
 

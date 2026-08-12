@@ -11452,7 +11452,14 @@ export default function RetailerOrders() {
                           <td className="p-3">{formatDate(indent.indent_date)}</td>
                           <td className="p-3">
                             {indent.dispatch_date ? (
-                              <span className="text-blue-600">{formatDate(indent.dispatch_date)}</span>
+                              <div>
+                                <span className="text-blue-600">{formatDate(indent.dispatch_date)}</span>
+                                {indent.all_dispatch_dates && indent.all_dispatch_dates.length > 1 && (
+                                  <span className="ml-1 text-xs text-gray-500">
+                                    (+{indent.all_dispatch_dates.length - 1} more)
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-gray-400">-</span>
                             )}
@@ -11558,21 +11565,43 @@ export default function RetailerOrders() {
                         </tr>
                         {expandedIndents[indent.id] && (
                           <tr className="bg-blue-50">
-                            <td colSpan={7} className="p-3">
+                            <td colSpan={8} className="p-3">
                               {(() => {
-                                // Calculate dispatched quantities for this indent
+                                // Calculate dispatched quantities and dates for this indent
                                 const indentDispatches = dispatches.filter(d => d.indent_id === indent.id);
                                 const dispatchedQtys = {};
+                                const dispatchDates = {}; // Track dispatch dates per product
+                                
                                 for (const dispatch of indentDispatches) {
+                                  const dispatchDate = dispatch.dispatch_date 
+                                    ? (typeof dispatch.dispatch_date === 'string' && dispatch.dispatch_date.includes('T') 
+                                        ? dispatch.dispatch_date.split('T')[0] 
+                                        : String(dispatch.dispatch_date).slice(0, 10))
+                                    : null;
+                                  
                                   for (const item of (dispatch.items || [])) {
                                     // Use product_id + variant_id for more precise matching
-                                    // This handles cases where same product has multiple variants in one indent
                                     const key = `${item.product_id}_${item.variant_id || item.indent_variant_id || ''}`;
                                     dispatchedQtys[key] = (dispatchedQtys[key] || 0) + (item.supplied_qty || 0);
+                                    
+                                    // Track dispatch dates for this item
+                                    if (dispatchDate) {
+                                      if (!dispatchDates[key]) dispatchDates[key] = [];
+                                      if (!dispatchDates[key].includes(dispatchDate)) {
+                                        dispatchDates[key].push(dispatchDate);
+                                      }
+                                    }
+                                    
                                     // Also track by product_id only as fallback
                                     const productKey = item.product_id;
                                     if (!dispatchedQtys[productKey]) dispatchedQtys[productKey] = 0;
                                     dispatchedQtys[productKey] += (item.supplied_qty || 0);
+                                    if (dispatchDate) {
+                                      if (!dispatchDates[productKey]) dispatchDates[productKey] = [];
+                                      if (!dispatchDates[productKey].includes(dispatchDate)) {
+                                        dispatchDates[productKey].push(dispatchDate);
+                                      }
+                                    }
                                   }
                                 }
                                 const showDispatchColumns = indent.status === 'partial' || indent.status === 'dispatched';
@@ -11682,7 +11711,7 @@ export default function RetailerOrders() {
                                                     </div>
                                                   </div>
                                                   {isTypeExpanded && (
-                                                    <table className="text-xs" style={{width: 'auto', minWidth: '400px'}}>
+                                                    <table className="text-xs" style={{width: 'auto', minWidth: '500px'}}>
                                                       <thead className="bg-gray-100">
                                                         <tr>
                                                           <th className="px-2 py-1 text-center" style={{width: '30px'}}>#</th>
@@ -11693,6 +11722,7 @@ export default function RetailerOrders() {
                                                             <>
                                                               <th className="px-2 py-1 text-center" style={{width: '40px'}}>Sup</th>
                                                               <th className="px-2 py-1 text-center" style={{width: '40px'}}>Pend</th>
+                                                              <th className="px-2 py-1 text-center" style={{width: '80px'}}>Dispatched On</th>
                                                             </>
                                                           )}
                                                         </tr>
@@ -11703,6 +11733,7 @@ export default function RetailerOrders() {
                                                           const key = item.product_id;
                                                           const dispatched = dispatchedQtys[key] || 0;
                                                           const remaining = (item.quantity || 0) - dispatched;
+                                                          const itemDispatchDates = dispatchDates[key] || [];
                                                           return (
                                                             <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
                                                               <td className="px-2 py-1 text-center text-gray-400">{globalIdx}</td>
@@ -11714,6 +11745,11 @@ export default function RetailerOrders() {
                                                                   <td className="px-2 py-1 text-center text-green-700">{dispatched}</td>
                                                                   <td className="px-2 py-1 text-center font-semibold">
                                                                     {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
+                                                                  </td>
+                                                                  <td className="px-2 py-1 text-center text-blue-600 text-[10px]">
+                                                                    {itemDispatchDates.length > 0 
+                                                                      ? itemDispatchDates.map(d => formatDate(d)).join(', ') 
+                                                                      : '-'}
                                                                   </td>
                                                                 </>
                                                               )}
@@ -11746,7 +11782,7 @@ export default function RetailerOrders() {
                                               </div>
                                             </div>
                                             {isExpanded && (
-                                              <table className="text-xs" style={{width: 'auto', minWidth: '400px'}}>
+                                              <table className="text-xs" style={{width: 'auto', minWidth: '500px'}}>
                                                 <thead className="bg-gray-100">
                                                   <tr>
                                                     <th className="px-2 py-1 text-center" style={{width: '30px'}}>#</th>
@@ -11757,6 +11793,7 @@ export default function RetailerOrders() {
                                                       <>
                                                         <th className="px-2 py-1 text-center" style={{width: '40px'}}>Sup</th>
                                                         <th className="px-2 py-1 text-center" style={{width: '40px'}}>Pend</th>
+                                                        <th className="px-2 py-1 text-center" style={{width: '80px'}}>Dispatched On</th>
                                                       </>
                                                     )}
                                                   </tr>
@@ -11772,6 +11809,7 @@ export default function RetailerOrders() {
                                                       ? dispatchedQtys[preciseKey] 
                                                       : (dispatchedQtys[productKey] || 0);
                                                     const remaining = (item.quantity || 0) - dispatched;
+                                                    const itemDispatchDates = dispatchDates[preciseKey] || dispatchDates[productKey] || [];
                                                     return (
                                                       <tr key={idx} className={`border-b ${remaining > 0 && showDispatchColumns ? 'bg-amber-50' : ''}`}>
                                                         <td className="px-2 py-1 text-center text-gray-400">{globalIdx}</td>
@@ -11783,6 +11821,11 @@ export default function RetailerOrders() {
                                                             <td className="px-2 py-1 text-center text-green-700">{dispatched}</td>
                                                             <td className="px-2 py-1 text-center font-semibold">
                                                               {remaining > 0 ? <span className="text-amber-700">{remaining}</span> : <span className="text-green-600">✓</span>}
+                                                            </td>
+                                                            <td className="px-2 py-1 text-center text-blue-600 text-[10px]">
+                                                              {itemDispatchDates.length > 0 
+                                                                ? itemDispatchDates.map(d => formatDate(d)).join(', ') 
+                                                                : '-'}
                                                             </td>
                                                           </>
                                                         )}

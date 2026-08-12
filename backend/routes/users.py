@@ -716,10 +716,14 @@ async def get_retailers_pending_payments(current_user: dict = Depends(get_curren
                 if isinstance(assigned_to_raw, list):
                     assigned_names = [field_team_map.get(a, a) for a in assigned_to_raw if a]
                     assigned_to_display = ", ".join(assigned_names) if assigned_names else ""
+                    # Store first assigned_to for grouping
+                    assigned_to_key = assigned_to_raw[0] if assigned_to_raw else ""
                 else:
                     assigned_to_display = field_team_map.get(assigned_to_raw, assigned_to_raw) if assigned_to_raw else ""
+                    assigned_to_key = assigned_to_raw or ""
             else:
                 assigned_to_display = ""
+                assigned_to_key = ""
             
             entry = {
                 "id": rid,
@@ -727,16 +731,48 @@ async def get_retailers_pending_payments(current_user: dict = Depends(get_curren
                 "area": retailer.get("area", "") or "",
                 "zone": retailer.get("zone", "") or "",
                 "assigned_to": assigned_to_display,
+                "assigned_to_key": assigned_to_key,  # For grouping
                 "pending_invoices_count": len(invoices),
                 "amount": round(total_pending_amount, 2)
             }
             pending_payment_retailers.append(entry)
     
-    # Sort by amount descending (highest pending amount first)
-    pending_payment_retailers.sort(key=lambda x: x.get("amount", 0), reverse=True)
+    # Group retailers by field team member and calculate group totals
+    from collections import defaultdict
+    field_team_groups = defaultdict(lambda: {"retailers": [], "total": 0})
+    
+    for retailer in pending_payment_retailers:
+        key = retailer.get("assigned_to", "") or "Unassigned"
+        field_team_groups[key]["retailers"].append(retailer)
+        field_team_groups[key]["total"] += retailer.get("amount", 0)
+    
+    # Sort groups by total amount descending
+    sorted_groups = sorted(field_team_groups.items(), key=lambda x: x[1]["total"], reverse=True)
+    
+    # Build final sorted list with group info
+    final_retailers = []
+    groups_info = []
+    
+    for field_team_name, group_data in sorted_groups:
+        # Sort retailers within group by amount descending
+        group_data["retailers"].sort(key=lambda x: x.get("amount", 0), reverse=True)
+        
+        group_start_index = len(final_retailers)
+        for retailer in group_data["retailers"]:
+            # Remove internal key before sending to frontend
+            retailer_copy = {k: v for k, v in retailer.items() if k != "assigned_to_key"}
+            final_retailers.append(retailer_copy)
+        
+        groups_info.append({
+            "field_team_name": field_team_name,
+            "start_index": group_start_index,
+            "count": len(group_data["retailers"]),
+            "total": round(group_data["total"], 2)
+        })
     
     return {
-        "count": len(pending_payment_retailers),
-        "retailers": pending_payment_retailers
+        "count": len(final_retailers),
+        "retailers": final_retailers,
+        "groups": groups_info
     }
 

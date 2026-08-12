@@ -320,6 +320,7 @@ export default function RetailerOrders() {
   // Pending payments modal (retailers with >2 pending invoices)
   const [showPendingPaymentsModal, setShowPendingPaymentsModal] = useState(false);
   const [pendingPaymentsRetailers, setPendingPaymentsRetailers] = useState([]);
+  const [pendingPaymentsGroups, setPendingPaymentsGroups] = useState([]);
   const [loadingPendingPayments, setLoadingPendingPayments] = useState(false);
   const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0);
   
@@ -892,6 +893,7 @@ export default function RetailerOrders() {
     try {
       const response = await api.get('/api/retailers-pending-payments');
       setPendingPaymentsRetailers(response.data.retailers || []);
+      setPendingPaymentsGroups(response.data.groups || []);
       setPendingPaymentsCount(response.data.count || 0);
     } catch (error) {
       console.error('Failed to load pending payments retailers:', error);
@@ -20107,33 +20109,51 @@ export default function RetailerOrders() {
           ) : (
             <div className="overflow-y-auto flex-1">
               <table className="w-full text-sm">
-                <thead className="bg-red-50 sticky top-0">
+                <thead className="bg-red-50 sticky top-0 z-10">
                   <tr>
                     <th className="p-2 text-left text-red-700 font-medium">S.No</th>
                     <th className="p-2 text-left text-red-700 font-medium">Name</th>
                     <th className="p-2 text-left text-red-700 font-medium">Locality</th>
                     <th className="p-2 text-left text-red-700 font-medium">Zone</th>
                     <th className="p-2 text-center text-red-700 font-medium">Pending Invoices</th>
-                    <th className="p-2 text-left text-red-700 font-medium">Assigned To</th>
                     <th className="p-2 text-right text-red-700 font-medium">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingPaymentsRetailers.map((retailer, idx) => (
-                    <tr key={retailer.id} className="border-b hover:bg-red-50">
-                      <td className="p-2 text-gray-500">{idx + 1}</td>
-                      <td className="p-2 font-medium">{retailer.name || '-'}</td>
-                      <td className="p-2 text-gray-600">{retailer.area || '-'}</td>
-                      <td className="p-2 text-gray-600">{retailer.zone || '-'}</td>
-                      <td className="p-2 text-center font-medium text-red-600">{retailer.pending_invoices_count}</td>
-                      <td className="p-2 text-gray-600">{retailer.assigned_to || '-'}</td>
-                      <td className="p-2 text-right font-semibold text-red-700">₹{retailer.amount?.toLocaleString('en-IN') || '0'}</td>
-                    </tr>
+                  {pendingPaymentsGroups.map((group, groupIdx) => (
+                    <React.Fragment key={group.field_team_name}>
+                      {/* Group Header */}
+                      <tr className="bg-gray-100 border-t-2 border-gray-300">
+                        <td colSpan="5" className="p-2 font-bold text-gray-800">
+                          <div className="flex items-center gap-2">
+                            <Users size={16} className="text-gray-600" />
+                            {group.field_team_name || 'Unassigned'} ({group.count} retailers)
+                          </div>
+                        </td>
+                        <td className="p-2 text-right font-bold text-red-700">
+                          ₹{group.total?.toLocaleString('en-IN') || '0'}
+                        </td>
+                      </tr>
+                      {/* Retailers in this group */}
+                      {pendingPaymentsRetailers
+                        .slice(group.start_index, group.start_index + group.count)
+                        .map((retailer, idx) => (
+                          <tr key={retailer.id} className="border-b hover:bg-red-50">
+                            <td className="p-2 text-gray-500 pl-6">{idx + 1}</td>
+                            <td className="p-2 font-medium">{retailer.name || '-'}</td>
+                            <td className="p-2 text-gray-600">{retailer.area || '-'}</td>
+                            <td className="p-2 text-gray-600">{retailer.zone || '-'}</td>
+                            <td className="p-2 text-center font-medium text-red-600">{retailer.pending_invoices_count}</td>
+                            <td className="p-2 text-right font-semibold text-red-700">₹{retailer.amount?.toLocaleString('en-IN') || '0'}</td>
+                          </tr>
+                        ))
+                      }
+                    </React.Fragment>
                   ))}
                 </tbody>
-                <tfoot className="bg-red-100 font-semibold">
+                <tfoot className="bg-red-100 font-semibold border-t-2 border-red-300">
                   <tr>
-                    <td colSpan="6" className="p-2 text-right text-red-800">Total Pending Amount:</td>
+                    <td colSpan="5" className="p-2 text-right text-red-800">Grand Total:</td>
                     <td className="p-2 text-right text-red-800">
                       ₹{pendingPaymentsRetailers.reduce((sum, r) => sum + (r.amount || 0), 0).toLocaleString('en-IN')}
                     </td>

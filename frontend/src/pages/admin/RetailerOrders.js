@@ -23,7 +23,7 @@ import {
   Plus, Package, Truck, AlertTriangle, AlertCircle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, ChevronLeft, FileText, Download, Check,
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench,
-  UserPlus, UserCheck, Activity, UserX
+  UserPlus, UserCheck, Activity, UserX, Users
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -302,6 +302,7 @@ export default function RetailerOrders() {
   const [packagings, setPackagings] = useState([]);
   const [retailerCatalogue, setRetailerCatalogue] = useState([]);
   const [selectedRetailer, setSelectedRetailer] = useState('');
+  const [retailerSearchQuery, setRetailerSearchQuery] = useState('');
   
   // Retailer summary stats
   const [retailerStats, setRetailerStats] = useState(null);
@@ -8909,25 +8910,83 @@ export default function RetailerOrders() {
   return (
     <Layout title="Retailer Orders">
       <div data-testid="retailer-orders-page" className="min-w-0 overflow-x-hidden max-w-full">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4 min-w-0 overflow-hidden">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
-            <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
+        {/* Header with Retailer Search */}
+        <div className="mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
+              <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
+            </div>
           </div>
           
-          {/* Retailer Filter */}
-          <div className="flex gap-2 items-center">
-            <select
-              value={selectedRetailer}
-              onChange={(e) => setSelectedRetailer(e.target.value)}
-              className="h-9 px-3 rounded-md border border-gray-200 text-sm max-w-[200px] sm:max-w-[280px] truncate"
-            >
-              <option value="">All Retailers</option>
-              {activeRetailers.map(r => (
-                <option key={r.id} value={r.id}>{r.company_name || r.name} ({r.commission_percentage || 0}%)</option>
-              ))}
-            </select>
+          {/* Retailer Filter - Searchable with full list */}
+          <div className="bg-white border rounded-lg p-3">
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <div className="flex items-center gap-2 text-sm text-gray-600 font-medium whitespace-nowrap">
+                <Users size={16} />
+                <span>Filter by Retailer:</span>
+              </div>
+              <div className="flex-1 w-full sm:w-auto">
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search retailers..."
+                    value={retailerSearchQuery || ''}
+                    onChange={(e) => setRetailerSearchQuery(e.target.value)}
+                    className="w-full sm:w-64 h-9 pl-9 pr-3 rounded-md border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              {selectedRetailer && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedRetailer('')}
+                  className="h-8 text-xs text-red-600 border-red-200 hover:bg-red-50"
+                >
+                  <X size={14} className="mr-1" />
+                  Clear Filter
+                </Button>
+              )}
+            </div>
+            
+            {/* Retailer Pills/Chips */}
+            <div className="mt-3 flex flex-wrap gap-2 max-h-24 overflow-y-auto">
+              <button
+                onClick={() => setSelectedRetailer('')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  !selectedRetailer 
+                    ? 'bg-green-600 text-white' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                All Retailers ({activeRetailers.length})
+              </button>
+              {activeRetailers
+                .filter(r => {
+                  if (!retailerSearchQuery) return true;
+                  const name = (r.company_name || r.name || '').toLowerCase();
+                  const area = (r.area || '').toLowerCase();
+                  const query = retailerSearchQuery.toLowerCase();
+                  return name.includes(query) || area.includes(query);
+                })
+                .map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => setSelectedRetailer(r.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                      selectedRetailer === r.id 
+                        ? 'bg-green-600 text-white' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {r.company_name || r.name}
+                    {r.area && <span className="text-[10px] opacity-70 ml-1">({r.area})</span>}
+                  </button>
+                ))
+              }
+            </div>
           </div>
         </div>
 

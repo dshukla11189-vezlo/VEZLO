@@ -309,6 +309,12 @@ export default function RetailerOrders() {
   const [pendingToGoLiveRetailers, setPendingToGoLiveRetailers] = useState([]);
   const [loadingPendingRetailers, setLoadingPendingRetailers] = useState(false);
   
+  // Zero orders yesterday modal
+  const [showZeroOrdersModal, setShowZeroOrdersModal] = useState(false);
+  const [zeroOrdersRetailers, setZeroOrdersRetailers] = useState([]);
+  const [loadingZeroOrders, setLoadingZeroOrders] = useState(false);
+  const [zeroOrdersDate, setZeroOrdersDate] = useState('');
+  
   // Date filters - default to today (IST timezone)
   const today = getISTDate();
   const [indentDateFilter, setIndentDateFilter] = useState(today);
@@ -835,6 +841,28 @@ export default function RetailerOrders() {
       loadPendingToGoLiveRetailers();
     }
   }, [showPendingToGoLiveModal, loadPendingToGoLiveRetailers]);
+
+  // Load retailers with zero orders yesterday
+  const loadZeroOrdersRetailers = useCallback(async () => {
+    setLoadingZeroOrders(true);
+    try {
+      const response = await api.get('/api/retailers-zero-orders-yesterday');
+      setZeroOrdersRetailers(response.data.retailers || []);
+      setZeroOrdersDate(response.data.date || '');
+    } catch (error) {
+      console.error('Failed to load zero orders retailers:', error);
+      toast.error('Failed to load retailers data');
+    } finally {
+      setLoadingZeroOrders(false);
+    }
+  }, []);
+
+  // Load zero orders retailers when modal opens
+  useEffect(() => {
+    if (showZeroOrdersModal) {
+      loadZeroOrdersRetailers();
+    }
+  }, [showZeroOrdersModal, loadZeroOrdersRetailers]);
 
   const loadIndents = useCallback(async () => {
     try {
@@ -8988,6 +9016,12 @@ export default function RetailerOrders() {
                   <div>
                     <p className="text-[10px] text-green-700 font-medium uppercase">Active Retailers</p>
                     <p className="text-xl font-bold text-green-800">{retailerStats.active_retailers}</p>
+                    <button 
+                      onClick={() => setShowZeroOrdersModal(true)}
+                      className="text-[9px] text-red-600 hover:text-red-800 hover:underline cursor-pointer"
+                    >
+                      0 Orders Yesterday →
+                    </button>
                   </div>
                 </div>
               </CardContent>
@@ -19887,6 +19921,57 @@ export default function RetailerOrders() {
                           : '-'
                         }
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Retailers with 0 Orders Yesterday Modal */}
+      <Dialog open={showZeroOrdersModal} onOpenChange={setShowZeroOrdersModal}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle size={20} />
+              Retailers with 0 Orders Yesterday ({zeroOrdersRetailers.length})
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-500 mb-3">
+            These active retailers did not place any order on {zeroOrdersDate ? new Date(zeroOrdersDate + 'T00:00:00').toLocaleDateString('en-IN', {day: '2-digit', month: 'short', year: 'numeric'}) : 'yesterday'}.
+          </p>
+          
+          {loadingZeroOrders ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+            </div>
+          ) : zeroOrdersRetailers.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Activity size={48} className="mx-auto mb-2 text-green-500" />
+              <p>All active retailers placed orders yesterday!</p>
+            </div>
+          ) : (
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-sm">
+                <thead className="bg-red-50 sticky top-0">
+                  <tr>
+                    <th className="p-2 text-left text-red-700 font-medium">S.No</th>
+                    <th className="p-2 text-left text-red-700 font-medium">Retailer Name</th>
+                    <th className="p-2 text-left text-red-700 font-medium">Area</th>
+                    <th className="p-2 text-left text-red-700 font-medium">Zone</th>
+                    <th className="p-2 text-left text-red-700 font-medium">Assigned To</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zeroOrdersRetailers.map((retailer, idx) => (
+                    <tr key={retailer.id} className="border-b hover:bg-red-50">
+                      <td className="p-2 text-gray-500">{idx + 1}</td>
+                      <td className="p-2 font-medium">{retailer.name || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.area || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.zone || '-'}</td>
+                      <td className="p-2 text-gray-600">{retailer.assigned_to || '-'}</td>
                     </tr>
                   ))}
                 </tbody>

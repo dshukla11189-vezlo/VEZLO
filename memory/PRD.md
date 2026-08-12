@@ -3,6 +3,31 @@
 ## Changelog (August 2026)
 
 
+### August 12, 2026 - Retailers with 0 Orders Yesterday Feature ✅
+- **New Feature: "0 Orders Yesterday" Tracking**:
+  - Added clickable link under Active Retailers card on both Admin Panel and Field Team Portal
+  - Opens modal showing retailers who did not place any indent yesterday
+  
+- **Admin Panel (Retailer Orders)**:
+  - Modal displays: S.No, Retailer Name, Area, Zone, Assigned To (Field Team Member Name)
+  - Shows all active retailers across the system
+  - Field team names are resolved from user_id to actual names
+  
+- **Field Team Portal**:
+  - Modal displays: S.No, Retailer Name, Area
+  - Shows only retailers assigned to that specific field team member
+  - Clicking a retailer row navigates to their individual dashboard
+  
+- **Backend Endpoint**: `GET /api/retailers-zero-orders-yesterday`
+  - Returns different data based on user role (admin sees all, field team sees assigned only)
+  - Date is calculated as yesterday (UTC)
+  - **Files Changed**: `backend/routes/users.py`
+  
+- **Frontend Files Changed**:
+  - `frontend/src/pages/admin/RetailerOrders.js` - Added state, load function, and modal
+  - `frontend/src/pages/field_team/Dashboard.js` - Added state, load function, and modal
+
+
 ### August 11, 2026 - Retailer Catalogue MRP Sync & Variant Display Fix ✅
 - **P0 - MRP Sync Issue Fixed**:
   - **Problem**: Retailer catalogue was showing outdated MRP (e.g., Onion 500gm showing ₹15 instead of ₹18)

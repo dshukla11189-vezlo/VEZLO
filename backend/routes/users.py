@@ -511,3 +511,90 @@ async def get_retailers_pending_to_go_live(current_user: dict = Depends(get_curr
         "count": len(pending_retailers),
         "retailers": pending_retailers
     }
+
+
+@router.get("/retailers-zero-orders-yesterday")
+async def get_retailers_zero_orders_yesterday(current_user: dict = Depends(get_current_user)):
+    """
+    Get list of active retailers who did not place any order (indent) yesterday.
+    Returns different data based on user role:
+    - Admin/Staff: All retailers with area, zone, and assigned_to (field team name)
+    - Field Team: Only their assigned retailers with area
+    """
+    if current_user["role"] not in ["admin", "staff", "field_team"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Calculate yesterday's date
+    today = datetime.now(timezone.utc).date()
+    yesterday = today - timedelta(days=1)
+    yesterday_str = yesterday.strftime('%Y-%m-%d')
+    
+    # Build retailer query based on role
+    retailer_query = {"role": "retailer", "status": {"$ne": "churned"}}
+    
+    if current_user["role"] == "field_team":
+        # Field team only sees their assigned retailers
+        retailer_query["assigned_to"] = {"$in": [current_user["user_id"], current_user.get("email", "")]}
+    
+    # Get all active retailers (or assigned retailers for field team)
+    retailers = await db.users.find(
+        retailer_query,
+        {"_id": 0, "id": 1, "name": 1, "company_name": 1, "area": 1, "zone": 1, "assigned_to": 1}
+    ).to_list(10000)
+    
+    retailer_ids = [r["id"] for r in retailers]
+    
+    # Get retailers who placed indents yesterday
+    retailers_with_orders_yesterday = await db.retailer_indents.distinct(
+        "retailer_id",
+        {
+            "retailer_id": {"$in": retailer_ids},
+            "indent_date": {"$regex": f"^{yesterday_str}"}
+        }
+    )
+    retailers_with_orders_set = set(retailers_with_orders_yesterday)
+    
+    # For admin/staff, we need to resolve assigned_to (user_id) to actual field team member name
+    field_team_map = {}
+    if current_user["role"] in ["admin", "staff"]:
+        # Get all field team members
+        field_team_members = await db.users.find(
+            {"role": "field_team"},
+            {"_id": 0, "id": 1, "email": 1, "name": 1}
+        ).to_list(1000)
+        for ft in field_team_members:
+            field_team_map[ft["id"]] = ft.get("name") or ft.get("email", "")
+            field_team_map[ft.get("email", "")] = ft.get("name") or ft.get("email", "")
+    
+    # Filter to get only those WITHOUT orders yesterday
+    zero_order_retailers = []
+    for r in retailers:
+        if r["id"] not in retailers_with_orders_set:
+            entry = {
+                "id": r["id"],
+                "name": r.get("company_name") or r.get("name", ""),
+                "area": r.get("area", "") or "",
+            }
+            
+            # For admin/staff, include zone and assigned_to (resolved name)
+            if current_user["role"] in ["admin", "staff"]:
+                entry["zone"] = r.get("zone", "") or ""
+                assigned_to_raw = r.get("assigned_to", "")
+                # Handle array assigned_to
+                if isinstance(assigned_to_raw, list):
+                    assigned_names = [field_team_map.get(a, a) for a in assigned_to_raw if a]
+                    entry["assigned_to"] = ", ".join(assigned_names) if assigned_names else ""
+                else:
+                    entry["assigned_to"] = field_team_map.get(assigned_to_raw, assigned_to_raw) if assigned_to_raw else ""
+            
+            zero_order_retailers.append(entry)
+    
+    # Sort alphabetically by name
+    zero_order_retailers.sort(key=lambda x: x.get("name", "").lower())
+    
+    return {
+        "count": len(zero_order_retailers),
+        "date": yesterday_str,
+        "retailers": zero_order_retailers
+    }
+

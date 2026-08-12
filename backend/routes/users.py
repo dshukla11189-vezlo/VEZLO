@@ -629,3 +629,102 @@ async def get_retailers_zero_orders_yesterday(current_user: dict = Depends(get_c
         "retailers": zero_order_retailers
     }
 
+
+
+@router.get("/retailers-pending-payments")
+async def get_retailers_pending_payments(current_user: dict = Depends(get_current_user)):
+    """
+    Get list of retailers with more than 2 invoices in partial or pending status.
+    Returns the count of pending invoices and total amount (excluding latest 2 invoices).
+    """
+    if current_user["role"] not in ["admin", "staff", "field_team"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Build retailer query based on role
+    retailer_query = {"role": "retailer", "status": {"$ne": "churned"}}
+    
+    if current_user["role"] == "field_team":
+        # Field team only sees their assigned retailers
+        retailer_query["assigned_to"] = {"$in": [current_user["user_id"], current_user.get("email", "")]}
+    
+    # Get all retailers
+    retailers = await db.users.find(
+        retailer_query,
+        {"_id": 0, "id": 1, "name": 1, "company_name": 1, "area": 1, "zone": 1, "assigned_to": 1}
+    ).to_list(10000)
+    
+    retailer_ids = [r["id"] for r in retailers]
+    retailer_map = {r["id"]: r for r in retailers}
+    
+    # Get all pending/partial invoices for these retailers
+    pending_invoices = await db.retailer_invoices.find(
+        {
+            "retailer_id": {"$in": retailer_ids},
+            "payment_status": {"$in": ["pending", "partial"]}
+        },
+        {"_id": 0, "retailer_id": 1, "invoice_number": 1, "invoice_date": 1, "net_receivable": 1, "amount_payable": 1, "paid_amount": 1}
+    ).sort("invoice_date", -1).to_list(50000)
+    
+    # Group invoices by retailer
+    retailer_invoices = {}
+    for inv in pending_invoices:
+        rid = inv["retailer_id"]
+        if rid not in retailer_invoices:
+            retailer_invoices[rid] = []
+        retailer_invoices[rid].append(inv)
+    
+    # For admin/staff, resolve assigned_to to field team member names
+    field_team_map = {}
+    if current_user["role"] in ["admin", "staff"]:
+        field_team_members = await db.users.find(
+            {"role": "field_team"},
+            {"_id": 0, "id": 1, "email": 1, "name": 1}
+        ).to_list(1000)
+        for ft in field_team_members:
+            field_team_map[ft["id"]] = ft.get("name") or ft.get("email", "")
+            field_team_map[ft.get("email", "")] = ft.get("name") or ft.get("email", "")
+    
+    # Filter retailers with more than 2 pending invoices
+    pending_payment_retailers = []
+    for rid, invoices in retailer_invoices.items():
+        if len(invoices) > 2:
+            retailer = retailer_map.get(rid, {})
+            
+            # Calculate amount excluding latest 2 invoices
+            # Invoices are already sorted by date descending, so skip first 2
+            older_invoices = invoices[2:]
+            total_pending_amount = sum(
+                (inv.get("net_receivable") or inv.get("amount_payable", 0)) - (inv.get("paid_amount", 0) or 0)
+                for inv in older_invoices
+            )
+            
+            # Resolve assigned_to for admin/staff
+            assigned_to_raw = retailer.get("assigned_to", "")
+            if current_user["role"] in ["admin", "staff"]:
+                if isinstance(assigned_to_raw, list):
+                    assigned_names = [field_team_map.get(a, a) for a in assigned_to_raw if a]
+                    assigned_to_display = ", ".join(assigned_names) if assigned_names else ""
+                else:
+                    assigned_to_display = field_team_map.get(assigned_to_raw, assigned_to_raw) if assigned_to_raw else ""
+            else:
+                assigned_to_display = ""
+            
+            entry = {
+                "id": rid,
+                "name": retailer.get("company_name") or retailer.get("name", ""),
+                "area": retailer.get("area", "") or "",
+                "zone": retailer.get("zone", "") or "",
+                "assigned_to": assigned_to_display,
+                "pending_invoices_count": len(invoices),
+                "amount": round(total_pending_amount, 2)
+            }
+            pending_payment_retailers.append(entry)
+    
+    # Sort by amount descending (highest pending amount first)
+    pending_payment_retailers.sort(key=lambda x: x.get("amount", 0), reverse=True)
+    
+    return {
+        "count": len(pending_payment_retailers),
+        "retailers": pending_payment_retailers
+    }
+

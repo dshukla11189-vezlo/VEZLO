@@ -77,6 +77,12 @@ export default function FieldTeamDashboard() {
   const [zeroOrdersDate, setZeroOrdersDate] = useState('');
   const [zeroOrdersCount, setZeroOrdersCount] = useState(0);
   
+  // ========== PENDING PAYMENTS MODAL (>2 pending invoices) ==========
+  const [showPendingPaymentsModal, setShowPendingPaymentsModal] = useState(false);
+  const [pendingPaymentsRetailers, setPendingPaymentsRetailers] = useState([]);
+  const [loadingPendingPayments, setLoadingPendingPayments] = useState(false);
+  const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0);
+  
   // ========== AUTO INDENT MODAL ==========
   const [showAutoIndentModal, setShowAutoIndentModal] = useState(false);
   const [autoIndentRetailer, setAutoIndentRetailer] = useState(null);
@@ -299,6 +305,41 @@ export default function FieldTeamDashboard() {
       loadZeroOrdersRetailers();
     }
   }, [showZeroOrdersModal, loadZeroOrdersRetailers]);
+
+  // Load retailers with pending payments (>2 pending invoices)
+  const loadPendingPaymentsRetailers = useCallback(async () => {
+    setLoadingPendingPayments(true);
+    try {
+      const response = await api.get('/api/retailers-pending-payments');
+      setPendingPaymentsRetailers(response.data.retailers || []);
+      setPendingPaymentsCount(response.data.count || 0);
+    } catch (error) {
+      console.error('Failed to load pending payments retailers:', error);
+      toast.error('Failed to load pending payments data');
+    } finally {
+      setLoadingPendingPayments(false);
+    }
+  }, []);
+
+  // Load pending payments count on component mount
+  useEffect(() => {
+    const fetchPendingPaymentsCount = async () => {
+      try {
+        const response = await api.get('/api/retailers-pending-payments');
+        setPendingPaymentsCount(response.data.count || 0);
+      } catch (error) {
+        console.error('Failed to load pending payments count:', error);
+      }
+    };
+    fetchPendingPaymentsCount();
+  }, []);
+
+  // Load pending payments retailers when modal opens
+  useEffect(() => {
+    if (showPendingPaymentsModal) {
+      loadPendingPaymentsRetailers();
+    }
+  }, [showPendingPaymentsModal, loadPendingPaymentsRetailers]);
 
   // Refresh data
   const handleRefresh = async () => {
@@ -1297,6 +1338,14 @@ export default function FieldTeamDashboard() {
                     <p className="text-lg font-bold text-orange-600">
                       {formatCurrency(portfolioSummary?.summary?.total_outstanding)}
                     </p>
+                    {pendingPaymentsCount > 0 && (
+                      <button 
+                        onClick={() => setShowPendingPaymentsModal(true)}
+                        className="text-[9px] text-red-600 hover:text-red-800 hover:underline cursor-pointer"
+                      >
+                        {pendingPaymentsCount} Retailers - More than 2 Pending Payments →
+                      </button>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -2375,6 +2424,70 @@ export default function FieldTeamDashboard() {
                     )}
                   </Button>
                 </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* ==================== PENDING PAYMENTS MODAL (>2 pending invoices) ==================== */}
+        <Dialog open={showPendingPaymentsModal} onOpenChange={setShowPendingPaymentsModal}>
+          <DialogContent className="max-w-xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-700">
+                <AlertTriangle size={20} />
+                More than 2 Pending Payments ({pendingPaymentsRetailers.length})
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-500 mb-3">
+              Your assigned retailers with more than 2 pending invoices. Amount shown excludes the latest 2 invoices.
+            </p>
+            
+            {loadingPendingPayments ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+              </div>
+            ) : pendingPaymentsRetailers.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Activity size={48} className="mx-auto mb-2 text-green-500" />
+                <p>No retailers with more than 2 pending payments!</p>
+              </div>
+            ) : (
+              <div className="overflow-y-auto flex-1">
+                <table className="w-full text-sm">
+                  <thead className="bg-red-50 sticky top-0">
+                    <tr>
+                      <th className="p-2 text-left text-red-700 font-medium">S.No</th>
+                      <th className="p-2 text-left text-red-700 font-medium">Name</th>
+                      <th className="p-2 text-left text-red-700 font-medium">Locality</th>
+                      <th className="p-2 text-right text-red-700 font-medium">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingPaymentsRetailers.map((retailer, idx) => (
+                      <tr 
+                        key={retailer.id} 
+                        className="border-b hover:bg-red-50 cursor-pointer"
+                        onClick={() => {
+                          setShowPendingPaymentsModal(false);
+                          handleViewRetailer(retailer.id);
+                        }}
+                      >
+                        <td className="p-2 text-gray-500">{idx + 1}</td>
+                        <td className="p-2 font-medium">{retailer.name || '-'}</td>
+                        <td className="p-2 text-gray-600">{retailer.area || '-'}</td>
+                        <td className="p-2 text-right font-semibold text-red-700">₹{retailer.amount?.toLocaleString('en-IN') || '0'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-red-100 font-semibold">
+                    <tr>
+                      <td colSpan="3" className="p-2 text-right text-red-800">Total:</td>
+                      <td className="p-2 text-right text-red-800">
+                        ₹{pendingPaymentsRetailers.reduce((sum, r) => sum + (r.amount || 0), 0).toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             )}
           </DialogContent>

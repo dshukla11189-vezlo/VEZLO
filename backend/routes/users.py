@@ -656,13 +656,25 @@ async def get_retailers_pending_payments(current_user: dict = Depends(get_curren
     retailer_ids = [r["id"] for r in retailers]
     retailer_map = {r["id"]: r for r in retailers}
     
-    # Get all pending/partial invoices for these retailers
+    # Get all invoices for these retailers that have pending payments
+    # An invoice has pending payment if: 
+    # - payment_status is 'pending' or 'partial', OR
+    # - payment_status is null/None AND paid_amount is 0/null (meaning not fully paid)
     pending_invoices = await db.retailer_invoices.find(
         {
             "retailer_id": {"$in": retailer_ids},
-            "payment_status": {"$in": ["pending", "partial"]}
+            "$or": [
+                {"payment_status": {"$in": ["pending", "partial"]}},
+                {
+                    "payment_status": {"$in": [None, ""]},
+                    "$or": [
+                        {"paid_amount": {"$in": [None, 0]}},
+                        {"paid_amount": {"$exists": False}}
+                    ]
+                }
+            ]
         },
-        {"_id": 0, "retailer_id": 1, "invoice_number": 1, "invoice_date": 1, "net_receivable": 1, "amount_payable": 1, "paid_amount": 1}
+        {"_id": 0, "retailer_id": 1, "invoice_number": 1, "invoice_date": 1, "net_receivable": 1, "amount_payable": 1, "paid_amount": 1, "net_payable": 1, "final_payable": 1}
     ).sort("invoice_date", -1).to_list(50000)
     
     # Group invoices by retailer
@@ -694,7 +706,7 @@ async def get_retailers_pending_payments(current_user: dict = Depends(get_curren
             # Invoices are already sorted by date descending, so skip first 2
             older_invoices = invoices[2:]
             total_pending_amount = sum(
-                (inv.get("net_receivable") or inv.get("amount_payable", 0)) - (inv.get("paid_amount", 0) or 0)
+                (inv.get("net_receivable") or inv.get("final_payable") or inv.get("net_payable") or inv.get("amount_payable") or 0) - (inv.get("paid_amount") or 0)
                 for inv in older_invoices
             )
             

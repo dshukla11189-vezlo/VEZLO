@@ -8910,80 +8910,70 @@ export default function RetailerOrders() {
   return (
     <Layout title="Retailer Orders">
       <div data-testid="retailer-orders-page" className="min-w-0 overflow-x-hidden max-w-full">
-        {/* Header */}
-        <div className="flex flex-col gap-3 mb-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Retailer Orders</h1>
-              <p className="text-sm text-gray-500">Manage retailer indents, dispatches, invoices and payments</p>
-            </div>
-          </div>
-          
-          {/* Retailer Filter - Searchable Dropdown, Left Aligned */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600 font-medium whitespace-nowrap">Filter:</span>
-            <Popover open={retailerDropdownOpen} onOpenChange={setRetailerDropdownOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  className="w-64 justify-between h-9 text-sm"
-                >
-                  <span className="truncate">
-                    {selectedRetailer 
-                      ? (activeRetailers.find(r => r.id === selectedRetailer)?.company_name || 
-                         activeRetailers.find(r => r.id === selectedRetailer)?.name || 'Selected')
-                      : 'All Retailers'}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-72 p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search retailers..." />
-                  <CommandList>
-                    <CommandEmpty>No retailer found.</CommandEmpty>
-                    <CommandGroup>
+        {/* Retailer Filter - Searchable Dropdown */}
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-gray-600 font-medium whitespace-nowrap">Filter:</span>
+          <Popover open={retailerDropdownOpen} onOpenChange={setRetailerDropdownOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                className="w-64 justify-between h-9 text-sm"
+              >
+                <span className="truncate">
+                  {selectedRetailer 
+                    ? (activeRetailers.find(r => r.id === selectedRetailer)?.company_name || 
+                       activeRetailers.find(r => r.id === selectedRetailer)?.name || 'Selected')
+                    : 'All Retailers'}
+                </span>
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Search retailers..." />
+                <CommandList>
+                  <CommandEmpty>No retailer found.</CommandEmpty>
+                  <CommandGroup>
+                    <CommandItem
+                      value="all-retailers"
+                      onSelect={() => {
+                        setSelectedRetailer('');
+                        setRetailerDropdownOpen(false);
+                      }}
+                    >
+                      <Check className={`mr-2 h-4 w-4 ${!selectedRetailer ? 'opacity-100' : 'opacity-0'}`} />
+                      All Retailers ({activeRetailers.length})
+                    </CommandItem>
+                    {activeRetailers.map(r => (
                       <CommandItem
-                        value="all-retailers"
+                        key={r.id}
+                        value={`${r.company_name || r.name} ${r.area || ''}`}
                         onSelect={() => {
-                          setSelectedRetailer('');
+                          setSelectedRetailer(r.id);
                           setRetailerDropdownOpen(false);
                         }}
                       >
-                        <Check className={`mr-2 h-4 w-4 ${!selectedRetailer ? 'opacity-100' : 'opacity-0'}`} />
-                        All Retailers ({activeRetailers.length})
+                        <Check className={`mr-2 h-4 w-4 ${selectedRetailer === r.id ? 'opacity-100' : 'opacity-0'}`} />
+                        <span className="truncate">{r.company_name || r.name}</span>
+                        {r.area && <span className="ml-1 text-xs text-gray-400">({r.area})</span>}
                       </CommandItem>
-                      {activeRetailers.map(r => (
-                        <CommandItem
-                          key={r.id}
-                          value={`${r.company_name || r.name} ${r.area || ''}`}
-                          onSelect={() => {
-                            setSelectedRetailer(r.id);
-                            setRetailerDropdownOpen(false);
-                          }}
-                        >
-                          <Check className={`mr-2 h-4 w-4 ${selectedRetailer === r.id ? 'opacity-100' : 'opacity-0'}`} />
-                          <span className="truncate">{r.company_name || r.name}</span>
-                          {r.area && <span className="ml-1 text-xs text-gray-400">({r.area})</span>}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            {selectedRetailer && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedRetailer('')}
-                className="h-8 px-2 text-gray-500 hover:text-red-600"
-              >
-                <X size={16} />
-              </Button>
-            )}
-          </div>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          {selectedRetailer && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedRetailer('')}
+              className="h-8 px-2 text-gray-500 hover:text-red-600"
+            >
+              <X size={16} />
+            </Button>
+          )}
         </div>
 
         {/* Dashboard Summary Cards */}

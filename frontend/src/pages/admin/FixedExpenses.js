@@ -596,13 +596,49 @@ export default function FixedExpenses() {
 
   const toggleStatus = (employeeId, currentStatus) => {
     const newStatus = currentStatus === 'present' ? 'absent' : 'present';
-    const newHours = newStatus === 'present' ? 8 : 0;
+    
     setAttendanceRecords(prev => 
-      prev.map(record => 
-        record.employee_id === employeeId 
-          ? { ...record, status: newStatus, working_hours: newHours }
-          : record
-      )
+      prev.map(record => {
+        if (record.employee_id !== employeeId) return record;
+        
+        if (newStatus === 'present') {
+          // Default 9 hours, allocated based on vertical
+          const vertical = record.vertical || 'Central';
+          let retailHrs = 0, qcHrs = 0;
+          
+          if (vertical === 'Retail') {
+            retailHrs = 9;
+            qcHrs = 0;
+          } else if (vertical === 'QC') {
+            retailHrs = 0;
+            qcHrs = 9;
+          } else {
+            // Central - split equally
+            retailHrs = 4.5;
+            qcHrs = 4.5;
+          }
+          
+          return { 
+            ...record, 
+            status: newStatus, 
+            working_hours: 9,
+            retail_hours: retailHrs,
+            qc_hours: qcHrs
+          };
+        } else {
+          // Absent - zero all hours
+          return { 
+            ...record, 
+            status: newStatus, 
+            working_hours: 0,
+            retail_hours: 0,
+            qc_hours: 0,
+            ot_total: 0,
+            retail_ot: 0,
+            qc_ot: 0
+          };
+        }
+      })
     );
   };
 

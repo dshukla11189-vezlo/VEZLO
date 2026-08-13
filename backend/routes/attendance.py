@@ -186,10 +186,10 @@ async def mark_all_attendance(
         if status not in ["present", "absent"]:
             raise HTTPException(status_code=400, detail="Status must be 'present' or 'absent'")
         
-        # Get all active employees
+        # Get all active employees with their vertical info
         employees = await db.fixed_employees.find(
             {"status": {"$ne": "deleted"}},
-            {"_id": 0, "id": 1}
+            {"_id": 0, "id": 1, "vertical": 1}
         ).to_list(500)
         
         now = datetime.now(timezone.utc).isoformat()
@@ -199,15 +199,35 @@ async def mark_all_attendance(
             emp_id = emp.get("id")
             if not emp_id:
                 continue
-                
-            default_hours = 8 if status == "present" else 0
+            
+            vertical = emp.get("vertical", "Central")
+            
+            if status == "present":
+                # Default 9 hours, allocated based on vertical
+                working_hours = 9
+                if vertical == "Retail":
+                    retail_hours = 9
+                    qc_hours = 0
+                elif vertical == "QC":
+                    retail_hours = 0
+                    qc_hours = 9
+                else:
+                    # Central - split equally
+                    retail_hours = 4.5
+                    qc_hours = 4.5
+            else:
+                working_hours = 0
+                retail_hours = 0
+                qc_hours = 0
             
             await db.attendance.update_one(
                 {"employee_id": emp_id, "date": date_str},
                 {
                     "$set": {
                         "status": status,
-                        "working_hours": default_hours,
+                        "working_hours": working_hours,
+                        "retail_hours": retail_hours,
+                        "qc_hours": qc_hours,
                         "updated_at": now,
                         "updated_by": current_user.get("id")
                     },
@@ -215,8 +235,6 @@ async def mark_all_attendance(
                         "id": str(uuid.uuid4()),
                         "employee_id": emp_id,
                         "date": date_str,
-                        "retail_hours": 0,
-                        "qc_hours": 0,
                         "ot_total": 0,
                         "retail_ot": 0,
                         "qc_ot": 0,

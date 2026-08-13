@@ -2632,22 +2632,19 @@ export default function FixedExpenses() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Department *</label>
-                <Select 
-                  value={employeeFormData.department} 
-                  onValueChange={(v) => {
-                    console.log('Department selected:', v);
-                    setEmployeeFormData(prev => ({ ...prev, department: v }));
+                <select 
+                  value={employeeFormData.department}
+                  onChange={(e) => {
+                    console.log('Department selected:', e.target.value);
+                    setEmployeeFormData(prev => ({ ...prev, department: e.target.value }));
                   }}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map(dept => (
-                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">Select department</option>
+                  {departments.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Vertical</label>
@@ -2655,7 +2652,7 @@ export default function FixedExpenses() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select vertical" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" sideOffset={5} className="z-[9999]" onCloseAutoFocus={(e) => e.preventDefault()}>
                     <SelectItem value="Retail">Retail</SelectItem>
                     <SelectItem value="QC">QC</SelectItem>
                     <SelectItem value="Central">Central</SelectItem>
@@ -2690,13 +2687,26 @@ export default function FixedExpenses() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Last Working Day</label>
-                <Input
-                  type="date"
-                  value={employeeFormData.lwd || ''}
-                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, lwd: e.target.value  }))}
-                  placeholder="Leave empty if still working"
-                  autoComplete="off"
-                />
+                <div className="relative">
+                  <Input
+                    type="date"
+                    value={employeeFormData.lwd || ''}
+                    onChange={(e) => setEmployeeFormData(prev => ({ ...prev, lwd: e.target.value  }))}
+                    placeholder="Leave empty if still working"
+                    autoComplete="off"
+                    className={employeeFormData.lwd ? '' : 'text-gray-400'}
+                  />
+                  {employeeFormData.lwd && (
+                    <button
+                      type="button"
+                      className="absolute right-8 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      onClick={() => setEmployeeFormData(prev => ({ ...prev, lwd: '' }))}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Leave empty if employee is still working</p>
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">City</label>
@@ -2712,7 +2722,7 @@ export default function FixedExpenses() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" sideOffset={5} className="z-[9999]" onCloseAutoFocus={(e) => e.preventDefault()}>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
                     <SelectItem value="terminated">Terminated</SelectItem>
@@ -2741,7 +2751,7 @@ export default function FixedExpenses() {
                   <SelectTrigger>
                     <SelectValue placeholder="Select gender" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" sideOffset={5} className="z-[9999]" onCloseAutoFocus={(e) => e.preventDefault()}>
                     <SelectItem value="Male">Male</SelectItem>
                     <SelectItem value="Female">Female</SelectItem>
                     <SelectItem value="Other">Other</SelectItem>

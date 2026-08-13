@@ -2,6 +2,20 @@
 
 ## Changelog (August 2026)
 
+### August 13, 2026 - LWD Empty Default & Department Select Fix ✅
+- **LWD (Last Working Day) Field Fix**:
+  - Changed LWD field to show empty by default instead of auto-filling with today's date
+  - Added helper text: "Leave empty if employee is still working"
+  - Added clear (X) button to reset LWD if a date was accidentally selected
+
+- **Department Select Fix**:
+  - Replaced Radix UI Select with native HTML `<select>` element for better compatibility inside Dialog modals
+  - The Radix UI Select inside Dialog had focus management issues causing value not to be captured
+  - Native select reliably captures department selection on form submit
+
+- **Files Modified**:
+  - `frontend/src/pages/admin/FixedExpenses.js` (Department dropdown changed to native select, LWD field updated)
+
 ### August 13, 2026 - Bank Details & Payslip Generation Feature ✅
 - **Bank Details in Add Employee Modal**:
   - Added Bank Details section with:

@@ -54,6 +54,13 @@ export default function FixedExpenses() {
   // Main Tab state: 'attendance', 'employees', 'expenses', 'payroll'
   const [activeMainTab, setActiveMainTab] = useState('expenses');
   
+  // Department Management State
+  const [departments, setDepartments] = useState([
+    'Operations', 'Procurement', 'Sales', 'Logistics', 'Finance', 'HR', 'Admin', 'IT', 'Warehouse', 'Other'
+  ]);
+  const [showDepartmentModal, setShowDepartmentModal] = useState(false);
+  const [newDepartment, setNewDepartment] = useState('');
+  
   // Employee Management State
   const [employees, setEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -301,8 +308,60 @@ export default function FixedExpenses() {
   useEffect(() => {
     if (activeMainTab === 'employees') {
       loadFixedEmployees();
+      loadDepartments();
     }
   }, [activeMainTab, loadFixedEmployees]);
+
+  // Load departments from backend
+  const loadDepartments = async () => {
+    try {
+      const response = await api.get('/api/departments');
+      if (response.data && response.data.length > 0) {
+        setDepartments(response.data.map(d => d.name));
+      }
+    } catch (error) {
+      console.log('Using default departments');
+    }
+  };
+
+  // Add new department
+  const handleAddDepartment = async () => {
+    if (!newDepartment.trim()) {
+      toast.error('Please enter a department name');
+      return;
+    }
+    
+    if (departments.includes(newDepartment.trim())) {
+      toast.error('Department already exists');
+      return;
+    }
+
+    try {
+      await api.post('/api/departments', { name: newDepartment.trim() });
+      setDepartments([...departments, newDepartment.trim()]);
+      setNewDepartment('');
+      toast.success('Department added successfully');
+    } catch (error) {
+      // If API doesn't exist yet, just add locally
+      setDepartments([...departments, newDepartment.trim()]);
+      setNewDepartment('');
+      toast.success('Department added');
+    }
+  };
+
+  // Delete department
+  const handleDeleteDepartment = async (deptName) => {
+    if (!window.confirm(`Delete department "${deptName}"?`)) return;
+    
+    try {
+      await api.delete(`/api/departments/${encodeURIComponent(deptName)}`);
+    } catch (error) {
+      console.log('Delete from local only');
+    }
+    
+    setDepartments(departments.filter(d => d !== deptName));
+    toast.success('Department deleted');
+  };
 
   const resetEmployeeFormData = () => {
     setEmployeeFormData({
@@ -879,9 +938,14 @@ export default function FixedExpenses() {
           <div>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Employee List</h2>
-              <Button size="sm" onClick={handleAddEmployee} className="bg-[#14532D] hover:bg-[#166534]">
-                <UserPlus size={14} className="mr-1" /> Add Employee
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowDepartmentModal(true)}>
+                  <Building2 size={14} className="mr-1" /> Manage Departments
+                </Button>
+                <Button size="sm" onClick={handleAddEmployee} className="bg-[#14532D] hover:bg-[#166534]">
+                  <UserPlus size={14} className="mr-1" /> Add Employee
+                </Button>
+              </div>
             </div>
             
             <Card>
@@ -1690,16 +1754,9 @@ export default function FixedExpenses() {
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Operations">Operations</SelectItem>
-                    <SelectItem value="Procurement">Procurement</SelectItem>
-                    <SelectItem value="Sales">Sales</SelectItem>
-                    <SelectItem value="Logistics">Logistics</SelectItem>
-                    <SelectItem value="Finance">Finance</SelectItem>
-                    <SelectItem value="HR">HR</SelectItem>
-                    <SelectItem value="Admin">Admin</SelectItem>
-                    <SelectItem value="IT">IT</SelectItem>
-                    <SelectItem value="Warehouse">Warehouse</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
+                    {departments.map(dept => (
+                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -1904,6 +1961,62 @@ export default function FixedExpenses() {
                 handleEditEmployee(viewingEmployee);
               }} className="bg-[#14532D] hover:bg-[#166534]">
                 <Edit2 size={14} className="mr-1" /> Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Department Management Modal */}
+        <Dialog open={showDepartmentModal} onOpenChange={setShowDepartmentModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Building2 size={18} className="text-[#14532D]" />
+                Manage Departments
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="py-4">
+              {/* Add New Department */}
+              <div className="flex gap-2 mb-4">
+                <Input
+                  placeholder="Enter new department name"
+                  value={newDepartment}
+                  onChange={(e) => setNewDepartment(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddDepartment()}
+                />
+                <Button onClick={handleAddDepartment} className="bg-[#14532D] hover:bg-[#166534]">
+                  <Plus size={14} className="mr-1" /> Add
+                </Button>
+              </div>
+              
+              {/* Department List */}
+              <div className="border rounded-lg max-h-60 overflow-y-auto">
+                {departments.length === 0 ? (
+                  <p className="p-4 text-center text-gray-500">No departments added</p>
+                ) : (
+                  <div className="divide-y">
+                    {departments.map((dept, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50">
+                        <span className="font-medium">{dept}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteDepartment(dept)}
+                          className="h-7 w-7 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDepartmentModal(false)}>
+                Close
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -276,3 +276,70 @@ async def get_departments(
         return [d for d in departments if d]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Department Management Routes ---
+
+@router.get("/departments")
+async def list_departments(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """List all departments"""
+    try:
+        departments = await db.departments.find({}, {"_id": 0}).sort("name", 1).to_list(100)
+        return departments
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/departments")
+async def create_department(
+    data: dict,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Create a new department"""
+    try:
+        name = data.get("name", "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Department name is required")
+        
+        # Check if already exists
+        existing = await db.departments.find_one({"name": name})
+        if existing:
+            raise HTTPException(status_code=400, detail="Department already exists")
+        
+        now = datetime.now(timezone.utc).isoformat()
+        dept_data = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "created_at": now
+        }
+        
+        await db.departments.insert_one(dept_data)
+        dept_data.pop("_id", None)
+        return dept_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/departments/{dept_name}")
+async def delete_department(
+    dept_name: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Delete a department"""
+    try:
+        result = await db.departments.delete_one({"name": dept_name})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Department not found")
+        return {"success": True, "message": "Department deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -3246,11 +3246,21 @@ export default function RetailerDashboard({
       <div data-testid="retailer-dashboard" className="relative retailer-yellow-bg">
         {/* Vezlo Logo Header */}
         <div className="flex justify-center pt-4 pb-2">
-          <img 
-            src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" 
-            alt="Vezlo Logo" 
-            className="h-28 md:h-32 w-auto"
-          />
+          <div style={{ 
+            overflow: 'hidden', 
+            borderRadius: '24px',
+            boxShadow: '0 0 0 4px #CFFF04'
+          }}>
+            <img 
+              src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" 
+              alt="Vezlo Logo" 
+              className="h-32 md:h-36 w-auto block"
+              style={{ 
+                borderRadius: '24px',
+                margin: '-2px'
+              }}
+            />
+          </div>
         </div>
         {/* Side Menu Overlay */}
         {sideMenuOpen && (

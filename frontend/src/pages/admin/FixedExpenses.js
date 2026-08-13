@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Calculator, Edit2, Trash2, RefreshCw, CheckCircle, Clock, 
-  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus, Save, X, Download
+  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus, Save, X, Download,
+  Gift, Car
 } from 'lucide-react';
 
 const FIXED_CATEGORIES = [
@@ -126,6 +127,20 @@ export default function FixedExpenses() {
   const [selectedEmployeeDetail, setSelectedEmployeeDetail] = useState(null);
   const [showPayslipModal, setShowPayslipModal] = useState(false);
   const [selectedPayslipEmployee, setSelectedPayslipEmployee] = useState(null);
+  
+  // Incentives & Allowances State
+  const [showIncentiveModal, setShowIncentiveModal] = useState(false);
+  const [incentivesList, setIncentivesList] = useState([]);
+  const [incentiveForm, setIncentiveForm] = useState({
+    employee_id: '',
+    date: new Date().toISOString().split('T')[0],
+    type: 'incentive',
+    category: 'daily_incentive',
+    amount: '',
+    description: ''
+  });
+  const [editingIncentive, setEditingIncentive] = useState(null);
+  const [showIncentivesListModal, setShowIncentivesListModal] = useState(false);
   
   // Filter mode: 'month' or 'dateRange'
   const [filterMode, setFilterMode] = useState('month');
@@ -966,6 +981,99 @@ export default function FixedExpenses() {
     printWindow.document.close();
     setShowPayslipModal(false);
   };
+
+  // ==================== INCENTIVES & ALLOWANCES ====================
+  
+  const INCENTIVE_CATEGORIES = [
+    { value: 'daily_incentive', label: 'Daily Incentive', type: 'incentive' },
+    { value: 'monthly_incentive', label: 'Monthly Incentive', type: 'incentive' },
+    { value: 'performance_bonus', label: 'Performance Bonus', type: 'incentive' },
+    { value: 'travel_allowance', label: 'Travelling Allowance', type: 'allowance' },
+    { value: 'food_allowance', label: 'Food Allowance', type: 'allowance' },
+    { value: 'mobile_allowance', label: 'Mobile Allowance', type: 'allowance' },
+    { value: 'other', label: 'Other', type: 'incentive' }
+  ];
+  
+  const resetIncentiveForm = () => {
+    setIncentiveForm({
+      employee_id: '',
+      date: new Date().toISOString().split('T')[0],
+      type: 'incentive',
+      category: 'daily_incentive',
+      amount: '',
+      description: ''
+    });
+    setEditingIncentive(null);
+  };
+
+  const loadIncentives = async () => {
+    try {
+      const response = await api.get(`/api/incentives?date_from=${payrollDateFrom}&date_to=${payrollDateTo}`);
+      setIncentivesList(response.data || []);
+    } catch (error) {
+      console.error('Load incentives error:', error);
+      setIncentivesList([]);
+    }
+  };
+
+  const handleSaveIncentive = async () => {
+    if (!incentiveForm.employee_id) {
+      toast.error('Please select an employee');
+      return;
+    }
+    if (!incentiveForm.amount || parseFloat(incentiveForm.amount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    
+    try {
+      // Find employee name
+      const employee = employees.find(e => e.id === incentiveForm.employee_id);
+      const payload = {
+        ...incentiveForm,
+        employee_name: employee?.name || '',
+        amount: parseFloat(incentiveForm.amount),
+        type: INCENTIVE_CATEGORIES.find(c => c.value === incentiveForm.category)?.type || 'incentive'
+      };
+      
+      if (editingIncentive) {
+        await api.put(`/api/incentives/${editingIncentive.id}`, payload);
+        toast.success('Incentive/Allowance updated successfully');
+      } else {
+        await api.post('/api/incentives', payload);
+        toast.success('Incentive/Allowance added successfully');
+      }
+      
+      resetIncentiveForm();
+      setShowIncentiveModal(false);
+      loadIncentives();
+      loadPayrollData(); // Refresh payroll to include new incentive
+    } catch (error) {
+      console.error('Save incentive error:', error);
+      toast.error('Failed to save incentive/allowance');
+    }
+  };
+
+  const handleDeleteIncentive = async (incentiveId) => {
+    if (!window.confirm('Are you sure you want to delete this entry?')) return;
+    
+    try {
+      await api.delete(`/api/incentives/${incentiveId}`);
+      toast.success('Entry deleted successfully');
+      loadIncentives();
+      loadPayrollData();
+    } catch (error) {
+      console.error('Delete incentive error:', error);
+      toast.error('Failed to delete entry');
+    }
+  };
+
+  // Load incentives when payroll date changes
+  useEffect(() => {
+    if (activeMainTab === 'payroll' && payrollDateFrom && payrollDateTo) {
+      loadIncentives();
+    }
+  }, [activeMainTab, payrollDateFrom, payrollDateTo]);
 
   // ==================== VENDOR MANAGEMENT ====================
   
@@ -1815,7 +1923,7 @@ export default function FixedExpenses() {
         {/* PAYROLL PROCESSING TAB */}
         {activeMainTab === 'payroll' && (
           <div>
-            {/* Date Range Filter */}
+            {/* Date Range Filter & Actions */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
@@ -1840,10 +1948,27 @@ export default function FixedExpenses() {
                   <RefreshCw size={14} className="mr-1" /> Calculate
                 </Button>
               </div>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowIncentivesListModal(true)}
+                  className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                >
+                  <Eye size={14} className="mr-1" /> View All ({incentivesList.length})
+                </Button>
+                <Button 
+                  size="sm" 
+                  onClick={() => { resetIncentiveForm(); setShowIncentiveModal(true); }}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <Gift size={14} className="mr-1" /> Add Incentive/Allowance
+                </Button>
+              </div>
             </div>
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            {/* Summary Cards - Row 1 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
               <Card className="p-4">
                 <p className="text-xs text-gray-500 uppercase mb-1">Total Payroll</p>
                 <p className="text-2xl font-bold text-green-600">
@@ -1861,6 +1986,40 @@ export default function FixedExpenses() {
               <Card className="p-4">
                 <p className="text-xs text-gray-500 uppercase mb-1">Man Days</p>
                 <p className="text-2xl font-bold text-orange-600">{(payrollData?.summary?.total_man_days || 0).toFixed(1)}</p>
+              </Card>
+            </div>
+            
+            {/* Summary Cards - Row 2 (Incentives & Allowances) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <Card className="p-4 border-purple-200 bg-purple-50/50">
+                <div className="flex items-center gap-2">
+                  <Gift size={16} className="text-purple-600" />
+                  <p className="text-xs text-purple-700 uppercase mb-0">Total Incentives</p>
+                </div>
+                <p className="text-xl font-bold text-purple-600 mt-1">
+                  ₹{(payrollData?.summary?.total_incentives || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
+              </Card>
+              <Card className="p-4 border-teal-200 bg-teal-50/50">
+                <div className="flex items-center gap-2">
+                  <Car size={16} className="text-teal-600" />
+                  <p className="text-xs text-teal-700 uppercase mb-0">Total Allowances</p>
+                </div>
+                <p className="text-xl font-bold text-teal-600 mt-1">
+                  ₹{(payrollData?.summary?.total_allowances || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500 uppercase mb-1">Total Paid</p>
+                <p className="text-xl font-bold text-blue-600">
+                  ₹{(payrollData?.summary?.total_paid || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
+              </Card>
+              <Card className="p-4 border-red-200 bg-red-50/50">
+                <p className="text-xs text-red-700 uppercase mb-1">Net Payable</p>
+                <p className="text-xl font-bold text-red-600">
+                  ₹{(payrollData?.summary?.net_payable || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
               </Card>
             </div>
 
@@ -1888,13 +2047,13 @@ export default function FixedExpenses() {
                           <th className="p-2 text-left font-medium text-gray-500">#</th>
                           <th className="p-2 text-left font-medium text-gray-500">NAME</th>
                           <th className="p-2 text-left font-medium text-gray-500">BANK A/C</th>
-                          <th className="p-2 text-left font-medium text-gray-500">IFSC</th>
                           <th className="p-2 text-center font-medium text-green-600">PRESENT</th>
-                          <th className="p-2 text-center font-medium text-red-500">ABSENT</th>
-                          <th className="p-2 text-center font-medium text-blue-600">PAID LEAVES</th>
                           <th className="p-2 text-center font-medium text-green-700 bg-green-50">PAYABLE DAYS</th>
-                          <th className="p-2 text-center font-medium text-gray-500">OT HRS</th>
-                          <th className="p-2 text-right font-medium text-gray-500">AMOUNT</th>
+                          <th className="p-2 text-center font-medium text-orange-600">OT HRS</th>
+                          <th className="p-2 text-right font-medium text-gray-500">SALARY</th>
+                          <th className="p-2 text-right font-medium text-purple-600 bg-purple-50">INCENTIVE</th>
+                          <th className="p-2 text-right font-medium text-teal-600 bg-teal-50">ALLOWANCE</th>
+                          <th className="p-2 text-right font-medium text-gray-700 bg-gray-100">TOTAL</th>
                           <th className="p-2 text-right font-medium text-gray-500">PAID</th>
                           <th className="p-2 text-right font-medium text-gray-500">NET PAYABLE</th>
                           <th className="p-2 text-center font-medium text-gray-500">ACTIONS</th>
@@ -1913,15 +2072,19 @@ export default function FixedExpenses() {
                               <td className="p-2 text-gray-600 font-mono text-[10px]">
                                 {emp.bank_account || <span className="text-gray-400">-</span>}
                               </td>
-                              <td className="p-2 text-gray-600 font-mono text-[10px]">
-                                {emp.ifsc || <span className="text-gray-400">-</span>}
-                              </td>
                               <td className="p-2 text-center text-green-600">{emp.days_present}</td>
-                              <td className="p-2 text-center text-red-500">{emp.days_absent}</td>
-                              <td className="p-2 text-center text-blue-600">{emp.paid_leave_days}</td>
                               <td className="p-2 text-center font-semibold text-green-700 bg-green-50">{emp.payable_days}</td>
                               <td className="p-2 text-center text-orange-600">{(emp.ot_hours || 0).toFixed(1)}</td>
-                              <td className="p-2 text-right font-medium text-gray-700">
+                              <td className="p-2 text-right text-gray-700">
+                                ₹{((emp.regular_salary || 0) + (emp.ot_amount || 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className="p-2 text-right text-purple-600 bg-purple-50">
+                                {(emp.incentive_amount || 0) > 0 ? `₹${emp.incentive_amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '-'}
+                              </td>
+                              <td className="p-2 text-right text-teal-600 bg-teal-50">
+                                {(emp.allowance_amount || 0) > 0 ? `₹${emp.allowance_amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '-'}
+                              </td>
+                              <td className="p-2 text-right font-medium text-gray-800 bg-gray-100">
                                 ₹{(emp.total_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </td>
                               <td className="p-2 text-right">
@@ -4092,6 +4255,197 @@ export default function FixedExpenses() {
                 {editingVendor ? 'Update' : 'Add'} Vendor
               </Button>
             </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Incentive/Allowance Modal */}
+        <Dialog open={showIncentiveModal} onOpenChange={setShowIncentiveModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Gift size={18} className="text-purple-600" />
+                {editingIncentive ? 'Edit' : 'Add'} Incentive / Allowance
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-4 py-2">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Employee *</label>
+                <select
+                  value={incentiveForm.employee_id}
+                  onChange={(e) => setIncentiveForm(prev => ({ ...prev, employee_id: e.target.value }))}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <option value="">Select employee</option>
+                  {employees.filter(e => e.status === 'active').map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} ({emp.department})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Date *</label>
+                  <Input
+                    type="date"
+                    value={incentiveForm.date}
+                    onChange={(e) => setIncentiveForm(prev => ({ ...prev, date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-1 block">Amount (₹) *</label>
+                  <Input
+                    type="number"
+                    placeholder="Enter amount"
+                    value={incentiveForm.amount}
+                    onChange={(e) => setIncentiveForm(prev => ({ ...prev, amount: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Category *</label>
+                <select
+                  value={incentiveForm.category}
+                  onChange={(e) => setIncentiveForm(prev => ({ ...prev, category: e.target.value }))}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <optgroup label="Incentives">
+                    <option value="daily_incentive">Daily Incentive</option>
+                    <option value="monthly_incentive">Monthly Incentive</option>
+                    <option value="performance_bonus">Performance Bonus</option>
+                  </optgroup>
+                  <optgroup label="Allowances">
+                    <option value="travel_allowance">Travelling Allowance</option>
+                    <option value="food_allowance">Food Allowance</option>
+                    <option value="mobile_allowance">Mobile Allowance</option>
+                  </optgroup>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Description (Optional)</label>
+                <Input
+                  placeholder="Brief description..."
+                  value={incentiveForm.description}
+                  onChange={(e) => setIncentiveForm(prev => ({ ...prev, description: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { resetIncentiveForm(); setShowIncentiveModal(false); }}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveIncentive} className="bg-purple-600 hover:bg-purple-700">
+                {editingIncentive ? 'Update' : 'Add'} Entry
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Incentives List Modal */}
+        <Dialog open={showIncentivesListModal} onOpenChange={setShowIncentivesListModal}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Gift size={18} className="text-purple-600" />
+                  Incentives & Allowances ({payrollDateFrom} to {payrollDateTo})
+                </span>
+                <Button 
+                  size="sm" 
+                  onClick={() => { resetIncentiveForm(); setShowIncentiveModal(true); }}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <Plus size={14} className="mr-1" /> Add New
+                </Button>
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="py-2">
+              {incentivesList.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Gift size={48} className="mx-auto mb-3 opacity-30" />
+                  <p>No incentives or allowances recorded for this period</p>
+                  <p className="text-sm">Click "Add New" to record one</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left p-2 font-medium">Date</th>
+                        <th className="text-left p-2 font-medium">Employee</th>
+                        <th className="text-left p-2 font-medium">Type</th>
+                        <th className="text-left p-2 font-medium">Category</th>
+                        <th className="text-right p-2 font-medium">Amount</th>
+                        <th className="text-left p-2 font-medium">Description</th>
+                        <th className="text-center p-2 font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incentivesList.map(item => (
+                        <tr key={item.id} className="border-b hover:bg-gray-50">
+                          <td className="p-2">{item.date}</td>
+                          <td className="p-2 font-medium">{item.employee_name}</td>
+                          <td className="p-2">
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${
+                              item.type === 'incentive' ? 'bg-purple-100 text-purple-700' : 'bg-teal-100 text-teal-700'
+                            }`}>
+                              {item.type === 'incentive' ? 'Incentive' : 'Allowance'}
+                            </span>
+                          </td>
+                          <td className="p-2 capitalize">{item.category?.replace(/_/g, ' ')}</td>
+                          <td className="p-2 text-right font-medium">₹{item.amount?.toLocaleString()}</td>
+                          <td className="p-2 text-gray-500 text-xs">{item.description || '-'}</td>
+                          <td className="p-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                onClick={() => {
+                                  setIncentiveForm({
+                                    employee_id: item.employee_id,
+                                    date: item.date,
+                                    type: item.type,
+                                    category: item.category,
+                                    amount: item.amount.toString(),
+                                    description: item.description || ''
+                                  });
+                                  setEditingIncentive(item);
+                                  setShowIncentiveModal(true);
+                                }}
+                              >
+                                <Edit2 size={14} />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleDeleteIncentive(item.id)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-100 font-medium">
+                        <td colSpan={4} className="p-2 text-right">Total:</td>
+                        <td className="p-2 text-right text-green-600">
+                          ₹{incentivesList.reduce((sum, i) => sum + (i.amount || 0), 0).toLocaleString()}
+                        </td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
           </DialogContent>
         </Dialog>
       </div>

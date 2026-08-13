@@ -2,6 +2,42 @@
 
 ## Changelog (August 2026)
 
+### August 13, 2026 - Incentives & Allowances Feature ✅
+- **New Feature in Payroll Processing Tab**:
+  - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances
+  - Added "View All" button to see all incentives/allowances for the date range
+  
+- **Incentive/Allowance Modal**:
+  - Employee dropdown (filters by active employees)
+  - Date picker for recording date
+  - Amount field
+  - Category dropdown with optgroups:
+    - Incentives: Daily Incentive, Monthly Incentive, Performance Bonus
+    - Allowances: Travelling Allowance, Food Allowance, Mobile Allowance, Other
+  - Description field (optional)
+  - Edit and Delete functionality
+
+- **Summary Cards Updated**:
+  - Row 2 now shows: Total Incentives (purple), Total Allowances (teal), Total Paid, Net Payable
+  - Incentives and allowances are included in total payroll calculations
+
+- **Payroll Table Updated**:
+  - New columns: SALARY, INCENTIVE (purple bg), ALLOWANCE (teal bg), TOTAL
+  - Each employee's incentives/allowances are shown inline
+
+- **Backend APIs Created**:
+  - `GET /api/incentives` - List incentives with date range filter
+  - `POST /api/incentives` - Add new incentive/allowance
+  - `PUT /api/incentives/{id}` - Update existing entry
+  - `DELETE /api/incentives/{id}` - Delete entry
+  - `GET /api/incentives/summary` - Get summary by employee
+  - MongoDB collection: `employee_incentives`
+  - Payroll calculation updated to include incentives/allowances in totals
+
+- **Files Modified**:
+  - `backend/routes/attendance.py` (Added incentives CRUD APIs, updated payroll calculation)
+  - `frontend/src/pages/admin/FixedExpenses.js` (Added incentive modals, updated UI)
+
 ### August 13, 2026 - Expenses Tab Redesign ✅
 - **UI Changes**:
   - Removed "Corporate Expenses" button

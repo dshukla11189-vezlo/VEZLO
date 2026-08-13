@@ -459,6 +459,32 @@ async def calculate_payroll(
         d2 = datetime.strptime(date_to, "%Y-%m-%d")
         days_in_period = (d2 - d1).days + 1
         
+        # Get incentives summary for the date range
+        incentives_pipeline = [
+            {
+                "$match": {
+                    "date": {"$gte": date_from, "$lte": date_to}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$employee_id",
+                    "total_incentives": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$type", "incentive"]}, "$amount", 0]
+                        }
+                    },
+                    "total_allowances": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$type", "allowance"]}, "$amount", 0]
+                        }
+                    }
+                }
+            }
+        ]
+        incentives_result = await db.employee_incentives.aggregate(incentives_pipeline).to_list(500)
+        incentives_map = {item["_id"]: item for item in incentives_result}
+        
         # Build payroll breakdown
         payroll_breakdown = []
         summary = {
@@ -468,7 +494,9 @@ async def calculate_payroll(
             "employee_count": 0,
             "total_paid_leaves": 0,
             "total_man_days": 0,
-            "total_ot_hours": 0
+            "total_ot_hours": 0,
+            "total_incentives": 0,
+            "total_allowances": 0
         }
         
         for emp in employees:
@@ -489,6 +517,11 @@ async def calculate_payroll(
             paid_leave_days = att.get("paid_leave_days", 0)
             total_ot = att.get("total_ot", 0)
             
+            # Get incentives/allowances for this employee
+            emp_incentives = incentives_map.get(emp_id, {})
+            incentive_amount = emp_incentives.get("total_incentives", 0)
+            allowance_amount = emp_incentives.get("total_allowances", 0)
+            
             # Calculate payable days (present + paid leaves + half days as 0.5)
             payable_days = days_present + paid_leave_days + (half_days * 0.5)
             
@@ -496,7 +529,8 @@ async def calculate_payroll(
             regular_salary = daily_rate * payable_days
             ot_rate = daily_rate / 8  # Hourly OT rate
             ot_amount = total_ot * ot_rate
-            total_amount = regular_salary + ot_amount
+            # Total amount includes salary + OT + incentives + allowances
+            total_amount = regular_salary + ot_amount + incentive_amount + allowance_amount
             
             # Get payments
             total_paid = payment_map.get(emp_id, 0)
@@ -520,6 +554,8 @@ async def calculate_payroll(
                 "ot_hours": total_ot,
                 "regular_salary": round(regular_salary, 2),
                 "ot_amount": round(ot_amount, 2),
+                "incentive_amount": round(incentive_amount, 2),
+                "allowance_amount": round(allowance_amount, 2),
                 "total_amount": round(total_amount, 2),
                 "total_paid": round(total_paid, 2),
                 "net_payable": round(net_payable, 2)
@@ -531,12 +567,14 @@ async def calculate_payroll(
             summary["total_paid_leaves"] += paid_leave_days
             summary["total_man_days"] += payable_days
             summary["total_ot_hours"] += total_ot
+            summary["total_incentives"] += incentive_amount
+            summary["total_allowances"] += allowance_amount
             summary["employee_count"] += 1
         
         summary["net_payable"] = summary["total_payroll"] - summary["total_paid"]
         
         # Round summary values
-        for key in ["total_payroll", "total_paid", "net_payable"]:
+        for key in ["total_payroll", "total_paid", "net_payable", "total_incentives", "total_allowances"]:
             summary[key] = round(summary[key], 2)
         
         return {
@@ -600,6 +638,213 @@ async def get_employee_payments(
         ).sort("payment_date", -1).to_list(100)
         
         return payments
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# ==================== INCENTIVES & ALLOWANCES ====================
+
+class IncentiveAllowanceRecord(BaseModel):
+    employee_id: str
+    employee_name: Optional[str] = None
+    date: str  # YYYY-MM-DD
+    type: str  # 'incentive' or 'allowance'
+    category: str  # 'daily_incentive', 'monthly_incentive', 'travel_allowance', 'other'
+    amount: float
+    description: Optional[str] = None
+
+
+@router.get("/incentives")
+async def get_incentives(
+    date_from: str = None,
+    date_to: str = None,
+    employee_id: str = None,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Get incentives and allowances for a date range"""
+    try:
+        query = {}
+        
+        if date_from and date_to:
+            query["date"] = {"$gte": date_from, "$lte": date_to}
+        elif date_from:
+            query["date"] = {"$gte": date_from}
+        elif date_to:
+            query["date"] = {"$lte": date_to}
+            
+        if employee_id:
+            query["employee_id"] = employee_id
+            
+        incentives = await db.employee_incentives.find(
+            query,
+            {"_id": 0}
+        ).sort([("date", -1), ("created_at", -1)]).to_list(1000)
+        
+        return incentives
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/incentives")
+async def add_incentive(
+    record: IncentiveAllowanceRecord,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Add an incentive or allowance record"""
+    try:
+        # Get employee name if not provided
+        if not record.employee_name:
+            employee = await db.fixed_employees.find_one(
+                {"id": record.employee_id},
+                {"_id": 0, "name": 1}
+            )
+            if employee:
+                record.employee_name = employee.get("name")
+        
+        incentive_data = {
+            "id": str(uuid.uuid4()),
+            "employee_id": record.employee_id,
+            "employee_name": record.employee_name,
+            "date": record.date,
+            "type": record.type,
+            "category": record.category,
+            "amount": record.amount,
+            "description": record.description,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": current_user.get("id")
+        }
+        
+        await db.employee_incentives.insert_one(incentive_data.copy())
+        
+        return {"message": "Incentive/Allowance added successfully", "data": incentive_data}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/incentives/{incentive_id}")
+async def update_incentive(
+    incentive_id: str,
+    record: IncentiveAllowanceRecord,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Update an incentive or allowance record"""
+    try:
+        update_data = {
+            "employee_id": record.employee_id,
+            "employee_name": record.employee_name,
+            "date": record.date,
+            "type": record.type,
+            "category": record.category,
+            "amount": record.amount,
+            "description": record.description,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        result = await db.employee_incentives.update_one(
+            {"id": incentive_id},
+            {"$set": update_data}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=404, detail="Incentive not found")
+            
+        return {"message": "Incentive/Allowance updated successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/incentives/{incentive_id}")
+async def delete_incentive(
+    incentive_id: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Delete an incentive or allowance record"""
+    try:
+        result = await db.employee_incentives.delete_one({"id": incentive_id})
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Incentive not found")
+            
+        return {"message": "Incentive/Allowance deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/incentives/summary")
+async def get_incentives_summary(
+    date_from: str,
+    date_to: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Get incentives summary by employee for a date range"""
+    try:
+        pipeline = [
+            {
+                "$match": {
+                    "date": {"$gte": date_from, "$lte": date_to}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$employee_id",
+                    "employee_name": {"$first": "$employee_name"},
+                    "total_incentives": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$type", "incentive"]}, "$amount", 0]
+                        }
+                    },
+                    "total_allowances": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$type", "allowance"]}, "$amount", 0]
+                        }
+                    },
+                    "total_amount": {"$sum": "$amount"},
+                    "count": {"$sum": 1}
+                }
+            }
+        ]
+        
+        result = await db.employee_incentives.aggregate(pipeline).to_list(500)
+        
+        # Convert to dict by employee_id for easy lookup
+        summary = {}
+        total_incentives = 0
+        total_allowances = 0
+        
+        for item in result:
+            summary[item["_id"]] = {
+                "employee_name": item["employee_name"],
+                "incentives": item["total_incentives"],
+                "allowances": item["total_allowances"],
+                "total": item["total_amount"],
+                "count": item["count"]
+            }
+            total_incentives += item["total_incentives"]
+            total_allowances += item["total_allowances"]
+        
+        return {
+            "by_employee": summary,
+            "totals": {
+                "incentives": total_incentives,
+                "allowances": total_allowances,
+                "total": total_incentives + total_allowances
+            }
+        }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

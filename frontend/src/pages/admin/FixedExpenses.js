@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Layout from '../../components/Layout';
 import api from '../../utils/api';
 import { toast } from 'sonner';
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Calculator, Edit2, Trash2, RefreshCw, CheckCircle, Clock, 
-  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus
+  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus, Save, X
 } from 'lucide-react';
 
 const FIXED_CATEGORIES = [
@@ -84,6 +84,22 @@ export default function FixedExpenses() {
     designation: '',
     status: 'active'
   });
+  
+  // Attendance State
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [attendanceSummary, setAttendanceSummary] = useState({
+    total_employees: 0,
+    present: 0,
+    absent: 0,
+    total_working_hours: 0,
+    total_retail_hours: 0,
+    total_qc_hours: 0,
+    total_ot: 0
+  });
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [showCopyDatesModal, setShowCopyDatesModal] = useState(false);
+  const [copyTargetDates, setCopyTargetDates] = useState([]);
   
   // Filter mode: 'month' or 'dateRange'
   const [filterMode, setFilterMode] = useState('month');
@@ -478,6 +494,129 @@ export default function FixedExpenses() {
       toast.error('Failed to delete employee');
     }
   };
+
+  // ============ ATTENDANCE FUNCTIONS ============
+  
+  const loadAttendance = useCallback(async (dateStr) => {
+    setAttendanceLoading(true);
+    try {
+      const response = await api.get(`/api/attendance/${dateStr}`);
+      setAttendanceRecords(response.data.records || []);
+      setAttendanceSummary(response.data.summary || {});
+    } catch (error) {
+      console.error('Failed to load attendance:', error);
+      toast.error('Failed to load attendance');
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }, []);
+
+  // Load attendance when switching to attendance tab or changing date
+  useEffect(() => {
+    if (activeMainTab === 'attendance') {
+      loadAttendance(attendanceDate);
+    }
+  }, [activeMainTab, attendanceDate, loadAttendance]);
+
+  const updateAttendanceRecord = (employeeId, field, value) => {
+    setAttendanceRecords(prev => 
+      prev.map(record => 
+        record.employee_id === employeeId 
+          ? { ...record, [field]: value }
+          : record
+      )
+    );
+  };
+
+  const handleMarkAllPresent = async () => {
+    try {
+      await api.post(`/api/attendance/mark-all?date_str=${attendanceDate}&status=present`);
+      toast.success('All employees marked as present');
+      loadAttendance(attendanceDate);
+    } catch (error) {
+      toast.error('Failed to mark all present');
+    }
+  };
+
+  const handleMarkAllAbsent = async () => {
+    try {
+      await api.post(`/api/attendance/mark-all?date_str=${attendanceDate}&status=absent`);
+      toast.success('All employees marked as absent');
+      loadAttendance(attendanceDate);
+    } catch (error) {
+      toast.error('Failed to mark all absent');
+    }
+  };
+
+  const handleSaveAttendance = async () => {
+    try {
+      const payload = {
+        date: attendanceDate,
+        records: attendanceRecords.map(r => ({
+          employee_id: r.employee_id,
+          date: attendanceDate,
+          status: r.status || 'absent',
+          working_hours: parseFloat(r.working_hours) || 0,
+          retail_hours: parseFloat(r.retail_hours) || 0,
+          qc_hours: parseFloat(r.qc_hours) || 0,
+          ot_total: parseFloat(r.ot_total) || 0,
+          retail_ot: parseFloat(r.retail_ot) || 0,
+          qc_ot: parseFloat(r.qc_ot) || 0,
+          paid_leave: r.paid_leave || false
+        }))
+      };
+      
+      await api.post('/api/attendance/save', payload);
+      toast.success('Attendance saved successfully');
+      loadAttendance(attendanceDate);
+    } catch (error) {
+      console.error('Save attendance error:', error);
+      toast.error('Failed to save attendance');
+    }
+  };
+
+  const handleCopyAttendance = async () => {
+    if (copyTargetDates.length === 0) {
+      toast.error('Please select at least one target date');
+      return;
+    }
+
+    try {
+      await api.post('/api/attendance/copy', {
+        source_date: attendanceDate,
+        target_dates: copyTargetDates
+      });
+      toast.success(`Attendance copied to ${copyTargetDates.length} dates`);
+      setShowCopyDatesModal(false);
+      setCopyTargetDates([]);
+    } catch (error) {
+      toast.error('Failed to copy attendance');
+    }
+  };
+
+  const toggleStatus = (employeeId, currentStatus) => {
+    const newStatus = currentStatus === 'present' ? 'absent' : 'present';
+    const newHours = newStatus === 'present' ? 8 : 0;
+    setAttendanceRecords(prev => 
+      prev.map(record => 
+        record.employee_id === employeeId 
+          ? { ...record, status: newStatus, working_hours: newHours }
+          : record
+      )
+    );
+  };
+
+  // Calculate attendance summary in real-time
+  const calculatedSummary = useMemo(() => {
+    return {
+      present: attendanceRecords.filter(r => r.status === 'present').length,
+      total: attendanceRecords.length,
+      working_hours: attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.working_hours) || 0), 0),
+      retail_hours: attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.retail_hours) || 0), 0),
+      qc_hours: attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.qc_hours) || 0), 0),
+      ot_total: attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.ot_total) || 0), 0)
+    };
+  }, [attendanceRecords]);
 
   const resetForm = () => {
     setFormData({
@@ -945,13 +1084,220 @@ export default function FixedExpenses() {
 
         {/* ATTENDANCE TAB */}
         {activeMainTab === 'attendance' && (
-          <Card className="p-6">
-            <div className="text-center text-gray-500">
-              <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
-              <h3 className="text-lg font-medium mb-2">Attendance Tracking</h3>
-              <p className="text-sm">Coming soon - Track employee attendance and leave management</p>
+          <div>
+            {/* Header with Date Picker and Action Buttons */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">Date:</label>
+                  <Input
+                    type="date"
+                    value={attendanceDate}
+                    onChange={(e) => setAttendanceDate(e.target.value)}
+                    className="w-40"
+                  />
+                </div>
+                {attendanceDate === new Date().toISOString().split('T')[0] && (
+                  <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">Today</span>
+                )}
+                <span className="text-xs text-gray-500">(Editable: current & last month)</span>
+              </div>
+              
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowCopyDatesModal(true)}>
+                  <Copy size={14} className="mr-1" /> Copy to Dates
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => loadAttendance(attendanceDate)}>
+                  <RefreshCw size={14} className="mr-1" /> Refresh
+                </Button>
+                <Button size="sm" onClick={handleSaveAttendance} className="bg-[#14532D] hover:bg-[#166534]">
+                  <Save size={14} className="mr-1" /> Save Attendance
+                </Button>
+              </div>
             </div>
-          </Card>
+
+            {/* Mark All Buttons */}
+            <div className="flex gap-2 mb-4">
+              <Button variant="outline" size="sm" onClick={handleMarkAllPresent} className="text-green-600 border-green-300 hover:bg-green-50">
+                <CheckCircle size={14} className="mr-1" /> Mark All Present
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleMarkAllAbsent} className="text-red-600 border-red-300 hover:bg-red-50">
+                <X size={14} className="mr-1" /> Mark All Absent
+              </Button>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+              <Card className="p-3">
+                <p className="text-xs text-gray-500 uppercase">Present</p>
+                <p className="text-xl font-bold text-green-600">
+                  {calculatedSummary.present}<span className="text-sm text-gray-400">/{calculatedSummary.total}</span>
+                </p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-gray-500 uppercase">Working Hrs</p>
+                <p className="text-xl font-bold text-blue-600">{calculatedSummary.working_hours.toFixed(1)}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-gray-500 uppercase">Retail Hrs</p>
+                <p className="text-xl font-bold text-purple-600">{calculatedSummary.retail_hours.toFixed(1)}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-gray-500 uppercase">QC Hrs</p>
+                <p className="text-xl font-bold text-orange-600">{calculatedSummary.qc_hours.toFixed(1)}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-gray-500 uppercase">OT Total</p>
+                <p className="text-xl font-bold text-teal-600">{calculatedSummary.ot_total.toFixed(1)}</p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-xs text-gray-500 uppercase">OT Split</p>
+                <p className="text-xl font-bold text-gray-600">
+                  {attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.retail_ot) || 0), 0).toFixed(1)}/
+                  {attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.qc_ot) || 0), 0).toFixed(1)}
+                </p>
+              </Card>
+            </div>
+
+            {/* Attendance Table */}
+            <Card>
+              <CardContent className="p-0">
+                {attendanceLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#14532D]"></div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500 w-12">#</th>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500">NAME</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-24">STATUS</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-24">WORKING HRS</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-24">RETAIL HRS</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-24">QC HRS</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-20">OT TOTAL</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-20">RETAIL OT</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-20">QC OT</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500 w-24">PAID LEAVE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {attendanceRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="p-8 text-center text-gray-500">
+                              No employees found. Add employees in the "Manage Employees" tab first.
+                            </td>
+                          </tr>
+                        ) : (
+                          attendanceRecords.map((record, index) => (
+                            <tr key={record.employee_id} className="border-b hover:bg-gray-50">
+                              <td className="p-3 text-gray-500">{index + 1}</td>
+                              <td className="p-3">
+                                <div>
+                                  <p className="font-medium">{record.employee_name}</p>
+                                  {record.department && (
+                                    <p className="text-xs text-gray-400">{record.department}</p>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3 text-center">
+                                <button
+                                  onClick={() => toggleStatus(record.employee_id, record.status)}
+                                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                                    record.status === 'present'
+                                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                      : 'bg-red-100 text-red-700 hover:bg-red-200'
+                                  }`}
+                                >
+                                  {record.status === 'present' ? 'Present' : 'Absent'}
+                                </button>
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="24"
+                                  step="0.5"
+                                  value={record.working_hours || ''}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'working_hours', e.target.value)}
+                                  className="w-20 h-8 text-center text-sm"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="24"
+                                  step="0.5"
+                                  value={record.retail_hours || ''}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'retail_hours', e.target.value)}
+                                  className="w-20 h-8 text-center text-sm"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="24"
+                                  step="0.5"
+                                  value={record.qc_hours || ''}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'qc_hours', e.target.value)}
+                                  className="w-20 h-8 text-center text-sm"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="24"
+                                  step="0.5"
+                                  value={record.ot_total || ''}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'ot_total', e.target.value)}
+                                  className="w-16 h-8 text-center text-sm"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="24"
+                                  step="0.5"
+                                  value={record.retail_ot || ''}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'retail_ot', e.target.value)}
+                                  className="w-16 h-8 text-center text-sm"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="24"
+                                  step="0.5"
+                                  value={record.qc_ot || ''}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'qc_ot', e.target.value)}
+                                  className="w-16 h-8 text-center text-sm"
+                                />
+                              </td>
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={record.paid_leave || false}
+                                  onChange={(e) => updateAttendanceRecord(record.employee_id, 'paid_leave', e.target.checked)}
+                                  className="h-4 w-4 rounded border-gray-300 text-[#14532D] focus:ring-[#14532D]"
+                                />
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {/* MANAGE EMPLOYEES TAB */}
@@ -2047,6 +2393,129 @@ export default function FixedExpenses() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowDepartmentModal(false)}>
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Copy Attendance to Dates Modal */}
+        <Dialog open={showCopyDatesModal} onOpenChange={setShowCopyDatesModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Copy size={18} className="text-[#14532D]" />
+                Copy Attendance to Other Dates
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="py-4">
+              <p className="text-sm text-gray-500 mb-4">
+                Copy attendance from <strong>{attendanceDate}</strong> to the selected dates below:
+              </p>
+              
+              {/* Quick select buttons */}
+              <div className="flex gap-2 mb-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const dates = [];
+                    const today = new Date(attendanceDate);
+                    for (let i = 1; i <= 7; i++) {
+                      const d = new Date(today);
+                      d.setDate(d.getDate() + i);
+                      dates.push(d.toISOString().split('T')[0]);
+                    }
+                    setCopyTargetDates(dates);
+                  }}
+                >
+                  Next 7 Days
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const dates = [];
+                    const today = new Date(attendanceDate);
+                    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                    for (let d = new Date(today); d <= endOfMonth; d.setDate(d.getDate() + 1)) {
+                      if (d.toISOString().split('T')[0] !== attendanceDate) {
+                        dates.push(d.toISOString().split('T')[0]);
+                      }
+                    }
+                    setCopyTargetDates(dates);
+                  }}
+                >
+                  Rest of Month
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCopyTargetDates([])}
+                >
+                  Clear
+                </Button>
+              </div>
+              
+              {/* Date input */}
+              <div className="mb-3">
+                <label className="text-sm font-medium text-gray-700 block mb-1">Add specific date:</label>
+                <div className="flex gap-2">
+                  <Input
+                    type="date"
+                    id="copyDateInput"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const input = document.getElementById('copyDateInput');
+                      if (input.value && !copyTargetDates.includes(input.value)) {
+                        setCopyTargetDates([...copyTargetDates, input.value]);
+                        input.value = '';
+                      }
+                    }}
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Selected dates */}
+              <div className="border rounded-lg max-h-40 overflow-y-auto">
+                {copyTargetDates.length === 0 ? (
+                  <p className="p-4 text-center text-gray-400 text-sm">No dates selected</p>
+                ) : (
+                  <div className="divide-y">
+                    {copyTargetDates.sort().map(date => (
+                      <div key={date} className="flex items-center justify-between p-2 hover:bg-gray-50">
+                        <span className="text-sm">{new Date(date).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCopyTargetDates(copyTargetDates.filter(d => d !== date))}
+                          className="h-6 w-6 p-0 text-red-500"
+                        >
+                          <X size={14} />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <p className="text-xs text-gray-400 mt-2">
+                Selected: {copyTargetDates.length} date(s)
+              </p>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowCopyDatesModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCopyAttendance} className="bg-[#14532D] hover:bg-[#166534]" disabled={copyTargetDates.length === 0}>
+                Copy Attendance
               </Button>
             </DialogFooter>
           </DialogContent>

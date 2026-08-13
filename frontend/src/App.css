@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #E5FF00;
+  background: #CFFF04;
   padding: 1rem;
 }
 
@@ -58,7 +58,7 @@
 
 /* Neon yellow background for retailer pages */
 .retailer-yellow-bg {
-  background-color: #E5FF00 !important;
+  background-color: #CFFF04 !important;
   min-height: 100vh;
 }
 

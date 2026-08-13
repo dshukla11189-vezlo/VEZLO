@@ -2440,12 +2440,16 @@ export default function FixedExpenses() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium text-gray-700 mb-1 block">Vendor</label>
-                    <Input
-                      placeholder="Vendor name"
+                    <select
                       value={formData.vendor}
                       onChange={(e) => setFormData(prev => ({ ...prev, vendor: e.target.value }))}
-                      className="h-8 text-sm"
-                    />
+                      className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <option value="">Select vendor</option>
+                      {vendors.map(vendor => (
+                        <option key={vendor.id} value={vendor.name}>{vendor.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-700 mb-1 block">Invoice Number</label>

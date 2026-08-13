@@ -1,16 +1,32 @@
-# Mr Organix - Product Requirements Document
+# Vezlo - Product Requirements Document
 
 ## Changelog (August 2026)
 
+### August 13, 2026 - Bank Details & Payslip Generation Feature ✅
+- **Bank Details in Add Employee Modal**:
+  - Added Bank Details section with:
+    - Bank Name field
+    - Account Number field  
+    - IFSC Code field
+  - Fields are stored in employee record and displayed in Payroll Processing
+  
+- **Payslip Preview & PDF Download**:
+  - New Payslip Preview modal in Payroll Processing tab
+  - Professional payslip layout with Vezlo branding (#CFFF04 header)
+  - Includes: Employee details, Bank details, Pay period, Earnings breakdown
+  - "Download PDF" button generates printable payslip document
+  - System-generated document footer
 
+- **Files Modified**:
+  - `frontend/src/pages/admin/FixedExpenses.js` (Added bank fields to modal, payslip preview modal)
 
 ### August 13, 2026 - Fixed Expenses Redesign: Employee Management System ✅
 - **New Tab Structure**:
   - Redesigned Fixed Expenses page with 4 main tabs:
-    1. **Attendance** (Coming soon placeholder)
+    1. **Attendance** (Fully implemented)
     2. **Manage Employees** (Fully implemented)
     3. **Expenses** (Original expenses functionality)
-    4. **Payroll Processing** (Coming soon placeholder)
+    4. **Payroll Processing** (Fully implemented)
   - Removed "Generate Recurring" and "Add Expense" buttons from main header
 
 - **Manage Employees Tab Features**:
@@ -19,24 +35,44 @@
   - Add Employee popup with fields:
     - Name*, Phone Number*, Department*, Vertical (Retail/QC/Central), Designation
     - CTC (Annual), Date of Joining*, Last Working Day, City, Status
-    - Address, Aadhar Number, PAN Number, Emergency Contact Number
+    - Address, State, Gender
+    - Bank Details: Bank Name, Account Number, IFSC Code
+    - ID Proof: Aadhar Number, PAN Number, Emergency Contact Number
   - Edit Employee functionality with pre-filled form
   - View Employee details modal
   - Delete Employee (soft delete)
   - Status badges (active/inactive/terminated)
 
-- **Backend API Created**:
+- **Attendance Tab Features**:
+  - Date picker for selecting attendance date
+  - "Mark All Present" bulk action with smart 9-hour allocation by vertical
+  - Summary cards (Total Employees, Present, Absent, Paid Leaves)
+  - Detailed attendance table with Working Hrs, Retail Hrs, QC Hrs, OT tracking
+  - "Copy to Dates" feature for bulk attendance entry
+
+- **Payroll Processing Tab Features**:
+  - Date range picker (From/To)
+  - Summary cards (Total Payroll, Employee Count, Paid Leaves, Man Days)
+  - Payroll table with Bank A/C, IFSC, Present/Absent days, Amount, Paid, Net Payable
+  - "Details" modal for individual employee breakdown
+  - "Pay Now" button to record payments
+  - Payslip Preview and Download PDF functionality
+
+- **Backend APIs Created**:
   - `GET /api/fixed-employees` - List all employees with filters
   - `POST /api/fixed-employees` - Create new employee
   - `GET /api/fixed-employees/{id}` - Get single employee
   - `PUT /api/fixed-employees/{id}` - Update employee
   - `DELETE /api/fixed-employees/{id}` - Soft delete employee
-  - MongoDB collection: `fixed_employees`
+  - `POST /api/attendance/mark-all` - Bulk mark attendance with 9hr allocation
+  - `GET /api/attendance/payroll` - Get payroll calculations for date range
+  - MongoDB collections: `fixed_employees`, `departments`, `attendance`
 
 - **Files Created/Modified**:
   - `backend/routes/fixed_employees.py` (NEW)
-  - `backend/server.py` (Added router import)
-  - `frontend/src/pages/admin/FixedExpenses.js` (Major redesign)
+  - `backend/routes/attendance.py` (NEW)
+  - `backend/server.py` (Added router imports)
+  - `frontend/src/pages/admin/FixedExpenses.js` (Major redesign ~4000 lines)
 
 
 ### August 13, 2026 - Branding Update: Vezlo Logo & Retailer Yellow Theme ✅

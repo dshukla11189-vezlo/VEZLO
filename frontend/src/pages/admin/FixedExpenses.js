@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Calculator, Edit2, Trash2, RefreshCw, CheckCircle, Clock, 
-  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus, Save, X
+  AlertTriangle, Calendar, Copy, Users, Eye, Building2, FileText, UserPlus, Save, X, Download
 } from 'lucide-react';
 
 const FIXED_CATEGORIES = [
@@ -82,7 +82,12 @@ export default function FixedExpenses() {
     city: '',
     vertical: 'Central',
     designation: '',
-    status: 'active'
+    status: 'active',
+    bank_name: '',
+    bank_account_number: '',
+    ifsc_code: '',
+    gender: '',
+    state: ''
   });
   
   // Attendance State
@@ -119,6 +124,8 @@ export default function FixedExpenses() {
   const [paymentHistory, setPaymentHistory] = useState([]);
   const [showPayrollDetailModal, setShowPayrollDetailModal] = useState(false);
   const [selectedEmployeeDetail, setSelectedEmployeeDetail] = useState(null);
+  const [showPayslipModal, setShowPayslipModal] = useState(false);
+  const [selectedPayslipEmployee, setSelectedPayslipEmployee] = useState(null);
   
   // Filter mode: 'month' or 'dateRange'
   const [filterMode, setFilterMode] = useState('month');
@@ -413,7 +420,12 @@ export default function FixedExpenses() {
       city: '',
       vertical: 'Central',
       designation: '',
-      status: 'active'
+      status: 'active',
+      bank_name: '',
+      bank_account_number: '',
+      ifsc_code: '',
+      gender: '',
+      state: ''
     });
     setEditingEmployeeData(null);
   };
@@ -438,7 +450,12 @@ export default function FixedExpenses() {
       city: employee.city || '',
       vertical: employee.vertical || 'Central',
       designation: employee.designation || '',
-      status: employee.status || 'active'
+      status: employee.status || 'active',
+      bank_name: employee.bank_name || '',
+      bank_account_number: employee.bank_account_number || '',
+      ifsc_code: employee.ifsc_code || '',
+      gender: employee.gender || '',
+      state: employee.state || ''
     });
     setEditingEmployeeData(employee);
     setShowEmployeeModal(true);
@@ -743,6 +760,187 @@ export default function FixedExpenses() {
   const openPayrollDetail = (employee) => {
     setSelectedEmployeeDetail(employee);
     setShowPayrollDetailModal(true);
+  };
+
+  // Generate and download payslip
+  const generatePayslip = (employee) => {
+    setSelectedPayslipEmployee(employee);
+    setShowPayslipModal(true);
+  };
+
+  const downloadPayslipAsPDF = () => {
+    const printWindow = window.open('', '_blank');
+    const emp = selectedPayslipEmployee;
+    
+    // Get month name from date range
+    const monthName = new Date(payrollDateFrom).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    
+    // Number to words function
+    const numberToWords = (num) => {
+      const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 
+                    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+      
+      if (num === 0) return 'Zero';
+      if (num < 20) return ones[num];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + ones[num % 10] : '');
+      if (num < 1000) return ones[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' ' + numberToWords(num % 100) : '');
+      if (num < 100000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 ? ' ' + numberToWords(num % 1000) : '');
+      if (num < 10000000) return numberToWords(Math.floor(num / 100000)) + ' Lakh' + (num % 100000 ? ' ' + numberToWords(num % 100000) : '');
+      return numberToWords(Math.floor(num / 10000000)) + ' Crore' + (num % 10000000 ? ' ' + numberToWords(num % 10000000) : '');
+    };
+    
+    const amountInWords = numberToWords(Math.round(emp.net_payable || 0)) + ' Rupees Only';
+    
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Payslip - \${emp.employee_name}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+          .payslip { max-width: 800px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .header { background: #CFFF04; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+          .logo { font-size: 24px; font-weight: bold; color: #333; }
+          .logo-sub { font-size: 10px; color: #666; }
+          .company-info { text-align: right; font-size: 11px; color: #555; }
+          .title { background: #333; color: white; text-align: center; padding: 10px; font-size: 14px; }
+          .section { padding: 20px; }
+          .summary-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+          .summary-box { background: #f8f8f8; padding: 15px; border-radius: 6px; }
+          .summary-box.highlight { background: #CFFF04; }
+          .label { font-size: 10px; color: #888; text-transform: uppercase; margin-bottom: 4px; }
+          .value { font-size: 16px; font-weight: bold; color: #333; }
+          .value.large { font-size: 24px; }
+          .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+          .details-box { border: 1px solid #e0e0e0; border-radius: 6px; padding: 15px; }
+          .details-box h3 { font-size: 12px; color: #666; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; margin-bottom: 10px; }
+          .detail-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+          .detail-label { color: #888; }
+          .detail-value { font-weight: 500; }
+          .earnings-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .earnings-table th { background: #f0f0f0; padding: 10px; text-align: left; font-size: 12px; }
+          .earnings-table td { padding: 10px; border-bottom: 1px solid #e0e0e0; font-size: 12px; }
+          .earnings-table .amount { text-align: right; font-weight: 500; }
+          .total-row { background: #CFFF04; font-weight: bold; }
+          .net-pay { background: #333; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+          .net-pay .label { color: #ccc; }
+          .net-pay .amount { font-size: 24px; font-weight: bold; }
+          .footer { text-align: center; padding: 15px; color: #888; font-size: 10px; border-top: 1px solid #e0e0e0; }
+          @media print { body { background: white; padding: 0; } .payslip { box-shadow: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="payslip">
+          <div class="header">
+            <div>
+              <div class="logo">VEZLO</div>
+              <div class="logo-sub">FRESH PACKS. DAILY.</div>
+            </div>
+            <div class="company-info">
+              Pune, Maharashtra<br>
+              contact@vezlo.in
+            </div>
+          </div>
+          
+          <div class="title">PAYSLIP FOR THE MONTH OF \${monthName.toUpperCase()}</div>
+          
+          <div class="section">
+            <div class="summary-grid">
+              <div class="summary-box">
+                <div class="label">Employee Name</div>
+                <div class="value">\${emp.employee_name}</div>
+              </div>
+              <div class="summary-box">
+                <div class="label">Employee ID</div>
+                <div class="value">\${emp.employee_id || 'N/A'}</div>
+              </div>
+              <div class="summary-box highlight">
+                <div class="label">Net Pay</div>
+                <div class="value large">₹\${(emp.net_payable || 0).toLocaleString('en-IN')}</div>
+              </div>
+            </div>
+            
+            <div class="summary-grid">
+              <div class="summary-box">
+                <div class="label">Pay Period</div>
+                <div class="value">\${payrollDateFrom} to \${payrollDateTo}</div>
+              </div>
+              <div class="summary-box">
+                <div class="label">Paid Days</div>
+                <div class="value">\${emp.payable_days}</div>
+              </div>
+              <div class="summary-box">
+                <div class="label">LOP Days</div>
+                <div class="value">\${emp.days_absent || 0}</div>
+              </div>
+            </div>
+            
+            <div class="details-grid">
+              <div class="details-box">
+                <h3>EMPLOYEE DETAILS</h3>
+                <div class="detail-row"><span class="detail-label">Designation</span><span class="detail-value">\${emp.designation || 'N/A'}</span></div>
+                <div class="detail-row"><span class="detail-label">Department</span><span class="detail-value">\${emp.department || 'N/A'}</span></div>
+                <div class="detail-row"><span class="detail-label">Vertical</span><span class="detail-value">\${emp.vertical || 'N/A'}</span></div>
+                <div class="detail-row"><span class="detail-label">Date of Joining</span><span class="detail-value">\${emp.doj || 'N/A'}</span></div>
+              </div>
+              <div class="details-box">
+                <h3>BANK DETAILS</h3>
+                <div class="detail-row"><span class="detail-label">Bank</span><span class="detail-value">\${emp.bank_name || 'N/A'}</span></div>
+                <div class="detail-row"><span class="detail-label">Account No</span><span class="detail-value">\${emp.bank_account || 'N/A'}</span></div>
+                <div class="detail-row"><span class="detail-label">IFSC</span><span class="detail-value">\${emp.ifsc || 'N/A'}</span></div>
+                <div class="detail-row"><span class="detail-label">City</span><span class="detail-value">\${emp.city || 'N/A'}</span></div>
+              </div>
+            </div>
+            
+            <table class="earnings-table">
+              <tr>
+                <th style="width: 50%">EARNINGS</th>
+                <th style="width: 25%">AMOUNT</th>
+                <th style="width: 25%">DEDUCTIONS</th>
+              </tr>
+              <tr>
+                <td>Basic Salary (\${emp.payable_days} days @ ₹\${(emp.daily_rate || 0).toLocaleString('en-IN')}/day)</td>
+                <td class="amount">₹\${(emp.regular_salary || 0).toLocaleString('en-IN')}</td>
+                <td class="amount">-</td>
+              </tr>
+              <tr>
+                <td>Overtime (\${emp.ot_hours || 0} hrs)</td>
+                <td class="amount">₹\${(emp.ot_amount || 0).toLocaleString('en-IN')}</td>
+                <td class="amount">-</td>
+              </tr>
+              <tr class="total-row">
+                <td>Gross Earnings</td>
+                <td class="amount">₹\${(emp.total_amount || 0).toLocaleString('en-IN')}</td>
+                <td class="amount">₹0</td>
+              </tr>
+            </table>
+          </div>
+          
+          <div class="net-pay">
+            <div>
+              <div class="label">TOTAL NET PAYABLE</div>
+              <div style="font-size: 11px; color: #aaa; margin-top: 4px">\${amountInWords}</div>
+            </div>
+            <div class="amount">₹\${(emp.net_payable || 0).toLocaleString('en-IN')}</div>
+          </div>
+          
+          <div class="footer">
+            This is a system-generated document. For any queries, please contact HR.
+          </div>
+        </div>
+        
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+    
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setShowPayslipModal(false);
   };
 
   const resetForm = () => {
@@ -1681,6 +1879,15 @@ export default function FixedExpenses() {
                                   <Button 
                                     variant="ghost" 
                                     size="sm" 
+                                    onClick={() => generatePayslip(emp)}
+                                    className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 text-[10px] px-2 py-1 h-7"
+                                    title="Download Payslip"
+                                  >
+                                    <Download size={12} />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
                                     onClick={() => openPaymentModal(emp)}
                                     className="text-green-600 hover:text-green-800 hover:bg-green-50 text-[10px] px-2 py-1 h-7"
                                   >
@@ -2521,6 +2728,61 @@ export default function FixedExpenses() {
                 />
               </div>
               <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">State</label>
+                <Input
+                  placeholder="Enter state"
+                  value={employeeFormData.state}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, state: e.target.value  }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Gender</label>
+                <Select value={employeeFormData.gender} onValueChange={(v) => setEmployeeFormData(prev => ({ ...prev, gender: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Male">Male</SelectItem>
+                    <SelectItem value="Female">Female</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Bank Details Section */}
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <p className="text-sm font-semibold text-gray-700 mb-3">Bank Details</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Bank Name</label>
+                <Input
+                  placeholder="Enter bank name"
+                  value={employeeFormData.bank_name}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, bank_name: e.target.value  }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Account Number</label>
+                <Input
+                  placeholder="Enter account number"
+                  value={employeeFormData.bank_account_number}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, bank_account_number: e.target.value  }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">IFSC Code</label>
+                <Input
+                  placeholder="Enter IFSC code"
+                  value={employeeFormData.ifsc_code}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, ifsc_code: e.target.value  }))}
+                />
+              </div>
+              
+              {/* ID Proof Section */}
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <p className="text-sm font-semibold text-gray-700 mb-3">ID Proof & Contact</p>
+              </div>
+              <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Aadhar Number</label>
                 <Input
                   placeholder="Enter Aadhar number"
@@ -2907,6 +3169,129 @@ export default function FixedExpenses() {
                 className="bg-green-600 hover:bg-green-700"
               >
                 + Pay Now
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Payslip Preview Modal */}
+        <Dialog open={showPayslipModal} onOpenChange={setShowPayslipModal}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText size={18} className="text-purple-600" />
+                Payslip Preview
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedPayslipEmployee && (
+              <div className="py-2">
+                {/* Payslip Preview */}
+                <div className="border rounded-lg overflow-hidden">
+                  {/* Header */}
+                  <div className="bg-[#CFFF04] p-4 flex justify-between items-center">
+                    <div>
+                      <h2 className="text-xl font-bold">VEZLO</h2>
+                      <p className="text-xs text-gray-600">FRESH PACKS. DAILY.</p>
+                    </div>
+                    <div className="text-right text-xs text-gray-600">
+                      <p>Pune, Maharashtra</p>
+                      <p>contact@vezlo.in</p>
+                    </div>
+                  </div>
+                  
+                  {/* Title */}
+                  <div className="bg-gray-800 text-white text-center py-2 text-sm">
+                    PAYSLIP FOR THE MONTH OF {new Date(payrollDateFrom).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }).toUpperCase()}
+                  </div>
+                  
+                  {/* Summary */}
+                  <div className="p-4 grid grid-cols-3 gap-3">
+                    <div className="bg-gray-50 p-3 rounded">
+                      <p className="text-xs text-gray-500">Employee Name</p>
+                      <p className="font-semibold">{selectedPayslipEmployee.employee_name}</p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded">
+                      <p className="text-xs text-gray-500">Pay Period</p>
+                      <p className="font-semibold text-sm">{payrollDateFrom} to {payrollDateTo}</p>
+                    </div>
+                    <div className="bg-[#CFFF04] p-3 rounded">
+                      <p className="text-xs text-gray-600">Net Pay</p>
+                      <p className="font-bold text-xl">₹{(selectedPayslipEmployee.net_payable || 0).toLocaleString('en-IN')}</p>
+                    </div>
+                  </div>
+                  
+                  {/* Details */}
+                  <div className="px-4 pb-4 grid grid-cols-2 gap-4">
+                    <div className="border rounded p-3">
+                      <p className="text-xs text-gray-500 border-b pb-2 mb-2">EMPLOYEE DETAILS</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="text-gray-500">Department</span><span>{selectedPayslipEmployee.department || 'N/A'}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Vertical</span><span>{selectedPayslipEmployee.vertical || 'N/A'}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Paid Days</span><span className="font-medium text-green-600">{selectedPayslipEmployee.payable_days}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">LOP Days</span><span className="font-medium text-red-600">{selectedPayslipEmployee.days_absent || 0}</span></div>
+                      </div>
+                    </div>
+                    <div className="border rounded p-3">
+                      <p className="text-xs text-gray-500 border-b pb-2 mb-2">BANK DETAILS</p>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between"><span className="text-gray-500">Bank</span><span>{selectedPayslipEmployee.bank_name || 'N/A'}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Account</span><span>{selectedPayslipEmployee.bank_account || 'N/A'}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">IFSC</span><span>{selectedPayslipEmployee.ifsc || 'N/A'}</span></div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Earnings Table */}
+                  <div className="px-4 pb-4">
+                    <table className="w-full text-xs border">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          <th className="p-2 text-left border-r">EARNINGS</th>
+                          <th className="p-2 text-right border-r w-24">AMOUNT</th>
+                          <th className="p-2 text-right w-24">DEDUCTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-t">
+                          <td className="p-2 border-r">Basic Salary ({selectedPayslipEmployee.payable_days} days)</td>
+                          <td className="p-2 text-right border-r">₹{(selectedPayslipEmployee.regular_salary || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-2 text-right">-</td>
+                        </tr>
+                        <tr className="border-t">
+                          <td className="p-2 border-r">Overtime ({selectedPayslipEmployee.ot_hours || 0} hrs)</td>
+                          <td className="p-2 text-right border-r">₹{(selectedPayslipEmployee.ot_amount || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-2 text-right">-</td>
+                        </tr>
+                        <tr className="border-t bg-[#CFFF04] font-semibold">
+                          <td className="p-2 border-r">Gross Earnings</td>
+                          <td className="p-2 text-right border-r">₹{(selectedPayslipEmployee.total_amount || 0).toLocaleString('en-IN')}</td>
+                          <td className="p-2 text-right">₹0</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* Net Pay */}
+                  <div className="bg-gray-800 text-white p-3 flex justify-between items-center">
+                    <span className="text-sm">TOTAL NET PAYABLE</span>
+                    <span className="text-xl font-bold">₹{(selectedPayslipEmployee.net_payable || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                  
+                  {/* Footer */}
+                  <div className="text-center py-2 text-xs text-gray-400 border-t">
+                    This is a system-generated document
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPayslipModal(false)}>
+                Close
+              </Button>
+              <Button onClick={downloadPayslipAsPDF} className="bg-purple-600 hover:bg-purple-700">
+                <Download size={14} className="mr-1" /> Download PDF
               </Button>
             </DialogFooter>
           </DialogContent>

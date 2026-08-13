@@ -3254,7 +3254,7 @@ export default function RetailerDashboard({
             <img 
               src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" 
               alt="Vezlo Logo" 
-              className="h-32 md:h-36 w-auto block"
+              className="h-36 md:h-44 w-auto block"
               style={{ 
                 borderRadius: '24px',
                 margin: '-2px'

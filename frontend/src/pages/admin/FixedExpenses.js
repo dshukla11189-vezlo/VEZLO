@@ -101,6 +101,25 @@ export default function FixedExpenses() {
   const [showCopyDatesModal, setShowCopyDatesModal] = useState(false);
   const [copyTargetDates, setCopyTargetDates] = useState([]);
   
+  // Payroll Processing State
+  const [payrollDateFrom, setPayrollDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().split('T')[0];
+  });
+  const [payrollDateTo, setPayrollDateTo] = useState(new Date().toISOString().split('T')[0]);
+  const [payrollData, setPayrollData] = useState(null);
+  const [payrollLoading, setPayrollLoading] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedEmployeeForPayment, setSelectedEmployeeForPayment] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMode, setPaymentMode] = useState('bank_transfer');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [showPaymentHistoryModal, setShowPaymentHistoryModal] = useState(false);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [showPayrollDetailModal, setShowPayrollDetailModal] = useState(false);
+  const [selectedEmployeeDetail, setSelectedEmployeeDetail] = useState(null);
+  
   // Filter mode: 'month' or 'dateRange'
   const [filterMode, setFilterMode] = useState('month');
   
@@ -653,6 +672,78 @@ export default function FixedExpenses() {
       ot_total: attendanceRecords.reduce((sum, r) => sum + (parseFloat(r.ot_total) || 0), 0)
     };
   }, [attendanceRecords]);
+
+  // ============ PAYROLL FUNCTIONS ============
+  
+  const loadPayrollData = useCallback(async () => {
+    setPayrollLoading(true);
+    try {
+      const response = await api.get(`/api/payroll/calculate?date_from=${payrollDateFrom}&date_to=${payrollDateTo}`);
+      setPayrollData(response.data);
+    } catch (error) {
+      console.error('Failed to load payroll:', error);
+      toast.error('Failed to load payroll data');
+    } finally {
+      setPayrollLoading(false);
+    }
+  }, [payrollDateFrom, payrollDateTo]);
+
+  // Load payroll when switching to payroll tab
+  useEffect(() => {
+    if (activeMainTab === 'payroll') {
+      loadPayrollData();
+    }
+  }, [activeMainTab, loadPayrollData]);
+
+  const openPaymentModal = (employee) => {
+    setSelectedEmployeeForPayment(employee);
+    setPaymentAmount(employee.net_payable > 0 ? employee.net_payable.toString() : '');
+    setPaymentMode('bank_transfer');
+    setPaymentReference('');
+    setShowPaymentModal(true);
+  };
+
+  const handleRecordPayment = async () => {
+    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    try {
+      await api.post('/api/employee-payments', {
+        employee_id: selectedEmployeeForPayment.employee_id,
+        amount: parseFloat(paymentAmount),
+        payment_date: new Date().toISOString().split('T')[0],
+        payment_type: 'salary',
+        payment_mode: paymentMode,
+        reference: paymentReference,
+        period_from: payrollDateFrom,
+        period_to: payrollDateTo
+      });
+      
+      toast.success('Payment recorded successfully');
+      setShowPaymentModal(false);
+      loadPayrollData();
+    } catch (error) {
+      toast.error('Failed to record payment');
+    }
+  };
+
+  const loadPaymentHistory = async (employee) => {
+    try {
+      const response = await api.get(`/api/employee-payments/${employee.employee_id}`);
+      setPaymentHistory(response.data || []);
+      setSelectedEmployeeForPayment(employee);
+      setShowPaymentHistoryModal(true);
+    } catch (error) {
+      toast.error('Failed to load payment history');
+    }
+  };
+
+  const openPayrollDetail = (employee) => {
+    setSelectedEmployeeDetail(employee);
+    setShowPayrollDetailModal(true);
+  };
 
   const resetForm = () => {
     setFormData({
@@ -1452,13 +1543,195 @@ export default function FixedExpenses() {
 
         {/* PAYROLL PROCESSING TAB */}
         {activeMainTab === 'payroll' && (
-          <Card className="p-6">
-            <div className="text-center text-gray-500">
-              <FileText size={48} className="mx-auto mb-4 text-gray-300" />
-              <h3 className="text-lg font-medium mb-2">Payroll Processing</h3>
-              <p className="text-sm">Coming soon - Process monthly payroll and generate payslips</p>
+          <div>
+            {/* Date Range Filter */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">From:</label>
+                  <Input
+                    type="date"
+                    value={payrollDateFrom}
+                    onChange={(e) => setPayrollDateFrom(e.target.value)}
+                    className="w-40"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium text-gray-700">To:</label>
+                  <Input
+                    type="date"
+                    value={payrollDateTo}
+                    onChange={(e) => setPayrollDateTo(e.target.value)}
+                    className="w-40"
+                  />
+                </div>
+                <Button variant="outline" size="sm" onClick={loadPayrollData}>
+                  <RefreshCw size={14} className="mr-1" /> Calculate
+                </Button>
+              </div>
             </div>
-          </Card>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <Card className="p-4">
+                <p className="text-xs text-gray-500 uppercase mb-1">Total Payroll</p>
+                <p className="text-2xl font-bold text-green-600">
+                  ₹{(payrollData?.summary?.total_payroll || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500 uppercase mb-1">Employee Count</p>
+                <p className="text-2xl font-bold text-blue-600">{payrollData?.summary?.employee_count || 0}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500 uppercase mb-1">Paid Leaves</p>
+                <p className="text-2xl font-bold text-purple-600">{payrollData?.summary?.total_paid_leaves || 0}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-gray-500 uppercase mb-1">Man Days</p>
+                <p className="text-2xl font-bold text-orange-600">{(payrollData?.summary?.total_man_days || 0).toFixed(1)}</p>
+              </Card>
+            </div>
+
+            {/* Payroll Table */}
+            {payrollLoading ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#14532D]"></div>
+                <span className="ml-2 text-gray-500">Loading payroll data...</span>
+              </div>
+            ) : payrollData && payrollData.breakdown && payrollData.breakdown.length > 0 ? (
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm flex items-center justify-between">
+                    <span>Payroll Details</span>
+                    <span className="text-xs text-gray-500 font-normal">
+                      {payrollDateFrom} to {payrollDateTo}
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="p-2 text-left font-medium text-gray-500">#</th>
+                          <th className="p-2 text-left font-medium text-gray-500">NAME</th>
+                          <th className="p-2 text-left font-medium text-gray-500">BANK A/C</th>
+                          <th className="p-2 text-left font-medium text-gray-500">IFSC</th>
+                          <th className="p-2 text-center font-medium text-green-600">PRESENT</th>
+                          <th className="p-2 text-center font-medium text-red-500">ABSENT</th>
+                          <th className="p-2 text-center font-medium text-blue-600">PAID LEAVES</th>
+                          <th className="p-2 text-center font-medium text-green-700 bg-green-50">PAYABLE DAYS</th>
+                          <th className="p-2 text-center font-medium text-gray-500">OT HRS</th>
+                          <th className="p-2 text-right font-medium text-gray-500">AMOUNT</th>
+                          <th className="p-2 text-right font-medium text-gray-500">PAID</th>
+                          <th className="p-2 text-right font-medium text-gray-500">NET PAYABLE</th>
+                          <th className="p-2 text-center font-medium text-gray-500">ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {payrollData.breakdown.map((emp, idx) => {
+                          const isFullyPaid = emp.net_payable <= 0;
+                          return (
+                            <tr key={emp.employee_id} className={`border-b hover:bg-gray-50 ${isFullyPaid ? 'bg-green-50' : ''}`}>
+                              <td className="p-2 text-gray-400">{idx + 1}</td>
+                              <td className="p-2 font-medium">
+                                {emp.employee_name}
+                                {isFullyPaid && <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">PAID</span>}
+                              </td>
+                              <td className="p-2 text-gray-600 font-mono text-[10px]">
+                                {emp.bank_account || <span className="text-gray-400">-</span>}
+                              </td>
+                              <td className="p-2 text-gray-600 font-mono text-[10px]">
+                                {emp.ifsc || <span className="text-gray-400">-</span>}
+                              </td>
+                              <td className="p-2 text-center text-green-600">{emp.days_present}</td>
+                              <td className="p-2 text-center text-red-500">{emp.days_absent}</td>
+                              <td className="p-2 text-center text-blue-600">{emp.paid_leave_days}</td>
+                              <td className="p-2 text-center font-semibold text-green-700 bg-green-50">{emp.payable_days}</td>
+                              <td className="p-2 text-center text-orange-600">{(emp.ot_hours || 0).toFixed(1)}</td>
+                              <td className="p-2 text-right font-medium text-gray-700">
+                                ₹{(emp.total_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className="p-2 text-right">
+                                {emp.total_paid > 0 ? (
+                                  <button 
+                                    onClick={() => loadPaymentHistory(emp)}
+                                    className="text-blue-600 hover:underline font-medium"
+                                  >
+                                    ₹{emp.total_paid.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                  </button>
+                                ) : (
+                                  <span className="text-gray-400">-</span>
+                                )}
+                              </td>
+                              <td className={`p-2 text-right font-semibold ${emp.net_payable <= 0 ? 'text-green-600' : 'text-orange-600'}`}>
+                                {emp.net_payable <= 0 ? '₹0' : `₹${emp.net_payable.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+                              </td>
+                              <td className="p-2 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => openPayrollDetail(emp)}
+                                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 text-[10px] px-2 py-1 h-7"
+                                  >
+                                    Details
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => openPaymentModal(emp)}
+                                    className="text-green-600 hover:text-green-800 hover:bg-green-50 text-[10px] px-2 py-1 h-7"
+                                  >
+                                    + Pay
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-gray-100 font-semibold">
+                          <td className="p-2" colSpan={4}>TOTAL</td>
+                          <td className="p-2 text-center text-green-600">
+                            {payrollData.breakdown.reduce((sum, e) => sum + e.days_present, 0)}
+                          </td>
+                          <td className="p-2 text-center text-red-500">
+                            {payrollData.breakdown.reduce((sum, e) => sum + e.days_absent, 0)}
+                          </td>
+                          <td className="p-2 text-center text-blue-600">
+                            {payrollData.summary.total_paid_leaves}
+                          </td>
+                          <td className="p-2 text-center font-bold text-green-700 bg-green-50">
+                            {payrollData.summary.total_man_days.toFixed(1)}
+                          </td>
+                          <td className="p-2 text-center text-orange-600">
+                            {payrollData.summary.total_ot_hours.toFixed(1)}
+                          </td>
+                          <td className="p-2 text-right text-gray-700">
+                            ₹{payrollData.summary.total_payroll.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="p-2 text-right text-blue-700">
+                            ₹{payrollData.summary.total_paid.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="p-2 text-right text-orange-700">
+                            ₹{payrollData.summary.net_payable.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="py-8 text-center text-gray-500">
+                  No payroll data found. Make sure employees have attendance records for the selected period.
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
 
         {/* EXPENSES TAB - Original Content */}
@@ -2429,6 +2702,211 @@ export default function FixedExpenses() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowDepartmentModal(false)}>
                 Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Pay Employee Modal */}
+        <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Plus size={18} className="text-green-600" />
+                Record Payment
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedEmployeeForPayment && (
+              <div className="py-4 space-y-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="font-semibold">{selectedEmployeeForPayment.employee_name}</p>
+                  <p className="text-sm text-gray-500">
+                    Net Payable: <span className="font-medium text-orange-600">₹{(selectedEmployeeForPayment.net_payable || 0).toLocaleString('en-IN')}</span>
+                  </p>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Amount *</label>
+                  <Input
+                    type="number"
+                    placeholder="Enter amount"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Payment Mode</label>
+                  <Select value={paymentMode} onValueChange={setPaymentMode}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Reference/Notes</label>
+                  <Input
+                    placeholder="Transaction ID, Cheque No, etc."
+                    value={paymentReference}
+                    onChange={(e) => setPaymentReference(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPaymentModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRecordPayment} className="bg-green-600 hover:bg-green-700">
+                Record Payment
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Payment History Modal */}
+        <Dialog open={showPaymentHistoryModal} onOpenChange={setShowPaymentHistoryModal}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText size={18} className="text-blue-600" />
+                Payment History
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedEmployeeForPayment && (
+              <div className="py-2">
+                <p className="font-medium text-gray-700 mb-3">{selectedEmployeeForPayment.employee_name}</p>
+                
+                {paymentHistory.length === 0 ? (
+                  <p className="text-center text-gray-400 py-4">No payment history found</p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {paymentHistory.map((payment, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <p className="font-medium text-green-600">₹{payment.amount.toLocaleString('en-IN')}</p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(payment.payment_date).toLocaleDateString('en-IN')} • {payment.payment_mode}
+                          </p>
+                          {payment.reference && (
+                            <p className="text-xs text-gray-400">Ref: {payment.reference}</p>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-400">
+                          {payment.period_from && payment.period_to && (
+                            `${payment.period_from} - ${payment.period_to}`
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPaymentHistoryModal(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Payroll Detail Modal */}
+        <Dialog open={showPayrollDetailModal} onOpenChange={setShowPayrollDetailModal}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText size={18} className="text-blue-600" />
+                Payroll Details
+              </DialogTitle>
+            </DialogHeader>
+            
+            {selectedEmployeeDetail && (
+              <div className="py-2">
+                <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                  <h3 className="font-bold text-lg">{selectedEmployeeDetail.employee_name}</h3>
+                  <p className="text-sm text-gray-500">{selectedEmployeeDetail.department} • {selectedEmployeeDetail.vertical}</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-blue-50 p-3 rounded">
+                    <p className="text-xs text-gray-500">Annual CTC</p>
+                    <p className="font-semibold">₹{(selectedEmployeeDetail.ctc || 0).toLocaleString('en-IN')}</p>
+                  </div>
+                  <div className="bg-blue-50 p-3 rounded">
+                    <p className="text-xs text-gray-500">Monthly Salary</p>
+                    <p className="font-semibold">₹{(selectedEmployeeDetail.monthly_salary || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-xs text-gray-500">Daily Rate</p>
+                    <p className="font-semibold">₹{(selectedEmployeeDetail.daily_rate || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                  </div>
+                  <div className="bg-green-50 p-3 rounded">
+                    <p className="text-xs text-gray-500">Days Present</p>
+                    <p className="font-semibold text-green-600">{selectedEmployeeDetail.days_present}</p>
+                  </div>
+                  <div className="bg-red-50 p-3 rounded">
+                    <p className="text-xs text-gray-500">Days Absent</p>
+                    <p className="font-semibold text-red-600">{selectedEmployeeDetail.days_absent}</p>
+                  </div>
+                  <div className="bg-purple-50 p-3 rounded">
+                    <p className="text-xs text-gray-500">Paid Leaves</p>
+                    <p className="font-semibold text-purple-600">{selectedEmployeeDetail.paid_leave_days}</p>
+                  </div>
+                  <div className="bg-green-100 p-3 rounded col-span-2">
+                    <p className="text-xs text-gray-500">Payable Days</p>
+                    <p className="font-bold text-green-700 text-lg">{selectedEmployeeDetail.payable_days}</p>
+                  </div>
+                </div>
+                
+                <div className="border-t mt-4 pt-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Regular Salary ({selectedEmployeeDetail.payable_days} days)</span>
+                    <span className="font-medium">₹{(selectedEmployeeDetail.regular_salary || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">OT Amount ({selectedEmployeeDetail.ot_hours || 0} hrs)</span>
+                    <span className="font-medium">₹{(selectedEmployeeDetail.ot_amount || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold border-t pt-2">
+                    <span>Total Amount</span>
+                    <span>₹{(selectedEmployeeDetail.total_amount || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-blue-600">
+                    <span>Paid</span>
+                    <span>- ₹{(selectedEmployeeDetail.total_paid || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between text-lg font-bold text-orange-600 border-t pt-2">
+                    <span>Net Payable</span>
+                    <span>₹{(selectedEmployeeDetail.net_payable || 0).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPayrollDetailModal(false)}>
+                Close
+              </Button>
+              <Button 
+                onClick={() => {
+                  setShowPayrollDetailModal(false);
+                  openPaymentModal(selectedEmployeeDetail);
+                }} 
+                className="bg-green-600 hover:bg-green-700"
+              >
+                + Pay Now
               </Button>
             </DialogFooter>
           </DialogContent>

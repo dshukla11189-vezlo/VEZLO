@@ -391,3 +391,215 @@ async def get_monthly_summary(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/payroll/calculate")
+async def calculate_payroll(
+    date_from: str,
+    date_to: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Calculate payroll for a date range based on attendance and CTC"""
+    try:
+        # Get all active fixed employees
+        employees = await db.fixed_employees.find(
+            {"status": {"$ne": "deleted"}},
+            {"_id": 0}
+        ).to_list(500)
+        
+        emp_map = {emp.get("id"): emp for emp in employees}
+        
+        # Aggregate attendance by employee for the date range
+        pipeline = [
+            {
+                "$match": {
+                    "date": {"$gte": date_from, "$lte": date_to}
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$employee_id",
+                    "days_present": {"$sum": {"$cond": [{"$eq": ["$status", "present"]}, 1, 0]}},
+                    "days_absent": {"$sum": {"$cond": [{"$eq": ["$status", "absent"]}, 1, 0]}},
+                    "half_days": {"$sum": {"$cond": [{"$eq": ["$status", "half_day"]}, 1, 0]}},
+                    "paid_leave_days": {"$sum": {"$cond": ["$paid_leave", 1, 0]}},
+                    "total_working_hours": {"$sum": "$working_hours"},
+                    "total_retail_hours": {"$sum": "$retail_hours"},
+                    "total_qc_hours": {"$sum": "$qc_hours"},
+                    "total_ot": {"$sum": "$ot_total"}
+                }
+            }
+        ]
+        
+        attendance_results = await db.attendance.aggregate(pipeline).to_list(500)
+        attendance_map = {r["_id"]: r for r in attendance_results}
+        
+        # Get payments for employees in date range
+        payments_pipeline = [
+            {
+                "$match": {
+                    "payment_date": {"$gte": date_from, "$lte": date_to},
+                    "payment_type": "salary"
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$employee_id",
+                    "total_paid": {"$sum": "$amount"}
+                }
+            }
+        ]
+        payment_results = await db.employee_payments.aggregate(payments_pipeline).to_list(500)
+        payment_map = {r["_id"]: r.get("total_paid", 0) for r in payment_results}
+        
+        # Calculate number of days in the period for daily rate calculation
+        from datetime import datetime
+        d1 = datetime.strptime(date_from, "%Y-%m-%d")
+        d2 = datetime.strptime(date_to, "%Y-%m-%d")
+        days_in_period = (d2 - d1).days + 1
+        
+        # Build payroll breakdown
+        payroll_breakdown = []
+        summary = {
+            "total_payroll": 0,
+            "total_paid": 0,
+            "net_payable": 0,
+            "employee_count": 0,
+            "total_paid_leaves": 0,
+            "total_man_days": 0,
+            "total_ot_hours": 0
+        }
+        
+        for emp in employees:
+            emp_id = emp.get("id")
+            emp_name = emp.get("name", "Unknown")
+            ctc = emp.get("ctc", 0) or 0
+            
+            # Calculate daily rate from annual CTC
+            # Assuming 26 working days per month
+            monthly_salary = ctc / 12
+            daily_rate = monthly_salary / 26
+            
+            # Get attendance data
+            att = attendance_map.get(emp_id, {})
+            days_present = att.get("days_present", 0)
+            days_absent = att.get("days_absent", 0)
+            half_days = att.get("half_days", 0)
+            paid_leave_days = att.get("paid_leave_days", 0)
+            total_ot = att.get("total_ot", 0)
+            
+            # Calculate payable days (present + paid leaves + half days as 0.5)
+            payable_days = days_present + paid_leave_days + (half_days * 0.5)
+            
+            # Calculate salary
+            regular_salary = daily_rate * payable_days
+            ot_rate = daily_rate / 8  # Hourly OT rate
+            ot_amount = total_ot * ot_rate
+            total_amount = regular_salary + ot_amount
+            
+            # Get payments
+            total_paid = payment_map.get(emp_id, 0)
+            net_payable = total_amount - total_paid
+            
+            payroll_breakdown.append({
+                "employee_id": emp_id,
+                "employee_name": emp_name,
+                "department": emp.get("department"),
+                "vertical": emp.get("vertical"),
+                "bank_account": emp.get("bank_account_number") or emp.get("aadhar_number", ""),
+                "ifsc": emp.get("ifsc_code", ""),
+                "ctc": ctc,
+                "monthly_salary": monthly_salary,
+                "daily_rate": daily_rate,
+                "days_present": days_present,
+                "days_absent": days_absent,
+                "half_days": half_days,
+                "paid_leave_days": paid_leave_days,
+                "payable_days": payable_days,
+                "ot_hours": total_ot,
+                "regular_salary": round(regular_salary, 2),
+                "ot_amount": round(ot_amount, 2),
+                "total_amount": round(total_amount, 2),
+                "total_paid": round(total_paid, 2),
+                "net_payable": round(net_payable, 2)
+            })
+            
+            # Update summary
+            summary["total_payroll"] += total_amount
+            summary["total_paid"] += total_paid
+            summary["total_paid_leaves"] += paid_leave_days
+            summary["total_man_days"] += payable_days
+            summary["total_ot_hours"] += total_ot
+            summary["employee_count"] += 1
+        
+        summary["net_payable"] = summary["total_payroll"] - summary["total_paid"]
+        
+        # Round summary values
+        for key in ["total_payroll", "total_paid", "net_payable"]:
+            summary[key] = round(summary[key], 2)
+        
+        return {
+            "date_from": date_from,
+            "date_to": date_to,
+            "summary": summary,
+            "breakdown": payroll_breakdown
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/employee-payments")
+async def record_employee_payment(
+    data: dict,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Record a salary payment for an employee"""
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        
+        payment_data = {
+            "id": str(uuid.uuid4()),
+            "employee_id": data.get("employee_id"),
+            "amount": float(data.get("amount", 0)),
+            "payment_date": data.get("payment_date", now.split("T")[0]),
+            "payment_type": data.get("payment_type", "salary"),
+            "payment_mode": data.get("payment_mode", "bank_transfer"),
+            "reference": data.get("reference", ""),
+            "notes": data.get("notes", ""),
+            "period_from": data.get("period_from"),
+            "period_to": data.get("period_to"),
+            "created_at": now,
+            "created_by": current_user.get("id")
+        }
+        
+        await db.employee_payments.insert_one(payment_data)
+        payment_data.pop("_id", None)
+        
+        return payment_data
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/employee-payments/{employee_id}")
+async def get_employee_payments(
+    employee_id: str,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Get payment history for an employee"""
+    try:
+        payments = await db.employee_payments.find(
+            {"employee_id": employee_id},
+            {"_id": 0}
+        ).sort("payment_date", -1).to_list(100)
+        
+        return payments
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

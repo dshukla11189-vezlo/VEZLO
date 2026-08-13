@@ -3,6 +3,23 @@
 ## Changelog (August 2026)
 
 
+### August 13, 2026 - Branding Update: Vezlo Logo & Retailer Yellow Theme ✅
+- **Login Page Logo Updated**:
+  - Replaced old logo with the official Vezlo logo (neon yellow background with orange mascot)
+  - Logo URL: `https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp`
+  - **Files Changed**: `frontend/src/pages/Login.js`
+
+- **Retailer Portal Neon Yellow Theme**:
+  - Added neon yellow (`#E5FF00`) background to all retailer dashboard pages
+  - Added Vezlo logo header at the top of retailer dashboard
+  - Created `.retailer-yellow-bg` CSS class for consistent styling
+  - Updated Layout component to have transparent background when sidebar is hidden (retailer mode)
+  - **Files Changed**: 
+    - `frontend/src/pages/retailer/Dashboard.js`
+    - `frontend/src/App.css`
+
+
+
 ### August 12, 2026 - Retailers with 0 Orders Yesterday Feature ✅
 - **New Feature: "0 Orders Yesterday" Tracking**:
   - Added clickable link under Active Retailers card on both Admin Panel and Field Team Portal

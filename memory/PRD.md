@@ -3,6 +3,42 @@
 ## Changelog (August 2026)
 
 
+
+### August 13, 2026 - Fixed Expenses Redesign: Employee Management System ✅
+- **New Tab Structure**:
+  - Redesigned Fixed Expenses page with 4 main tabs:
+    1. **Attendance** (Coming soon placeholder)
+    2. **Manage Employees** (Fully implemented)
+    3. **Expenses** (Original expenses functionality)
+    4. **Payroll Processing** (Coming soon placeholder)
+  - Removed "Generate Recurring" and "Add Expense" buttons from main header
+
+- **Manage Employees Tab Features**:
+  - Employee table with columns: S.No, Employee ID, Name, Phone, Department, CTC, DOJ, LWD, Status, Actions
+  - Auto-generated Employee IDs (EMP001, EMP002, etc.)
+  - Add Employee popup with fields:
+    - Name*, Phone Number*, Department*, Vertical (Retail/QC/Central), Designation
+    - CTC (Annual), Date of Joining*, Last Working Day, City, Status
+    - Address, Aadhar Number, PAN Number, Emergency Contact Number
+  - Edit Employee functionality with pre-filled form
+  - View Employee details modal
+  - Delete Employee (soft delete)
+  - Status badges (active/inactive/terminated)
+
+- **Backend API Created**:
+  - `GET /api/fixed-employees` - List all employees with filters
+  - `POST /api/fixed-employees` - Create new employee
+  - `GET /api/fixed-employees/{id}` - Get single employee
+  - `PUT /api/fixed-employees/{id}` - Update employee
+  - `DELETE /api/fixed-employees/{id}` - Soft delete employee
+  - MongoDB collection: `fixed_employees`
+
+- **Files Created/Modified**:
+  - `backend/routes/fixed_employees.py` (NEW)
+  - `backend/server.py` (Added router import)
+  - `frontend/src/pages/admin/FixedExpenses.js` (Major redesign)
+
+
 ### August 13, 2026 - Branding Update: Vezlo Logo & Retailer Yellow Theme ✅
 - **Login Page Logo Updated**:
   - Replaced old logo with the official Vezlo logo (neon yellow background with orange mascot)

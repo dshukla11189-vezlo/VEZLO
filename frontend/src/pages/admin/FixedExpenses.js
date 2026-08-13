@@ -51,6 +51,33 @@ export default function FixedExpenses() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [initialMonthLoaded, setInitialMonthLoaded] = useState(false);
   
+  // Main Tab state: 'attendance', 'employees', 'expenses', 'payroll'
+  const [activeMainTab, setActiveMainTab] = useState('expenses');
+  
+  // Employee Management State
+  const [employees, setEmployees] = useState([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  const [editingEmployeeData, setEditingEmployeeData] = useState(null);
+  const [viewingEmployee, setViewingEmployee] = useState(null);
+  const [showViewEmployeeModal, setShowViewEmployeeModal] = useState(false);
+  const [employeeFormData, setEmployeeFormData] = useState({
+    name: '',
+    phone: '',
+    address: '',
+    ctc: '',
+    doj: '',
+    lwd: '',
+    aadhar_number: '',
+    pan_number: '',
+    emergency_contact: '',
+    department: '',
+    city: '',
+    vertical: 'Central',
+    designation: '',
+    status: 'active'
+  });
+  
   // Filter mode: 'month' or 'dateRange'
   const [filterMode, setFilterMode] = useState('month');
   
@@ -256,6 +283,122 @@ export default function FixedExpenses() {
     loadCorporateData();
   }, []);
 
+  // Load fixed employees for the Manage Employees tab
+  const loadFixedEmployees = useCallback(async () => {
+    setEmployeesLoading(true);
+    try {
+      const response = await api.get('/api/fixed-employees');
+      setEmployees(response.data || []);
+    } catch (error) {
+      console.error('Failed to load employees:', error);
+      toast.error('Failed to load employees');
+    } finally {
+      setEmployeesLoading(false);
+    }
+  }, []);
+
+  // Load employees when switching to employees tab
+  useEffect(() => {
+    if (activeMainTab === 'employees') {
+      loadFixedEmployees();
+    }
+  }, [activeMainTab, loadFixedEmployees]);
+
+  const resetEmployeeFormData = () => {
+    setEmployeeFormData({
+      name: '',
+      phone: '',
+      address: '',
+      ctc: '',
+      doj: '',
+      lwd: '',
+      aadhar_number: '',
+      pan_number: '',
+      emergency_contact: '',
+      department: '',
+      city: '',
+      vertical: 'Central',
+      designation: '',
+      status: 'active'
+    });
+    setEditingEmployeeData(null);
+  };
+
+  const handleAddEmployee = () => {
+    resetEmployeeFormData();
+    setShowEmployeeModal(true);
+  };
+
+  const handleEditEmployee = (employee) => {
+    setEmployeeFormData({
+      name: employee.name || '',
+      phone: employee.phone || '',
+      address: employee.address || '',
+      ctc: employee.ctc || '',
+      doj: employee.doj || '',
+      lwd: employee.lwd || '',
+      aadhar_number: employee.aadhar_number || '',
+      pan_number: employee.pan_number || '',
+      emergency_contact: employee.emergency_contact || '',
+      department: employee.department || '',
+      city: employee.city || '',
+      vertical: employee.vertical || 'Central',
+      designation: employee.designation || '',
+      status: employee.status || 'active'
+    });
+    setEditingEmployeeData(employee);
+    setShowEmployeeModal(true);
+  };
+
+  const handleViewEmployee = (employee) => {
+    setViewingEmployee(employee);
+    setShowViewEmployeeModal(true);
+  };
+
+  const handleSaveEmployee = async () => {
+    if (!employeeFormData.name || !employeeFormData.phone || !employeeFormData.department || !employeeFormData.doj) {
+      toast.error('Please fill in required fields (Name, Phone, Department, DOJ)');
+      return;
+    }
+
+    try {
+      const payload = {
+        ...employeeFormData,
+        ctc: parseFloat(employeeFormData.ctc) || 0
+      };
+
+      if (editingEmployeeData) {
+        await api.put(`/api/fixed-employees/${editingEmployeeData.id}`, payload);
+        toast.success('Employee updated successfully');
+      } else {
+        await api.post('/api/fixed-employees', payload);
+        toast.success('Employee added successfully');
+      }
+
+      setShowEmployeeModal(false);
+      resetEmployeeFormData();
+      loadFixedEmployees();
+    } catch (error) {
+      console.error('Save employee error:', error);
+      toast.error('Failed to save employee');
+    }
+  };
+
+  const handleDeleteEmployee = async (employee) => {
+    if (!window.confirm(`Are you sure you want to delete ${employee.name}?`)) {
+      return;
+    }
+
+    try {
+      await api.delete(`/api/fixed-employees/${employee.id}`);
+      toast.success('Employee deleted successfully');
+      loadFixedEmployees();
+    } catch (error) {
+      console.error('Delete employee error:', error);
+      toast.error('Failed to delete employee');
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       date: new Date().toISOString().split('T')[0],
@@ -373,8 +516,8 @@ export default function FixedExpenses() {
     }
   };
 
-  // Employee CRUD
-  const handleSaveEmployee = async () => {
+  // Corporate Employee CRUD
+  const handleSaveCorporateEmployee = async () => {
     if (!employeeForm.name) {
       toast.error('Employee name is required');
       return;
@@ -398,7 +541,7 @@ export default function FixedExpenses() {
     }
   };
 
-  const handleEditEmployee = (employee) => {
+  const handleEditCorporateEmployee = (employee) => {
     setEditingEmployee(employee);
     setEmployeeForm({
       name: employee.name || '',
@@ -409,7 +552,7 @@ export default function FixedExpenses() {
     setShowEmployeeDialog(true);
   };
 
-  const handleDeleteEmployee = async (id) => {
+  const handleDeleteCorporateEmployee = async (id) => {
     if (!window.confirm('Are you sure you want to delete this employee?')) return;
     try {
       await api.delete(`/api/corporate-employees/${id}`);
@@ -666,32 +809,194 @@ export default function FixedExpenses() {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Fixed Expenses</h1>
-            <p className="text-sm text-gray-500">Monthly recurring costs - {filterMonth !== null ? `${MONTHS[filterMonth]} ${filterYear}` : 'Loading...'}</p>
+            <h1 className="text-xl font-bold text-gray-900">Fixed Expenses & Payroll</h1>
+            <p className="text-sm text-gray-500">Manage employees, attendance, expenses and payroll</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={loadExpenses}>
+            <Button variant="outline" size="sm" onClick={() => activeMainTab === 'expenses' ? loadExpenses() : loadFixedEmployees()}>
               <RefreshCw size={14} className="mr-1" /> Refresh
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleGenerateRecurring}>
-              <Copy size={14} className="mr-1" /> Generate Recurring
-            </Button>
-            {unsettledExpenses.length > 0 && (
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setShowSettlementDialog(true)}
-                className="text-orange-600 border-orange-300"
-              >
-                <CheckCircle size={14} className="mr-1" /> Settle ({unsettledExpenses.length})
-              </Button>
-            )}
-            <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">
-              <Plus size={14} className="mr-1" /> Add Expense
             </Button>
           </div>
         </div>
 
+        {/* Main Tabs */}
+        <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit">
+          <button
+            onClick={() => setActiveMainTab('attendance')}
+            className={`px-4 py-2 text-sm rounded-md transition-colors ${
+              activeMainTab === 'attendance' 
+                ? 'bg-white shadow text-[#14532D] font-medium' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Calendar size={14} className="inline mr-1" /> Attendance
+          </button>
+          <button
+            onClick={() => setActiveMainTab('employees')}
+            className={`px-4 py-2 text-sm rounded-md transition-colors ${
+              activeMainTab === 'employees' 
+                ? 'bg-white shadow text-[#14532D] font-medium' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Users size={14} className="inline mr-1" /> Manage Employees
+          </button>
+          <button
+            onClick={() => setActiveMainTab('expenses')}
+            className={`px-4 py-2 text-sm rounded-md transition-colors ${
+              activeMainTab === 'expenses' 
+                ? 'bg-white shadow text-[#14532D] font-medium' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Calculator size={14} className="inline mr-1" /> Expenses
+          </button>
+          <button
+            onClick={() => setActiveMainTab('payroll')}
+            className={`px-4 py-2 text-sm rounded-md transition-colors ${
+              activeMainTab === 'payroll' 
+                ? 'bg-white shadow text-[#14532D] font-medium' 
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <FileText size={14} className="inline mr-1" /> Payroll Processing
+          </button>
+        </div>
+
+        {/* ATTENDANCE TAB */}
+        {activeMainTab === 'attendance' && (
+          <Card className="p-6">
+            <div className="text-center text-gray-500">
+              <Calendar size={48} className="mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium mb-2">Attendance Tracking</h3>
+              <p className="text-sm">Coming soon - Track employee attendance and leave management</p>
+            </div>
+          </Card>
+        )}
+
+        {/* MANAGE EMPLOYEES TAB */}
+        {activeMainTab === 'employees' && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Employee List</h2>
+              <Button size="sm" onClick={handleAddEmployee} className="bg-[#14532D] hover:bg-[#166534]">
+                <UserPlus size={14} className="mr-1" /> Add Employee
+              </Button>
+            </div>
+            
+            <Card>
+              <CardContent className="p-0">
+                {employeesLoading ? (
+                  <div className="flex items-center justify-center h-32">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#14532D]"></div>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500">S.NO</th>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500">EMP ID</th>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500">NAME</th>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500">PHONE</th>
+                          <th className="p-3 text-left text-xs font-medium text-gray-500">DEPARTMENT</th>
+                          <th className="p-3 text-right text-xs font-medium text-gray-500">CTC</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500">DOJ</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500">LWD</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500">STATUS</th>
+                          <th className="p-3 text-center text-xs font-medium text-gray-500">ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {employees.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="p-8 text-center text-gray-500">
+                              No employees found. Click "Add Employee" to get started.
+                            </td>
+                          </tr>
+                        ) : (
+                          employees.filter(e => e.status !== 'deleted').map((employee, index) => (
+                            <tr key={employee.id} className="border-b hover:bg-gray-50">
+                              <td className="p-3 text-gray-600">{index + 1}</td>
+                              <td className="p-3 font-medium text-blue-600">{employee.employee_id}</td>
+                              <td className="p-3 font-medium">{employee.name}</td>
+                              <td className="p-3 text-gray-600">{employee.phone}</td>
+                              <td className="p-3 text-gray-600">{employee.department}</td>
+                              <td className="p-3 text-right font-medium">₹{(employee.ctc || 0).toLocaleString()}</td>
+                              <td className="p-3 text-center text-gray-600">
+                                {employee.doj ? new Date(employee.doj).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                              </td>
+                              <td className="p-3 text-center text-gray-600">
+                                {employee.lwd ? new Date(employee.lwd).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                              </td>
+                              <td className="p-3 text-center">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  employee.status === 'active' 
+                                    ? 'bg-green-100 text-green-700' 
+                                    : employee.status === 'inactive'
+                                    ? 'bg-yellow-100 text-yellow-700'
+                                    : 'bg-red-100 text-red-700'
+                                }`}>
+                                  {employee.status || 'active'}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleViewEmployee(employee)}
+                                    className="h-7 w-7 p-0 text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+                                    title="View"
+                                  >
+                                    <Eye size={14} />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEditEmployee(employee)}
+                                    className="h-7 w-7 p-0 text-gray-600 hover:text-gray-800 hover:bg-gray-100"
+                                    title="Edit"
+                                  >
+                                    <Edit2 size={14} />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDeleteEmployee(employee)}
+                                    className="h-7 w-7 p-0 text-red-600 hover:text-red-800 hover:bg-red-50"
+                                    title="Delete"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* PAYROLL PROCESSING TAB */}
+        {activeMainTab === 'payroll' && (
+          <Card className="p-6">
+            <div className="text-center text-gray-500">
+              <FileText size={48} className="mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium mb-2">Payroll Processing</h3>
+              <p className="text-sm">Coming soon - Process monthly payroll and generate payslips</p>
+            </div>
+          </Card>
+        )}
+
+        {/* EXPENSES TAB - Original Content */}
+        {activeMainTab === 'expenses' && (
+          <>
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <Card className="p-3">
@@ -1348,6 +1653,261 @@ export default function FixedExpenses() {
             </div>
           </div>
         )}
+          </>
+        )}
+
+        {/* Add/Edit Employee Modal */}
+        <Dialog open={showEmployeeModal} onOpenChange={setShowEmployeeModal}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <UserPlus size={18} className="text-[#14532D]" />
+                {editingEmployeeData ? 'Edit Employee' : 'Add New Employee'}
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Name *</label>
+                <Input
+                  placeholder="Enter full name"
+                  value={employeeFormData.name}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Phone Number *</label>
+                <Input
+                  placeholder="Enter phone number"
+                  value={employeeFormData.phone}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Department *</label>
+                <Select value={employeeFormData.department} onValueChange={(v) => setEmployeeFormData({ ...employeeFormData, department: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Operations">Operations</SelectItem>
+                    <SelectItem value="Procurement">Procurement</SelectItem>
+                    <SelectItem value="Sales">Sales</SelectItem>
+                    <SelectItem value="Logistics">Logistics</SelectItem>
+                    <SelectItem value="Finance">Finance</SelectItem>
+                    <SelectItem value="HR">HR</SelectItem>
+                    <SelectItem value="Admin">Admin</SelectItem>
+                    <SelectItem value="IT">IT</SelectItem>
+                    <SelectItem value="Warehouse">Warehouse</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Vertical</label>
+                <Select value={employeeFormData.vertical} onValueChange={(v) => setEmployeeFormData({ ...employeeFormData, vertical: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select vertical" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Retail">Retail</SelectItem>
+                    <SelectItem value="QC">QC</SelectItem>
+                    <SelectItem value="Central">Central</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Designation</label>
+                <Input
+                  placeholder="Enter designation"
+                  value={employeeFormData.designation}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, designation: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">CTC (Annual)</label>
+                <Input
+                  type="number"
+                  placeholder="Enter CTC"
+                  value={employeeFormData.ctc}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, ctc: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Date of Joining *</label>
+                <Input
+                  type="date"
+                  value={employeeFormData.doj}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, doj: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Last Working Day</label>
+                <Input
+                  type="date"
+                  value={employeeFormData.lwd}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, lwd: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">City</label>
+                <Input
+                  placeholder="Enter city"
+                  value={employeeFormData.city}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, city: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Status</label>
+                <Select value={employeeFormData.status} onValueChange={(v) => setEmployeeFormData({ ...employeeFormData, status: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="terminated">Terminated</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Address</label>
+                <Input
+                  placeholder="Enter full address"
+                  value={employeeFormData.address}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, address: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Aadhar Number</label>
+                <Input
+                  placeholder="Enter Aadhar number"
+                  value={employeeFormData.aadhar_number}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, aadhar_number: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">PAN Number</label>
+                <Input
+                  placeholder="Enter PAN number"
+                  value={employeeFormData.pan_number}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, pan_number: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Emergency Contact Number</label>
+                <Input
+                  placeholder="Enter emergency contact"
+                  value={employeeFormData.emergency_contact}
+                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, emergency_contact: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowEmployeeModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveEmployee} className="bg-[#14532D] hover:bg-[#166534]">
+                {editingEmployeeData ? 'Update' : 'Add'} Employee
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* View Employee Modal */}
+        <Dialog open={showViewEmployeeModal} onOpenChange={setShowViewEmployeeModal}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Eye size={18} className="text-blue-600" />
+                Employee Details
+              </DialogTitle>
+            </DialogHeader>
+            
+            {viewingEmployee && (
+              <div className="space-y-4 py-2">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm text-blue-600 font-medium">{viewingEmployee.employee_id}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      viewingEmployee.status === 'active' 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {viewingEmployee.status}
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-bold">{viewingEmployee.name}</h3>
+                  <p className="text-sm text-gray-500">{viewingEmployee.designation || 'No designation'}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Phone</p>
+                    <p className="font-medium">{viewingEmployee.phone || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Department</p>
+                    <p className="font-medium">{viewingEmployee.department || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Vertical</p>
+                    <p className="font-medium">{viewingEmployee.vertical || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">CTC (Annual)</p>
+                    <p className="font-medium">₹{(viewingEmployee.ctc || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Date of Joining</p>
+                    <p className="font-medium">
+                      {viewingEmployee.doj ? new Date(viewingEmployee.doj).toLocaleDateString('en-IN') : '-'}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Last Working Day</p>
+                    <p className="font-medium">
+                      {viewingEmployee.lwd ? new Date(viewingEmployee.lwd).toLocaleDateString('en-IN') : '-'}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded col-span-2">
+                    <p className="text-gray-500 text-xs">Address</p>
+                    <p className="font-medium">{viewingEmployee.address || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Aadhar Number</p>
+                    <p className="font-medium">{viewingEmployee.aadhar_number || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">PAN Number</p>
+                    <p className="font-medium">{viewingEmployee.pan_number || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">City</p>
+                    <p className="font-medium">{viewingEmployee.city || '-'}</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded">
+                    <p className="text-gray-500 text-xs">Emergency Contact</p>
+                    <p className="font-medium">{viewingEmployee.emergency_contact || '-'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowViewEmployeeModal(false)}>
+                Close
+              </Button>
+              <Button onClick={() => {
+                setShowViewEmployeeModal(false);
+                handleEditEmployee(viewingEmployee);
+              }} className="bg-[#14532D] hover:bg-[#166534]">
+                <Edit2 size={14} className="mr-1" /> Edit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* View Details Modal */}
         <Dialog open={showViewDetailsModal} onOpenChange={setShowViewDetailsModal}>
@@ -1571,10 +2131,10 @@ export default function FixedExpenses() {
                           <p className="text-xs text-gray-500">{emp.role}{emp.department ? ` • ${emp.department}` : ''}</p>
                         </div>
                         <div className="flex gap-1">
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEditEmployee(emp)}>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEditCorporateEmployee(emp)}>
                             <Edit2 size={14} className="text-blue-600" />
                           </Button>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleDeleteEmployee(emp.id)}>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleDeleteCorporateEmployee(emp.id)}>
                             <Trash2 size={14} className="text-red-600" />
                           </Button>
                         </div>
@@ -1782,7 +2342,7 @@ export default function FixedExpenses() {
               <Button variant="outline" size="sm" onClick={() => setShowEmployeeDialog(false)}>
                 Cancel
               </Button>
-              <Button size="sm" onClick={handleSaveEmployee} className="bg-[#14532D] hover:bg-[#166534]">
+              <Button size="sm" onClick={handleSaveCorporateEmployee} className="bg-[#14532D] hover:bg-[#166534]">
                 {editingEmployee ? 'Update' : 'Create'} Employee
               </Button>
             </DialogFooter>

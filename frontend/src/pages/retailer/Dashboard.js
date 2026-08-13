@@ -3249,7 +3249,7 @@ export default function RetailerDashboard({
           <img 
             src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" 
             alt="Vezlo Logo" 
-            className="h-20 md:h-24 w-auto rounded-lg"
+            className="h-28 md:h-32 w-auto"
           />
         </div>
         {/* Side Menu Overlay */}

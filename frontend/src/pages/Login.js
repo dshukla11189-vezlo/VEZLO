@@ -44,7 +44,7 @@ export default function Login() {
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="text-center">
           <div className="mb-4 flex items-center justify-center gap-3">
-            <img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" alt="Vezlo Logo" className="h-28 md:h-36 w-auto rounded-lg" />
+            <img src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" alt="Vezlo Logo" className="h-36 md:h-44 w-auto" />
           </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
           <CardDescription>Sign in to your account to continue</CardDescription>

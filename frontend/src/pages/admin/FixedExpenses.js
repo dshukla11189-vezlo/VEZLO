@@ -949,12 +949,50 @@ export default function FixedExpenses() {
                 <td class="amount">₹\${(emp.ot_amount || 0).toLocaleString('en-IN')}</td>
                 <td class="amount">-</td>
               </tr>
+              \${(emp.incentive_amount || 0) > 0 ? \`
+              <tr style="background: #f5f0ff;">
+                <td style="color: #7c3aed;">Incentives (Daily/Monthly/Performance)</td>
+                <td class="amount" style="color: #7c3aed;">₹\${(emp.incentive_amount || 0).toLocaleString('en-IN')}</td>
+                <td class="amount">-</td>
+              </tr>
+              \` : ''}
+              \${(emp.allowance_amount || 0) > 0 ? \`
+              <tr style="background: #f0fdfa;">
+                <td style="color: #0d9488;">Allowances (Travel/Food/Mobile)</td>
+                <td class="amount" style="color: #0d9488;">₹\${(emp.allowance_amount || 0).toLocaleString('en-IN')}</td>
+                <td class="amount">-</td>
+              </tr>
+              \` : ''}
               <tr class="total-row">
                 <td>Gross Earnings</td>
                 <td class="amount">₹\${(emp.total_amount || 0).toLocaleString('en-IN')}</td>
                 <td class="amount">₹0</td>
               </tr>
             </table>
+            
+            \${((emp.incentive_amount || 0) > 0 || (emp.allowance_amount || 0) > 0) ? \`
+            <div style="background: #f8f8f8; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 11px;">
+              <div style="font-weight: bold; margin-bottom: 8px; color: #666;">EARNINGS BREAKDOWN</div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px;">
+                <div style="background: white; padding: 8px; border-radius: 4px; text-align: center;">
+                  <div style="color: #888; font-size: 9px;">BASE SALARY</div>
+                  <div style="font-weight: bold;">₹\${((emp.regular_salary || 0) + (emp.ot_amount || 0)).toLocaleString('en-IN')}</div>
+                </div>
+                <div style="background: #f5f0ff; padding: 8px; border-radius: 4px; text-align: center;">
+                  <div style="color: #7c3aed; font-size: 9px;">INCENTIVES</div>
+                  <div style="font-weight: bold; color: #7c3aed;">₹\${(emp.incentive_amount || 0).toLocaleString('en-IN')}</div>
+                </div>
+                <div style="background: #f0fdfa; padding: 8px; border-radius: 4px; text-align: center;">
+                  <div style="color: #0d9488; font-size: 9px;">ALLOWANCES</div>
+                  <div style="font-weight: bold; color: #0d9488;">₹\${(emp.allowance_amount || 0).toLocaleString('en-IN')}</div>
+                </div>
+                <div style="background: #CFFF04; padding: 8px; border-radius: 4px; text-align: center;">
+                  <div style="color: #333; font-size: 9px;">TOTAL</div>
+                  <div style="font-weight: bold;">₹\${(emp.total_amount || 0).toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+            </div>
+            \` : ''}
           </div>
           
           <div class="net-pay">
@@ -3536,6 +3574,26 @@ export default function FixedExpenses() {
                           <td className="p-2 text-right border-r">₹{(selectedPayslipEmployee.ot_amount || 0).toLocaleString('en-IN')}</td>
                           <td className="p-2 text-right">-</td>
                         </tr>
+                        {(selectedPayslipEmployee.incentive_amount || 0) > 0 && (
+                          <tr className="border-t bg-purple-50">
+                            <td className="p-2 border-r text-purple-700">
+                              <Gift size={12} className="inline mr-1" />
+                              Incentives (Daily/Monthly/Performance)
+                            </td>
+                            <td className="p-2 text-right border-r text-purple-700 font-medium">₹{(selectedPayslipEmployee.incentive_amount || 0).toLocaleString('en-IN')}</td>
+                            <td className="p-2 text-right">-</td>
+                          </tr>
+                        )}
+                        {(selectedPayslipEmployee.allowance_amount || 0) > 0 && (
+                          <tr className="border-t bg-teal-50">
+                            <td className="p-2 border-r text-teal-700">
+                              <Car size={12} className="inline mr-1" />
+                              Allowances (Travel/Food/Mobile)
+                            </td>
+                            <td className="p-2 text-right border-r text-teal-700 font-medium">₹{(selectedPayslipEmployee.allowance_amount || 0).toLocaleString('en-IN')}</td>
+                            <td className="p-2 text-right">-</td>
+                          </tr>
+                        )}
                         <tr className="border-t bg-[#CFFF04] font-semibold">
                           <td className="p-2 border-r">Gross Earnings</td>
                           <td className="p-2 text-right border-r">₹{(selectedPayslipEmployee.total_amount || 0).toLocaleString('en-IN')}</td>
@@ -3543,6 +3601,31 @@ export default function FixedExpenses() {
                         </tr>
                       </tbody>
                     </table>
+                    
+                    {/* Earnings Breakdown Summary */}
+                    {((selectedPayslipEmployee.incentive_amount || 0) > 0 || (selectedPayslipEmployee.allowance_amount || 0) > 0) && (
+                      <div className="mt-3 bg-gray-50 p-3 rounded-lg">
+                        <p className="text-xs font-semibold text-gray-600 mb-2">EARNINGS BREAKDOWN</p>
+                        <div className="grid grid-cols-4 gap-2 text-xs">
+                          <div className="bg-white p-2 rounded text-center">
+                            <p className="text-gray-400 text-[10px]">BASE SALARY</p>
+                            <p className="font-bold">₹{((selectedPayslipEmployee.regular_salary || 0) + (selectedPayslipEmployee.ot_amount || 0)).toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-purple-100 p-2 rounded text-center">
+                            <p className="text-purple-600 text-[10px]">INCENTIVES</p>
+                            <p className="font-bold text-purple-700">₹{(selectedPayslipEmployee.incentive_amount || 0).toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-teal-100 p-2 rounded text-center">
+                            <p className="text-teal-600 text-[10px]">ALLOWANCES</p>
+                            <p className="font-bold text-teal-700">₹{(selectedPayslipEmployee.allowance_amount || 0).toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-[#CFFF04] p-2 rounded text-center">
+                            <p className="text-gray-600 text-[10px]">TOTAL</p>
+                            <p className="font-bold">₹{(selectedPayslipEmployee.total_amount || 0).toLocaleString('en-IN')}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   {/* Net Pay */}

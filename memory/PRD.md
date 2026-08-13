@@ -25,6 +25,12 @@
   - New columns: SALARY, INCENTIVE (purple bg), ALLOWANCE (teal bg), TOTAL
   - Each employee's incentives/allowances are shown inline
 
+- **Payslip PDF Updated**:
+  - Earnings table now includes separate rows for Incentives (purple) and Allowances (teal)
+  - New "Earnings Breakdown" section showing: Base Salary, Incentives, Allowances, Total
+  - Preview modal and PDF download both show the breakdown
+  - Only shows incentive/allowance rows if values > 0
+
 - **Backend APIs Created**:
   - `GET /api/incentives` - List incentives with date range filter
   - `POST /api/incentives` - Add new incentive/allowance
@@ -36,7 +42,7 @@
 
 - **Files Modified**:
   - `backend/routes/attendance.py` (Added incentives CRUD APIs, updated payroll calculation)
-  - `frontend/src/pages/admin/FixedExpenses.js` (Added incentive modals, updated UI)
+  - `frontend/src/pages/admin/FixedExpenses.js` (Added incentive modals, updated payslip preview & PDF)
 
 ### August 13, 2026 - Expenses Tab Redesign ✅
 - **UI Changes**:

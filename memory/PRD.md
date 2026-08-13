@@ -2,6 +2,32 @@
 
 ## Changelog (August 2026)
 
+### August 13, 2026 - Expenses Tab Redesign ✅
+- **UI Changes**:
+  - Removed "Corporate Expenses" button
+  - Added "Record Expense" button (opens Add Fixed Expense dialog)
+  - Added "Manage Vendors" button (opens vendor management dialog)
+  - Added Vendor filter dropdown in filters section
+
+- **Vendor Management**:
+  - New "Manage Vendors" dialog with list of all vendors
+  - Each vendor shows: Name, Contact person, Phone, Notes
+  - Add, Edit, and Delete vendor functionality
+  - Vendors load from existing `/api/vendors` endpoint
+
+- **Filtering**:
+  - Added vendor filter to filter expenses by selected vendor
+  - Summary cards (Total Fixed, Paid, Pending, Overdue) update based on vendor filter
+  - Expense table filters by selected vendor
+
+- **Flow Similar to Variable Expenses**:
+  - "Record Expense" opens the same expense form dialog
+  - Summary cards show: Total Fixed, Paid, Pending, Overdue
+  - Filter options: Month/Date Range, Category, Status, Vendor
+
+- **Files Modified**:
+  - `frontend/src/pages/admin/FixedExpenses.js` (Added vendor state, vendor management modals, vendor filter, updated UI)
+
 ### August 13, 2026 - LWD Empty Default & Department Select Fix ✅
 - **LWD (Last Working Day) Field Fix**:
   - Changed LWD field to show empty by default instead of auto-filling with today's date

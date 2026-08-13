@@ -211,6 +211,14 @@ export default function FixedExpenses() {
   // Staff users for Paid By dropdown
   const [staffUsers, setStaffUsers] = useState([]);
   
+  // Vendor Management State
+  const [vendors, setVendors] = useState([]);
+  const [showVendorManagement, setShowVendorManagement] = useState(false);
+  const [showVendorDialog, setShowVendorDialog] = useState(false);
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [vendorForm, setVendorForm] = useState({ name: '', contact: '', phone: '', notes: '' });
+  const [filterVendor, setFilterVendor] = useState('all');
+  
   // Bulk settlement
   const [selectedExpenses, setSelectedExpenses] = useState([]);
   const [settlementRemarks, setSettlementRemarks] = useState('');
@@ -227,6 +235,22 @@ export default function FixedExpenses() {
     };
     loadStaffUsers();
   }, []);
+
+  // Load vendors
+  const loadVendors = useCallback(async () => {
+    try {
+      const response = await api.get('/api/vendors');
+      setVendors(response.data || []);
+    } catch (error) {
+      console.error('Failed to load vendors:', error);
+      setVendors([]);
+    }
+  }, []);
+
+  // Load vendors on mount
+  useEffect(() => {
+    loadVendors();
+  }, [loadVendors]);
 
   // On mount, fetch the latest month that has fixed expense data
   useEffect(() => {
@@ -943,6 +967,49 @@ export default function FixedExpenses() {
     setShowPayslipModal(false);
   };
 
+  // ==================== VENDOR MANAGEMENT ====================
+  
+  const resetVendorForm = () => {
+    setVendorForm({ name: '', contact: '', phone: '', notes: '' });
+    setEditingVendor(null);
+  };
+
+  const handleSaveVendor = async () => {
+    if (!vendorForm.name?.trim()) {
+      toast.error('Vendor name is required');
+      return;
+    }
+    
+    try {
+      if (editingVendor) {
+        await api.put(`/api/vendors/${editingVendor.id}`, vendorForm);
+        toast.success('Vendor updated successfully');
+      } else {
+        await api.post('/api/vendors', vendorForm);
+        toast.success('Vendor added successfully');
+      }
+      resetVendorForm();
+      setShowVendorDialog(false);
+      loadVendors();
+    } catch (error) {
+      console.error('Save vendor error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to save vendor');
+    }
+  };
+
+  const handleDeleteVendor = async (vendorId) => {
+    if (!window.confirm('Are you sure you want to delete this vendor?')) return;
+    
+    try {
+      await api.delete(`/api/vendors/${vendorId}`);
+      toast.success('Vendor deleted successfully');
+      loadVendors();
+    } catch (error) {
+      console.error('Delete vendor error:', error);
+      toast.error('Failed to delete vendor');
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       date: new Date().toISOString().split('T')[0],
@@ -1316,11 +1383,17 @@ export default function FixedExpenses() {
     );
   };
 
-  const unsettledExpenses = expenses.filter(e => !e.is_settled && e.paid_by !== 'Company');
-  const totalAmount = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const paidAmount = expenses.filter(e => e.status === 'Paid').reduce((sum, e) => sum + (e.amount || 0), 0);
-  const pendingAmount = expenses.filter(e => e.status !== 'Paid').reduce((sum, e) => sum + (e.amount || 0), 0);
-  const overdueCount = expenses.filter(e => {
+  // Filter expenses by vendor if selected
+  const filteredExpenses = useMemo(() => {
+    if (filterVendor === 'all') return expenses;
+    return expenses.filter(e => e.vendor === filterVendor);
+  }, [expenses, filterVendor]);
+
+  const unsettledExpenses = filteredExpenses.filter(e => !e.is_settled && e.paid_by !== 'Company');
+  const totalAmount = filteredExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const paidAmount = filteredExpenses.filter(e => e.status === 'Paid').reduce((sum, e) => sum + (e.amount || 0), 0);
+  const pendingAmount = filteredExpenses.filter(e => e.status !== 'Paid').reduce((sum, e) => sum + (e.amount || 0), 0);
+  const overdueCount = filteredExpenses.filter(e => {
     if (e.status === 'Paid') return false;
     const today = new Date();
     const dueDay = e.due_date || 1;
@@ -1944,6 +2017,26 @@ export default function FixedExpenses() {
         {/* EXPENSES TAB - Original Content */}
         {activeMainTab === 'expenses' && (
           <>
+        {/* Header with action buttons */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+          <div>
+            <p className="text-sm text-gray-500">Track fixed and recurring expenses</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowVendorManagement(true)}
+              className="text-gray-600"
+            >
+              <Building2 size={14} className="mr-1" /> Manage Vendors
+            </Button>
+            <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">
+              <Plus size={14} className="mr-1" /> Record Expense
+            </Button>
+          </div>
+        </div>
+
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <Card className="p-3">
@@ -2098,16 +2191,19 @@ export default function FixedExpenses() {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="ml-auto">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowCorporateDialog(true)}
-                  className="h-8 text-blue-600 border-blue-200 hover:bg-blue-50"
-                >
-                  <Building2 size={14} className="mr-1" /> Corporate Expenses
-                </Button>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Vendor</label>
+                <Select value={filterVendor} onValueChange={setFilterVendor}>
+                  <SelectTrigger className="w-36 h-8 text-sm">
+                    <SelectValue placeholder="All Vendors" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Vendors</SelectItem>
+                    {vendors.map(vendor => (
+                      <SelectItem key={vendor.id} value={vendor.name}>{vendor.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </CardContent>
@@ -2148,14 +2244,14 @@ export default function FixedExpenses() {
                     </tr>
                   </thead>
                   <tbody>
-                    {expenses.length === 0 ? (
+                    {filteredExpenses.length === 0 ? (
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-gray-500">
-                          No fixed expenses for this month. Click "Add Expense" or "Generate Recurring" to get started.
+                          No fixed expenses found. Click "Record Expense" to add one.
                         </td>
                       </tr>
                     ) : (
-                      expenses.map((expense) => (
+                      filteredExpenses.map((expense) => (
                         <tr key={expense.id} className={`border-b hover:bg-gray-50 ${expense.status !== 'Paid' ? 'bg-yellow-50' : ''}`}>
                           <td className="p-2">
                             {!expense.is_settled && expense.paid_by !== 'Company' && (
@@ -2458,7 +2554,7 @@ export default function FixedExpenses() {
                 <p className="text-xs text-gray-500">Selected Expenses</p>
                 <p className="text-xl font-bold">{selectedExpenses.length} items</p>
                 <p className="text-sm text-gray-600">
-                  Total: ₹{expenses.filter(e => selectedExpenses.includes(e.id)).reduce((sum, e) => sum + (e.amount || 0), 0).toLocaleString()}
+                  Total: ₹{filteredExpenses.filter(e => selectedExpenses.includes(e.id)).reduce((sum, e) => sum + (e.amount || 0), 0).toLocaleString()}
                 </p>
               </div>
               
@@ -3865,6 +3961,131 @@ export default function FixedExpenses() {
               </Button>
               <Button size="sm" onClick={handleSaveCorporateEmployee} className="bg-[#14532D] hover:bg-[#166534]">
                 {editingEmployee ? 'Update' : 'Create'} Employee
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Vendor Management Dialog */}
+        <Dialog open={showVendorManagement} onOpenChange={setShowVendorManagement}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center justify-between">
+                <span>Manage Vendors</span>
+                <Button 
+                  size="sm" 
+                  onClick={() => { resetVendorForm(); setShowVendorDialog(true); }}
+                  className="bg-[#14532D] hover:bg-[#166534]"
+                >
+                  <Plus size={14} className="mr-1" /> Add Vendor
+                </Button>
+              </DialogTitle>
+            </DialogHeader>
+            
+            <div className="py-2">
+              {vendors.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Building2 size={48} className="mx-auto mb-3 opacity-30" />
+                  <p>No vendors found</p>
+                  <p className="text-sm">Add your first vendor to get started</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {vendors.map(vendor => (
+                    <div key={vendor.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border hover:border-gray-300 transition-colors">
+                      <div>
+                        <p className="font-medium text-gray-900">{vendor.name}</p>
+                        <div className="flex gap-3 text-xs text-gray-500 mt-1">
+                          {vendor.contact && <span>Contact: {vendor.contact}</span>}
+                          {vendor.phone && <span>Phone: {vendor.phone}</span>}
+                        </div>
+                        {vendor.notes && <p className="text-xs text-gray-400 mt-1">{vendor.notes}</p>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => {
+                            setVendorForm({ name: vendor.name, contact: vendor.contact || '', phone: vendor.phone || '', notes: vendor.notes || '' });
+                            setEditingVendor(vendor);
+                            setShowVendorDialog(true);
+                          }}
+                        >
+                          <Edit2 size={14} />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => handleDeleteVendor(vendor.id)}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Vendor Add/Edit Dialog */}
+        <Dialog open={showVendorDialog} onOpenChange={setShowVendorDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{editingVendor ? 'Edit Vendor' : 'Add Vendor'}</DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-3 py-2">
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Vendor Name *</label>
+                <Input
+                  placeholder="Enter vendor name"
+                  value={vendorForm.name}
+                  onChange={(e) => setVendorForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Contact Person</label>
+                  <Input
+                    placeholder="Contact name"
+                    value={vendorForm.contact}
+                    onChange={(e) => setVendorForm(prev => ({ ...prev, contact: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-700 mb-1 block">Phone</label>
+                  <Input
+                    placeholder="Phone number"
+                    value={vendorForm.phone}
+                    onChange={(e) => setVendorForm(prev => ({ ...prev, phone: e.target.value }))}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-700 mb-1 block">Notes</label>
+                <Input
+                  placeholder="Any additional notes..."
+                  value={vendorForm.notes}
+                  onChange={(e) => setVendorForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => { resetVendorForm(); setShowVendorDialog(false); }}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSaveVendor} className="bg-[#14532D] hover:bg-[#166534]">
+                {editingVendor ? 'Update' : 'Add'} Vendor
               </Button>
             </DialogFooter>
           </DialogContent>

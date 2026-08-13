@@ -79,9 +79,14 @@ export default function Sidebar({ isOpen, onClose, isMobile }) {
       
       {/* Sidebar */}
       <div className={sidebarClasses} data-testid="sidebar">
-        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/vezlo-logo.png" alt="Vezlo Logo" className="h-10 w-auto" />
+            <img 
+              src="https://customer-assets-lxgj4vgw.emergentagent.net/job_harvest-hub-384/artifacts/ouyg8w1d_vezlo_logo_PRINT_300dpi.webp" 
+              alt="Vezlo Logo" 
+              className="h-14 w-auto"
+              style={{ borderRadius: '8px' }}
+            />
           </div>
           {/* X close button - always visible for accessibility */}
           <button

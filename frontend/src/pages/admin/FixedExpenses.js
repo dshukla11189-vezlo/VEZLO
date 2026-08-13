@@ -415,7 +415,23 @@ export default function FixedExpenses() {
   };
 
   const handleSaveEmployee = async () => {
-    if (!employeeFormData.name || !employeeFormData.phone || !employeeFormData.department || !employeeFormData.doj) {
+    // Trim and validate
+    const name = (employeeFormData.name || '').trim();
+    const phone = (employeeFormData.phone || '').trim();
+    const department = (employeeFormData.department || '').trim();
+    const doj = (employeeFormData.doj || '').trim();
+    
+    console.log('Form data:', employeeFormData);
+    console.log('Validating:', { name, phone, department, doj });
+    console.log('Name empty?', !name, 'Phone empty?', !phone, 'Dept empty?', !department, 'DOJ empty?', !doj);
+    
+    if (!name || !phone || !department || !doj) {
+      console.log('Validation failed - missing:', {
+        name: !name ? 'MISSING' : 'OK',
+        phone: !phone ? 'MISSING' : 'OK', 
+        department: !department ? 'MISSING' : 'OK',
+        doj: !doj ? 'MISSING' : 'OK'
+      });
       toast.error('Please fill in required fields (Name, Phone, Department, DOJ)');
       return;
     }
@@ -423,6 +439,11 @@ export default function FixedExpenses() {
     try {
       const payload = {
         ...employeeFormData,
+        name,
+        phone,
+        department,
+        doj,
+        lwd: employeeFormData.lwd || null, // Send null instead of empty string
         ctc: parseFloat(employeeFormData.ctc) || 0
       };
 
@@ -1736,7 +1757,7 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter full name"
                   value={employeeFormData.name}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, name: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, name: e.target.value  }))}
                 />
               </div>
               <div>
@@ -1744,12 +1765,18 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter phone number"
                   value={employeeFormData.phone}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, phone: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, phone: e.target.value  }))}
                 />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Department *</label>
-                <Select value={employeeFormData.department} onValueChange={(v) => setEmployeeFormData({ ...employeeFormData, department: v })}>
+                <Select 
+                  value={employeeFormData.department} 
+                  onValueChange={(v) => {
+                    console.log('Department selected:', v);
+                    setEmployeeFormData(prev => ({ ...prev, department: v }));
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
@@ -1762,7 +1789,7 @@ export default function FixedExpenses() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Vertical</label>
-                <Select value={employeeFormData.vertical} onValueChange={(v) => setEmployeeFormData({ ...employeeFormData, vertical: v })}>
+                <Select value={employeeFormData.vertical} onValueChange={(v) => setEmployeeFormData(prev => ({ ...prev, vertical: v  }))}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select vertical" />
                   </SelectTrigger>
@@ -1778,7 +1805,7 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter designation"
                   value={employeeFormData.designation}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, designation: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, designation: e.target.value  }))}
                 />
               </div>
               <div>
@@ -1787,23 +1814,26 @@ export default function FixedExpenses() {
                   type="number"
                   placeholder="Enter CTC"
                   value={employeeFormData.ctc}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, ctc: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, ctc: e.target.value  }))}
                 />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Date of Joining *</label>
                 <Input
                   type="date"
-                  value={employeeFormData.doj}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, doj: e.target.value })}
+                  value={employeeFormData.doj || ''}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, doj: e.target.value  }))}
+                  autoComplete="off"
                 />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Last Working Day</label>
                 <Input
                   type="date"
-                  value={employeeFormData.lwd}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, lwd: e.target.value })}
+                  value={employeeFormData.lwd || ''}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, lwd: e.target.value  }))}
+                  placeholder="Leave empty if still working"
+                  autoComplete="off"
                 />
               </div>
               <div>
@@ -1811,12 +1841,12 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter city"
                   value={employeeFormData.city}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, city: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, city: e.target.value  }))}
                 />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 mb-1 block">Status</label>
-                <Select value={employeeFormData.status} onValueChange={(v) => setEmployeeFormData({ ...employeeFormData, status: v })}>
+                <Select value={employeeFormData.status} onValueChange={(v) => setEmployeeFormData(prev => ({ ...prev, status: v  }))}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
@@ -1832,7 +1862,7 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter full address"
                   value={employeeFormData.address}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, address: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, address: e.target.value  }))}
                 />
               </div>
               <div>
@@ -1840,7 +1870,7 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter Aadhar number"
                   value={employeeFormData.aadhar_number}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, aadhar_number: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, aadhar_number: e.target.value  }))}
                 />
               </div>
               <div>
@@ -1848,7 +1878,7 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter PAN number"
                   value={employeeFormData.pan_number}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, pan_number: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, pan_number: e.target.value  }))}
                 />
               </div>
               <div className="col-span-2">
@@ -1856,7 +1886,7 @@ export default function FixedExpenses() {
                 <Input
                   placeholder="Enter emergency contact"
                   value={employeeFormData.emergency_contact}
-                  onChange={(e) => setEmployeeFormData({ ...employeeFormData, emergency_contact: e.target.value })}
+                  onChange={(e) => setEmployeeFormData(prev => ({ ...prev, emergency_contact: e.target.value  }))}
                 />
               </div>
             </div>

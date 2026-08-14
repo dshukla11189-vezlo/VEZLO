@@ -86,6 +86,7 @@ from routes.cogs_snapshot import router as cogs_snapshot_router
 from routes.field_team import router as field_team_router
 from routes.fixed_employees import router as fixed_employees_router
 from routes.attendance import router as attendance_router
+from routes.maintenance import router as maintenance_router  # TEMPORARY - DELETE AFTER USE
 from routes.retail_plans import initialize_default_plans
 from routes.retailer_portal import run_blinkit_scrape_scheduled, generate_auto_indents_wrapper
 
@@ -788,6 +789,7 @@ app.include_router(cogs_snapshot_router)  # COGS snapshot API
 app.include_router(field_team_router, prefix="/api")  # Field Team dashboard
 app.include_router(fixed_employees_router)  # Fixed employees for payroll (has /api prefix built-in)
 app.include_router(attendance_router)  # Attendance management (has /api prefix built-in)
+app.include_router(maintenance_router, prefix="/api")  # TEMPORARY maintenance endpoint - DELETE AFTER USE
 
 # Root-level health endpoint for Kubernetes health checks (without /api prefix)
 @app.get("/health")

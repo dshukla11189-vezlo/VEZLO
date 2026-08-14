@@ -68,7 +68,7 @@ async def fix_chandra_deep_invoice(
     
     try:
         # ========== STEP 1: FIND THE INVOICE ==========
-        invoice = await db.invoices.find_one({"invoice_number": "CHA-INV-14AUG2026-002"})
+        invoice = await db.retailer_invoices.find_one({"invoice_number": "CHA-INV-14AUG2026-002"})
         
         if not invoice:
             result["errors"].append("Invoice CHA-INV-14AUG2026-002 not found")
@@ -121,7 +121,7 @@ async def fix_chandra_deep_invoice(
         credit_note_ids = [cn.get("credit_note_id") or cn.get("id") for cn in credit_notes_applied]
         actual_credit_notes = []
         if credit_note_ids:
-            cursor = db.credit_notes.find({"id": {"$in": credit_note_ids}})
+            cursor = db.retailer_credit_notes.find({"id": {"$in": credit_note_ids}})
             actual_credit_notes = await cursor.to_list(length=100)
         
         result["steps"].append({
@@ -141,21 +141,21 @@ async def fix_chandra_deep_invoice(
         
         # ========== STEP 4: FIND THE ₹4,050.25 PAYMENT ==========
         # Search for payment around ₹4,050.25 for this retailer
-        payment = await db.payments.find_one({
+        payment = await db.retailer_payments.find_one({
             "retailer_id": retailer_id,
             "amount": {"$gte": 4050, "$lte": 4051}
         })
         
         if not payment:
             # Try broader search
-            payment = await db.payments.find_one({
+            payment = await db.retailer_payments.find_one({
                 "retailer_name": {"$regex": "Chandra", "$options": "i"},
                 "amount": {"$gte": 4050, "$lte": 4051}
             })
         
         if not payment:
             # Search all payments for this retailer to find the one
-            all_payments_cursor = db.payments.find({
+            all_payments_cursor = db.retailer_payments.find({
                 "$or": [
                     {"retailer_id": retailer_id},
                     {"retailer_name": {"$regex": "Chandra", "$options": "i"}}
@@ -277,7 +277,7 @@ async def fix_chandra_deep_invoice(
         updated_credit_notes = 0
         for cn_id in credit_note_ids:
             if cn_id:
-                update_result = await db.credit_notes.update_one(
+                update_result = await db.retailer_credit_notes.update_one(
                     {"id": cn_id},
                     {
                         "$set": {
@@ -302,7 +302,7 @@ async def fix_chandra_deep_invoice(
         
         # 6C. Re-link payment to this invoice
         if payment:
-            payment_update = await db.payments.update_one(
+            payment_update = await db.retailer_payments.update_one(
                 {"id": payment.get("id")},
                 {
                     "$set": {
@@ -324,7 +324,7 @@ async def fix_chandra_deep_invoice(
         new_balance = max(0, correct_payable - payment_amount)
         new_status = "paid" if payment_amount >= correct_payable else ("partial" if payment_amount > 0 else "pending")
         
-        invoice_update = await db.invoices.update_one(
+        invoice_update = await db.retailer_invoices.update_one(
             {"id": invoice_id},
             {
                 "$set": {
@@ -354,8 +354,8 @@ async def fix_chandra_deep_invoice(
         })
         
         # 6E. Verify final state
-        final_invoice = await db.invoices.find_one({"id": invoice_id})
-        final_payment = await db.payments.find_one({"id": payment.get("id")}) if payment else None
+        final_invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+        final_payment = await db.retailer_payments.find_one({"id": payment.get("id")}) if payment else None
         
         result["steps"].append({
             "step": 9,
@@ -393,7 +393,7 @@ async def check_fix_status(
 ):
     """Check if the fix has already been applied (idempotency check)"""
     
-    invoice = await db.invoices.find_one({"invoice_number": "CHA-INV-14AUG2026-002"})
+    invoice = await db.retailer_invoices.find_one({"invoice_number": "CHA-INV-14AUG2026-002"})
     
     if not invoice:
         return {"status": "error", "message": "Invoice not found"}

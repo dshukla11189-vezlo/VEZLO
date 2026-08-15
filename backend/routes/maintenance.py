@@ -512,3 +512,238 @@ async def check_fix_status(
             "payment_status": invoice.get("payment_status"),
         }
     }
+
+
+
+@router.post("/fix-chandra-deep-invoice-residual")
+async def fix_chandra_deep_invoice_residual(
+    request: FixRequest = FixRequest(),
+    token_valid: bool = Depends(verify_maintenance_token),
+    db=Depends(get_db)
+):
+    """
+    Residual fixes for Chandra Deep Market invoice CHA-INV-14AUG2026-002:
+    1. Set paid_amount to 4050.25 (app reads paid_amount, not amount_paid)
+    2. Remove this invoice from adjusted_in_invoices array in all 16 credit notes
+    
+    Dry-run by default. Pass {"confirm": true} to apply changes.
+    """
+    
+    INVOICE_ID = "145eb352-f35a-4bbf-ad94-3adad9f266b6"
+    INVOICE_NUMBER = "CHA-INV-14AUG2026-002"
+    PAID_AMOUNT = 4050.25
+    
+    result = {
+        "mode": "DRY-RUN (no changes made)" if not request.confirm else "APPLYING CHANGES",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "invoice_id": INVOICE_ID,
+        "invoice_number": INVOICE_NUMBER,
+        "fixes": [],
+        "backup_collection": "maintenance_backups",
+        "errors": [],
+        "success": False
+    }
+    
+    try:
+        # ========== STEP 1: FIND THE INVOICE ==========
+        invoice = await db.retailer_invoices.find_one({"id": INVOICE_ID})
+        
+        if not invoice:
+            result["errors"].append(f"Invoice {INVOICE_ID} not found")
+            return result
+        
+        # Check idempotency
+        if invoice.get("_residual_fix_applied"):
+            result["fixes"].append({
+                "fix": "ALREADY APPLIED",
+                "message": f"Residual fix already applied on {invoice.get('_residual_fix_applied')}. Skipping."
+            })
+            result["success"] = True
+            return result
+        
+        current_paid_amount = invoice.get("paid_amount")
+        current_amount_paid = invoice.get("amount_paid")
+        
+        result["fixes"].append({
+            "fix": 1,
+            "action": "SET paid_amount ON INVOICE",
+            "invoice_id": INVOICE_ID,
+            "current_paid_amount": current_paid_amount,
+            "current_amount_paid": current_amount_paid,
+            "will_set_paid_amount_to": PAID_AMOUNT,
+            "needs_update": current_paid_amount != PAID_AMOUNT
+        })
+        
+        # ========== STEP 2: FIND CREDIT NOTES WITH REFERENCES TO THIS INVOICE ==========
+        # Find all credit notes that have this invoice in their adjusted_in_invoices array
+        credit_notes_with_reference = []
+        
+        cursor = db.retailer_credit_notes.find({
+            "$or": [
+                {"adjusted_in_invoices.invoice_id": INVOICE_ID},
+                {"adjusted_in_invoices.invoice_number": INVOICE_NUMBER}
+            ]
+        })
+        credit_notes_with_reference = await cursor.to_list(length=100)
+        
+        # Also check by retailer_id to catch any we might have missed
+        if not credit_notes_with_reference:
+            retailer_id = invoice.get("retailer_id")
+            cursor = db.retailer_credit_notes.find({"retailer_id": retailer_id})
+            all_retailer_cns = await cursor.to_list(length=100)
+            
+            # Filter to those with adjusted_in_invoices containing our invoice
+            for cn in all_retailer_cns:
+                adjusted_list = cn.get("adjusted_in_invoices", [])
+                for adj in adjusted_list:
+                    if adj.get("invoice_id") == INVOICE_ID or adj.get("invoice_number") == INVOICE_NUMBER:
+                        credit_notes_with_reference.append(cn)
+                        break
+        
+        credit_note_details = []
+        for cn in credit_notes_with_reference:
+            adjusted_list = cn.get("adjusted_in_invoices", [])
+            entries_to_remove = [
+                adj for adj in adjusted_list 
+                if adj.get("invoice_id") == INVOICE_ID or adj.get("invoice_number") == INVOICE_NUMBER
+            ]
+            credit_note_details.append({
+                "credit_note_id": cn.get("id"),
+                "credit_note_number": cn.get("credit_note_number"),
+                "amount": cn.get("amount"),
+                "status": cn.get("status"),
+                "is_applied": cn.get("is_applied"),
+                "adjusted_in_invoices_count": len(adjusted_list),
+                "entries_referencing_this_invoice": len(entries_to_remove),
+                "entries_to_remove": entries_to_remove
+            })
+        
+        result["fixes"].append({
+            "fix": 2,
+            "action": "REMOVE INVOICE REFERENCE FROM CREDIT NOTES adjusted_in_invoices",
+            "credit_notes_with_reference": len(credit_notes_with_reference),
+            "credit_note_details": credit_note_details,
+            "will_remove_entries_for_invoice": INVOICE_ID
+        })
+        
+        # ========== DRY-RUN SUMMARY ==========
+        if not request.confirm:
+            result["fixes"].append({
+                "fix": "DRY-RUN SUMMARY",
+                "changes_to_apply": [
+                    f"1. Backup invoice and {len(credit_notes_with_reference)} credit notes",
+                    f"2. Set invoice.paid_amount = {PAID_AMOUNT}",
+                    f"3. Remove entries referencing invoice {INVOICE_ID} from adjusted_in_invoices array in {len(credit_notes_with_reference)} credit notes"
+                ],
+                "message": "Call with {\"confirm\": true} to apply these changes."
+            })
+            result["success"] = True
+            return result
+        
+        # ========== APPLY CHANGES ==========
+        backup_timestamp = datetime.now(timezone.utc).isoformat()
+        backup_prefix = f"chandra_deep_residual_fix_{backup_timestamp.replace(':', '-')}"
+        
+        # Backup invoice
+        invoice_backup = {**invoice, "_backup_id": f"{backup_prefix}_invoice", "_backup_at": backup_timestamp, "_backup_type": "invoice_residual"}
+        if "_id" in invoice_backup:
+            del invoice_backup["_id"]
+        await db.maintenance_backups.insert_one(invoice_backup)
+        
+        # Backup credit notes
+        for i, cn in enumerate(credit_notes_with_reference):
+            cn_backup = {**cn, "_backup_id": f"{backup_prefix}_creditnote_{i}", "_backup_at": backup_timestamp, "_backup_type": "credit_note_residual"}
+            if "_id" in cn_backup:
+                del cn_backup["_id"]
+            await db.maintenance_backups.insert_one(cn_backup)
+        
+        result["fixes"].append({
+            "fix": "BACKUPS CREATED",
+            "backup_prefix": backup_prefix,
+            "documents_backed_up": 1 + len(credit_notes_with_reference)
+        })
+        
+        # Fix 1: Update invoice paid_amount
+        invoice_update = await db.retailer_invoices.update_one(
+            {"id": INVOICE_ID},
+            {
+                "$set": {
+                    "paid_amount": PAID_AMOUNT,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "_residual_fix_applied": backup_timestamp
+                }
+            }
+        )
+        
+        result["fixes"].append({
+            "fix": "INVOICE paid_amount UPDATED",
+            "invoice_id": INVOICE_ID,
+            "paid_amount_set_to": PAID_AMOUNT,
+            "modified": invoice_update.modified_count > 0
+        })
+        
+        # Fix 2: Remove invoice reference from credit notes' adjusted_in_invoices
+        updated_credit_notes = 0
+        for cn in credit_notes_with_reference:
+            cn_id = cn.get("id")
+            current_adjusted = cn.get("adjusted_in_invoices", [])
+            
+            # Filter out entries for this invoice
+            new_adjusted = [
+                adj for adj in current_adjusted 
+                if adj.get("invoice_id") != INVOICE_ID and adj.get("invoice_number") != INVOICE_NUMBER
+            ]
+            
+            if len(new_adjusted) != len(current_adjusted):
+                update_result = await db.retailer_credit_notes.update_one(
+                    {"id": cn_id},
+                    {
+                        "$set": {
+                            "adjusted_in_invoices": new_adjusted,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "_residual_fix_applied": backup_timestamp
+                        }
+                    }
+                )
+                if update_result.modified_count > 0:
+                    updated_credit_notes += 1
+        
+        result["fixes"].append({
+            "fix": "CREDIT NOTES adjusted_in_invoices CLEANED",
+            "credit_notes_updated": updated_credit_notes,
+            "entries_removed_for_invoice": INVOICE_ID
+        })
+        
+        # ========== VERIFY FINAL STATE ==========
+        final_invoice = await db.retailer_invoices.find_one({"id": INVOICE_ID})
+        
+        # Re-check credit notes
+        cursor = db.retailer_credit_notes.find({
+            "$or": [
+                {"adjusted_in_invoices.invoice_id": INVOICE_ID},
+                {"adjusted_in_invoices.invoice_number": INVOICE_NUMBER}
+            ]
+        })
+        remaining_references = await cursor.to_list(length=100)
+        
+        result["fixes"].append({
+            "fix": "VERIFICATION",
+            "invoice": {
+                "id": final_invoice.get("id"),
+                "paid_amount": final_invoice.get("paid_amount"),
+                "amount_paid": final_invoice.get("amount_paid"),
+                "payment_status": final_invoice.get("payment_status"),
+                "balance_due": final_invoice.get("balance_due")
+            },
+            "credit_notes_still_referencing_invoice": len(remaining_references),
+            "all_references_removed": len(remaining_references) == 0
+        })
+        
+        result["success"] = True
+        result["mode"] = "CHANGES APPLIED SUCCESSFULLY"
+        
+    except Exception as e:
+        result["errors"].append(str(e))
+        result["success"] = False
+    
+    return result

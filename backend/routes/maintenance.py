@@ -747,3 +747,256 @@ async def fix_chandra_deep_invoice_residual(
         result["success"] = False
     
     return result
+
+
+
+@router.post("/fix-chandra-deep-credit-notes")
+async def fix_chandra_deep_credit_notes(
+    request: FixRequest = FixRequest(),
+    token_valid: bool = Depends(verify_maintenance_token),
+    db=Depends(get_db)
+):
+    """
+    Fix the 16 released credit notes for Chandra Deep Market (CN-CHA-0071 through CN-CHA-0086).
+    For each note, set:
+    - adjusted_amount = 0
+    - pending_amount = note's own amount (rounded to 2 decimals)
+    - status = "pending"
+    - adjusted_against_invoices = []
+    - adjusted_in_invoices = []
+    
+    Dry-run by default. Pass {"confirm": true} to apply changes.
+    Expected: 16 notes totaling ₹765.
+    """
+    
+    # Credit note numbers to fix
+    CN_NUMBERS = [f"CN-CHA-{str(i).zfill(4)}" for i in range(71, 87)]  # CN-CHA-0071 to CN-CHA-0086
+    EXPECTED_COUNT = 16
+    EXPECTED_TOTAL = 765.0
+    
+    result = {
+        "mode": "DRY-RUN (no changes made)" if not request.confirm else "APPLYING CHANGES",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "target_credit_notes": CN_NUMBERS,
+        "expected_count": EXPECTED_COUNT,
+        "expected_total": EXPECTED_TOTAL,
+        "steps": [],
+        "backup_collection": "maintenance_backups",
+        "errors": [],
+        "success": False
+    }
+    
+    try:
+        # ========== STEP 1: FIND THE 16 CREDIT NOTES ==========
+        cursor = db.retailer_credit_notes.find({
+            "credit_note_number": {"$in": CN_NUMBERS}
+        })
+        credit_notes = await cursor.to_list(length=100)
+        
+        # If not found by number, try finding by retailer with adjusted_amount > 0
+        if len(credit_notes) < EXPECTED_COUNT:
+            # Get Chandra Deep Market retailer
+            retailer = await db.retailers.find_one({
+                "$or": [
+                    {"name": {"$regex": "Chandra", "$options": "i"}},
+                    {"business_name": {"$regex": "Chandra", "$options": "i"}}
+                ]
+            })
+            
+            if retailer:
+                retailer_id = retailer.get("id")
+                cursor = db.retailer_credit_notes.find({
+                    "retailer_id": retailer_id,
+                    "$or": [
+                        {"adjusted_amount": {"$gt": 0}},
+                        {"status": "available"},
+                        {"credit_note_number": {"$in": CN_NUMBERS}}
+                    ]
+                })
+                credit_notes = await cursor.to_list(length=100)
+        
+        # Calculate totals
+        total_amount = sum(cn.get("amount", 0) for cn in credit_notes)
+        
+        # Check for idempotency - any already fixed?
+        already_fixed = [cn for cn in credit_notes if cn.get("_credit_note_fix_applied")]
+        
+        if len(already_fixed) == len(credit_notes) and len(credit_notes) > 0:
+            result["steps"].append({
+                "step": "ALREADY FIXED",
+                "message": f"All {len(credit_notes)} credit notes already have _credit_note_fix_applied flag. Skipping.",
+                "fixed_at": already_fixed[0].get("_credit_note_fix_applied") if already_fixed else None
+            })
+            result["success"] = True
+            return result
+        
+        # Prepare details
+        credit_note_details = []
+        for cn in credit_notes:
+            cn_amount = cn.get("amount", 0)
+            credit_note_details.append({
+                "credit_note_number": cn.get("credit_note_number"),
+                "id": cn.get("id"),
+                "amount": cn_amount,
+                "current_adjusted_amount": cn.get("adjusted_amount"),
+                "current_pending_amount": cn.get("pending_amount"),
+                "current_status": cn.get("status"),
+                "current_adjusted_against_invoices": len(cn.get("adjusted_against_invoices", [])),
+                "current_adjusted_in_invoices": len(cn.get("adjusted_in_invoices", [])),
+                "will_set": {
+                    "adjusted_amount": 0,
+                    "pending_amount": round(cn_amount, 2),
+                    "status": "pending",
+                    "adjusted_against_invoices": [],
+                    "adjusted_in_invoices": []
+                },
+                "already_fixed": cn.get("_credit_note_fix_applied") is not None
+            })
+        
+        result["steps"].append({
+            "step": 1,
+            "action": "IDENTIFY CREDIT NOTES TO FIX",
+            "found_count": len(credit_notes),
+            "expected_count": EXPECTED_COUNT,
+            "total_amount": round(total_amount, 2),
+            "expected_total": EXPECTED_TOTAL,
+            "count_matches": len(credit_notes) == EXPECTED_COUNT,
+            "total_matches": abs(total_amount - EXPECTED_TOTAL) < 1,  # Allow small rounding difference
+            "credit_note_details": credit_note_details
+        })
+        
+        # Validation
+        if len(credit_notes) != EXPECTED_COUNT:
+            result["errors"].append(f"Expected {EXPECTED_COUNT} credit notes, found {len(credit_notes)}")
+        
+        if abs(total_amount - EXPECTED_TOTAL) >= 1:
+            result["errors"].append(f"Expected total ₹{EXPECTED_TOTAL}, found ₹{round(total_amount, 2)}")
+        
+        # ========== DRY-RUN SUMMARY ==========
+        if not request.confirm:
+            result["steps"].append({
+                "step": 2,
+                "action": "DRY-RUN SUMMARY",
+                "changes_to_apply": [
+                    f"1. Backup {len(credit_notes)} credit notes to maintenance_backups",
+                    f"2. For each credit note, set:",
+                    f"   - adjusted_amount = 0",
+                    f"   - pending_amount = note's amount",
+                    f"   - status = 'pending'",
+                    f"   - adjusted_against_invoices = []",
+                    f"   - adjusted_in_invoices = []",
+                ],
+                "total_notes": len(credit_notes),
+                "total_amount": round(total_amount, 2),
+                "message": "Call with {\"confirm\": true} to apply these changes."
+            })
+            result["success"] = len(result["errors"]) == 0
+            return result
+        
+        # ========== APPLY CHANGES ==========
+        if result["errors"]:
+            result["steps"].append({
+                "step": "ABORTED",
+                "message": "Fix aborted due to validation errors. Resolve errors and retry."
+            })
+            return result
+        
+        backup_timestamp = datetime.now(timezone.utc).isoformat()
+        backup_prefix = f"chandra_deep_cn_fix_{backup_timestamp.replace(':', '-')}"
+        
+        # Backup all credit notes
+        for i, cn in enumerate(credit_notes):
+            cn_backup = {**cn, "_backup_id": f"{backup_prefix}_creditnote_{i}", "_backup_at": backup_timestamp, "_backup_type": "credit_note_reset"}
+            if "_id" in cn_backup:
+                del cn_backup["_id"]
+            await db.maintenance_backups.insert_one(cn_backup)
+        
+        result["steps"].append({
+            "step": 2,
+            "action": "BACKUPS CREATED",
+            "backup_prefix": backup_prefix,
+            "documents_backed_up": len(credit_notes)
+        })
+        
+        # Update each credit note
+        updated_count = 0
+        update_details = []
+        
+        for cn in credit_notes:
+            cn_id = cn.get("id")
+            cn_amount = cn.get("amount", 0)
+            
+            update_result = await db.retailer_credit_notes.update_one(
+                {"id": cn_id},
+                {
+                    "$set": {
+                        "adjusted_amount": 0,
+                        "pending_amount": round(cn_amount, 2),
+                        "status": "pending",
+                        "adjusted_against_invoices": [],
+                        "adjusted_in_invoices": [],
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "_credit_note_fix_applied": backup_timestamp
+                    }
+                }
+            )
+            
+            if update_result.modified_count > 0:
+                updated_count += 1
+                update_details.append({
+                    "credit_note_number": cn.get("credit_note_number"),
+                    "id": cn_id,
+                    "modified": True
+                })
+        
+        result["steps"].append({
+            "step": 3,
+            "action": "CREDIT NOTES UPDATED",
+            "updated_count": updated_count,
+            "expected_count": len(credit_notes),
+            "all_updated": updated_count == len(credit_notes)
+        })
+        
+        # ========== VERIFY FINAL STATE ==========
+        cursor = db.retailer_credit_notes.find({
+            "credit_note_number": {"$in": CN_NUMBERS}
+        })
+        final_credit_notes = await cursor.to_list(length=100)
+        
+        verification_details = []
+        all_correct = True
+        for cn in final_credit_notes:
+            is_correct = (
+                cn.get("adjusted_amount") == 0 and
+                cn.get("status") == "pending" and
+                len(cn.get("adjusted_against_invoices", [])) == 0 and
+                len(cn.get("adjusted_in_invoices", [])) == 0
+            )
+            if not is_correct:
+                all_correct = False
+            
+            verification_details.append({
+                "credit_note_number": cn.get("credit_note_number"),
+                "adjusted_amount": cn.get("adjusted_amount"),
+                "pending_amount": cn.get("pending_amount"),
+                "status": cn.get("status"),
+                "adjusted_against_invoices_count": len(cn.get("adjusted_against_invoices", [])),
+                "adjusted_in_invoices_count": len(cn.get("adjusted_in_invoices", [])),
+                "is_correct": is_correct
+            })
+        
+        result["steps"].append({
+            "step": 4,
+            "action": "VERIFICATION",
+            "all_notes_correct": all_correct,
+            "verification_details": verification_details
+        })
+        
+        result["success"] = all_correct
+        result["mode"] = "CHANGES APPLIED SUCCESSFULLY" if all_correct else "CHANGES APPLIED WITH ISSUES"
+        
+    except Exception as e:
+        result["errors"].append(str(e))
+        result["success"] = False
+    
+    return result

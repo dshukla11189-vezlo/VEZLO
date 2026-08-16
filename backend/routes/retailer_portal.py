@@ -2444,28 +2444,43 @@ async def delete_retailer_payment(payment_id: str, current_user: dict = Depends(
 
 @router.get("/retailer-payments/orphans")
 async def get_orphan_payments(current_user: dict = Depends(get_current_user)):
-    """Find payments that are not linked to any existing invoice"""
+    """Find payments that are not linked to any existing invoice or need relinking"""
     if current_user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Only admin can view orphan payments")
     
     # Get all payments
     all_payments = await db.retailer_payments.find({}, {"_id": 0}).to_list(10000)
     
-    # Get all invoice numbers
-    all_invoices = await db.retailer_invoices.find({}, {"_id": 0, "invoice_number": 1}).to_list(10000)
+    # Get all invoice IDs and numbers
+    all_invoices = await db.retailer_invoices.find({}, {"_id": 0, "id": 1, "invoice_number": 1}).to_list(10000)
     invoice_numbers = {inv["invoice_number"] for inv in all_invoices if inv.get("invoice_number")}
+    invoice_ids = {inv["id"] for inv in all_invoices if inv.get("id")}
     
-    # Find orphan payments (not linked to any existing invoice)
+    # Find orphan payments and payments needing relinking
     orphan_payments = []
+    needs_relinking = []
+    
     for payment in all_payments:
+        # Check for payments explicitly marked as needing relinking (from invoice deletion)
+        if payment.get("needs_relinking"):
+            needs_relinking.append(payment)
+            continue
+        
+        # Check for orphaned payments (linked to non-existent invoice)
         invoice_num = payment.get("invoice_number")
+        invoice_id = payment.get("invoice_id")
+        
         if invoice_num and invoice_num not in invoice_numbers:
+            orphan_payments.append(payment)
+        elif invoice_id and invoice_id not in invoice_ids:
             orphan_payments.append(payment)
     
     return {
         "total_payments": len(all_payments),
         "orphan_count": len(orphan_payments),
-        "orphan_payments": orphan_payments
+        "orphan_payments": orphan_payments,
+        "needs_relinking_count": len(needs_relinking),
+        "needs_relinking": needs_relinking
     }
 
 
@@ -2505,6 +2520,92 @@ async def get_retailer_payments_detailed(retailer_id: str, current_user: dict = 
         "total_payments_count": len(payments),
         "total_amount": round(total_amount, 2),
         "payments": enriched_payments
+    }
+
+
+@router.post("/retailer-payments/{payment_id}/relink")
+async def relink_payment_to_invoice(payment_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """
+    Manually relink an orphaned/unlinked payment to a new invoice.
+    
+    Used after invoice deletion and regeneration if automatic relinking didn't work.
+    
+    Input:
+    {
+        "invoice_id": "new-invoice-id",
+        "invoice_number": "NEW-INV-123" (optional, will be fetched if not provided)
+    }
+    """
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can relink payments")
+    
+    # Get the payment
+    payment = await db.retailer_payments.find_one({"id": payment_id}, {"_id": 0})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    
+    new_invoice_id = input.get("invoice_id")
+    if not new_invoice_id:
+        raise HTTPException(status_code=400, detail="invoice_id is required")
+    
+    # Get the target invoice
+    target_invoice = await db.retailer_invoices.find_one({"id": new_invoice_id}, {"_id": 0})
+    if not target_invoice:
+        raise HTTPException(status_code=404, detail="Target invoice not found")
+    
+    # Verify retailer match
+    if payment.get("retailer_id") != target_invoice.get("retailer_id"):
+        raise HTTPException(status_code=400, detail="Payment and invoice must belong to the same retailer")
+    
+    payment_amount = payment.get("amount", 0) or 0
+    
+    # Update the payment to link to the new invoice
+    await db.retailer_payments.update_one(
+        {"id": payment_id},
+        {"$set": {
+            "invoice_id": new_invoice_id,
+            "invoice_number": target_invoice.get("invoice_number"),
+            "relinked_at": datetime.now(timezone.utc).isoformat(),
+            "relinked_by": current_user.get("user_id"),
+            "relinked_from_invoice": payment.get("original_invoice_id") or payment.get("invoice_id")
+        },
+        "$unset": {
+            "needs_relinking": "",
+            "unlinked_at": "",
+            "unlinked_reason": ""
+        }}
+    )
+    
+    # Update the invoice's paid_amount
+    current_paid = target_invoice.get("paid_amount", 0) or 0
+    new_paid = current_paid + payment_amount
+    final_payable = target_invoice.get("final_payable", target_invoice.get("net_payable", 0)) or 0
+    
+    # Determine new status
+    if new_paid >= final_payable - 0.01:
+        new_status = "paid"
+    elif new_paid > 0:
+        new_status = "partial"
+    else:
+        new_status = "pending"
+    
+    await db.retailer_invoices.update_one(
+        {"id": new_invoice_id},
+        {"$set": {
+            "paid_amount": round(new_paid, 2),
+            "status": new_status
+        }}
+    )
+    
+    logger.info(f"Relinked payment {payment_id} (₹{payment_amount}) to invoice {target_invoice.get('invoice_number')} - new paid_amount: {new_paid}")
+    
+    return {
+        "message": f"Payment ₹{payment_amount} relinked to invoice {target_invoice.get('invoice_number')}",
+        "payment_id": payment_id,
+        "invoice_id": new_invoice_id,
+        "invoice_number": target_invoice.get("invoice_number"),
+        "new_paid_amount": round(new_paid, 2),
+        "new_status": new_status
     }
 
 
@@ -5288,6 +5389,15 @@ async def update_retailer_invoice(invoice_id: str, input: dict, current_user: di
 
 @router.delete("/retailer-invoices/{invoice_id}")
 async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Delete a retailer invoice with proper cleanup of payments and credit notes.
+    
+    RULES:
+    - Rule #6: Backdated invoices can ONLY be deleted by admin users
+    - Rule #7: When a credit note is released (invoice deleted), fully reset it:
+               adjusted_amount=0, pending_amount=full, status='pending', clear arrays
+    - Payments linked to this invoice are orphaned and flagged for re-linking
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Only admin/staff can delete invoices")
     
@@ -5299,13 +5409,51 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
     retailer = await db.users.find_one({"id": invoice.get("retailer_id")}, {"_id": 0})
     is_100_upfront = retailer and retailer.get("upfront_collection_percentage") == 100
     
-    # Enforce same-day delete rule for non-admin users ONLY for 100% upfront retailers
-    # Admin can delete any invoice, staff can only delete same-day invoices for 100% upfront retailers
-    if current_user["role"] != "admin" and is_100_upfront:
-        today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-        invoice_date = invoice.get("invoice_date", "")[:10]
-        if invoice_date != today:
-            raise HTTPException(status_code=403, detail="Staff can only delete same-day invoices for 100% upfront retailers. Contact admin for older invoices.")
+    # RULE #6: Backdated invoices can ONLY be deleted by admin
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    invoice_date = invoice.get("invoice_date", "")[:10]
+    is_backdated = invoice_date < today
+    
+    if is_backdated and current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=403, 
+            detail="Only admin can delete backdated invoices. Contact admin for older invoices."
+        )
+    
+    # For 100% upfront retailers, additional same-day check for staff
+    if current_user["role"] != "admin" and is_100_upfront and is_backdated:
+        raise HTTPException(
+            status_code=403, 
+            detail="Staff can only delete same-day invoices for 100% upfront retailers. Contact admin for older invoices."
+        )
+    
+    invoice_number = invoice.get("invoice_number", "")
+    retailer_id = invoice.get("retailer_id")
+    
+    # RULE #2: Handle payments - don't leave orphaned payments pointing at deleted invoice
+    # Mark payments as unlinked and carry them over for potential re-linking
+    payments_on_invoice = await db.retailer_payments.find(
+        {"invoice_id": invoice_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    payments_unlinked = 0
+    for payment in payments_on_invoice:
+        # Mark payment as unlinked but preserve it for re-linking
+        await db.retailer_payments.update_one(
+            {"id": payment.get("id")},
+            {"$set": {
+                "original_invoice_id": invoice_id,
+                "original_invoice_number": invoice_number,
+                "invoice_id": None,  # Unlink from deleted invoice
+                "invoice_number": None,
+                "unlinked_at": datetime.now(timezone.utc).isoformat(),
+                "unlinked_reason": "invoice_deleted",
+                "needs_relinking": True
+            }}
+        )
+        payments_unlinked += 1
+        logger.info(f"Unlinked payment {payment.get('id')} (₹{payment.get('amount', 0)}) from deleted invoice {invoice_number}")
     
     # Remove invoice reference from dispatches
     await db.retailer_dispatches.update_many(
@@ -5313,59 +5461,516 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
         {"$set": {"invoice_number": None, "invoice_id": None}}
     )
     
-    # Reset credit notes that were adjusted against this invoice
-    # Get credit note adjustments from the invoice
+    # RULE #7: Fully reset credit notes that were adjusted against this invoice
+    # When a credit note is released: adjusted_amount=0, pending_amount=full, status='pending', clear arrays
     credit_note_adjustments = invoice.get("credit_note_adjustments", [])
-    invoice_number = invoice.get("invoice_number", "")
     cn_reset_count = 0
     
     for cn_adj in credit_note_adjustments:
         cn_id = cn_adj.get("credit_note_id")
-        # Check both field names since they may vary
         adj_amount = cn_adj.get("adjusted_amount", 0) or cn_adj.get("amount", 0) or 0
         
         if cn_id and adj_amount > 0:
-            # Get the credit note
             credit_note = await db.retailer_credit_notes.find_one({"id": cn_id}, {"_id": 0})
             if credit_note:
-                current_adjusted = credit_note.get("adjusted_amount", 0) or 0
-                new_adjusted = max(0, current_adjusted - adj_amount)
                 total_amount = credit_note.get("amount", 0) or 0
                 
-                # Calculate new pending amount
-                new_pending = total_amount - new_adjusted
-                
-                # Determine new status
-                if new_adjusted <= 0:
-                    new_status = "pending"
-                elif new_adjusted >= total_amount:
-                    new_status = "adjusted"
-                else:
-                    new_status = "partial"
-                
-                # Remove this invoice from adjusted_in_invoices array
+                # RULE #7: Fully reset the credit note
+                # Remove ONLY this invoice's adjustment from the arrays
                 adjusted_in_invoices = credit_note.get("adjusted_in_invoices", [])
+                adjusted_against_invoices = credit_note.get("adjusted_against_invoices", [])
+                
+                # Filter out this invoice from both arrays
                 adjusted_in_invoices = [
                     inv for inv in adjusted_in_invoices 
                     if inv.get("invoice_number") != invoice_number and inv.get("invoice_id") != invoice_id
                 ]
+                adjusted_against_invoices = [
+                    inv for inv in adjusted_against_invoices 
+                    if inv.get("invoice_number") != invoice_number and inv.get("invoice_id") != invoice_id
+                ]
                 
-                # Update credit note - reset to pending with full amount available
+                # Recalculate adjusted_amount from remaining adjustments
+                remaining_adjusted = sum(
+                    inv.get("adjusted_amount", 0) or inv.get("amount", 0) or 0 
+                    for inv in adjusted_in_invoices
+                )
+                new_pending = total_amount - remaining_adjusted
+                
+                # Determine new status
+                if remaining_adjusted <= 0:
+                    new_status = "pending"
+                elif remaining_adjusted >= total_amount:
+                    new_status = "adjusted"
+                else:
+                    new_status = "partial"
+                
                 await db.retailer_credit_notes.update_one(
                     {"id": cn_id},
                     {"$set": {
-                        "adjusted_amount": round(new_adjusted, 2),
+                        "adjusted_amount": round(remaining_adjusted, 2),
                         "pending_amount": round(new_pending, 2),
                         "status": new_status,
                         "adjusted_in_invoices": adjusted_in_invoices,
+                        "adjusted_against_invoices": adjusted_against_invoices,
                         "updated_at": datetime.now(timezone.utc).isoformat()
                     }}
                 )
                 cn_reset_count += 1
-                logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - adjusted: {current_adjusted} -> {new_adjusted}, pending: {new_pending}, status: {new_status}")
+                logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - removed adj for invoice {invoice_number}, new adjusted: {remaining_adjusted}, pending: {new_pending}, status: {new_status}")
+    
+    # Store deletion record for audit trail
+    deletion_record = {
+        "id": str(uuid.uuid4()),
+        "deleted_invoice_id": invoice_id,
+        "deleted_invoice_number": invoice_number,
+        "retailer_id": retailer_id,
+        "invoice_date": invoice_date,
+        "net_payable": invoice.get("net_payable", 0),
+        "paid_amount": invoice.get("paid_amount", 0),
+        "credit_note_adjustments": credit_note_adjustments,
+        "payments_unlinked": payments_unlinked,
+        "credit_notes_reset": cn_reset_count,
+        "deleted_by": current_user.get("user_id"),
+        "deleted_by_name": current_user.get("name", ""),
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "dispatch_ids": invoice.get("dispatch_ids", [])
+    }
+    await db.deleted_invoices_audit.insert_one(deletion_record)
     
     await db.retailer_invoices.delete_one({"id": invoice_id})
-    return {"message": "Invoice deleted successfully", "credit_notes_reset": cn_reset_count}
+    
+    return {
+        "message": "Invoice deleted successfully",
+        "credit_notes_reset": cn_reset_count,
+        "payments_unlinked": payments_unlinked,
+        "deletion_audit_id": deletion_record["id"]
+    }
+
+
+@router.post("/retailer-invoices/{invoice_id}/regenerate")
+async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """
+    Regenerate a backdated invoice with proper handling of payments and credit notes.
+    
+    This is an ADMIN-ONLY operation for backdated invoices.
+    
+    RULES IMPLEMENTED:
+    - Rule #1: Restore ONLY the original invoice's credit notes and payment links on regeneration
+    - Rule #2: Never leave a payment pointing at a deleted invoice; carry it over and update paid_amount
+    - Rule #3: If overpaid upon regeneration, auto-generate a credit note; if underpaid, show pending balance
+    - Rule #4: Default the regenerated invoice's date and number to the original invoice's values
+    - Rule #5: Stamp invoice with 'Invoice Revised on [date]' and record the admin/staff member
+    - Rule #6: Restrict deletion/regeneration of backdated invoices to admin users ONLY
+    - Rule #7: When credit note is released during delete phase, reset it fully
+    
+    Input:
+    {
+        "selected_items": [...],  # Optional: new items, defaults to original if not provided
+        "invoice_date": "...",    # Optional: defaults to original invoice date
+        "remarks": "..."          # Optional: additional remarks
+    }
+    """
+    # Only admin can regenerate backdated invoices
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can regenerate backdated invoices")
+    
+    # Get the original invoice
+    original_invoice = await db.retailer_invoices.find_one({"id": invoice_id})
+    if not original_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    retailer_id = original_invoice.get("retailer_id")
+    original_invoice_number = original_invoice.get("invoice_number", "")
+    original_invoice_date = original_invoice.get("invoice_date", "")[:10]
+    original_dispatch_ids = original_invoice.get("dispatch_ids", [])
+    
+    # Get retailer info
+    retailer = await db.users.find_one({"id": retailer_id}, {"_id": 0})
+    if not retailer:
+        raise HTTPException(status_code=404, detail="Retailer not found")
+    
+    commission = retailer.get("commission_percentage", 0)
+    is_100_percent_upfront = (retailer.get("upfront_collection_percentage", 0) or 0) == 100
+    
+    # STEP 1: Capture original invoice's data BEFORE deletion
+    # Get payments linked to this invoice
+    original_payments = await db.retailer_payments.find(
+        {"invoice_id": invoice_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Get credit notes that were adjusted against this invoice
+    original_credit_note_adjustments = original_invoice.get("credit_note_adjustments", [])
+    original_cn_ids = [cn.get("credit_note_id") for cn in original_credit_note_adjustments if cn.get("credit_note_id")]
+    
+    # Calculate original paid amount
+    original_paid_amount = original_invoice.get("paid_amount", 0) or 0
+    original_total_credit_adjusted = original_invoice.get("total_credit_adjusted", 0) or 0
+    
+    logger.info(f"Regenerating invoice {original_invoice_number}: original paid={original_paid_amount}, credit_adjusted={original_total_credit_adjusted}, payments={len(original_payments)}, CNs={len(original_cn_ids)}")
+    
+    # STEP 2: Delete the old invoice (internally, not via endpoint)
+    # Unlink dispatches
+    await db.retailer_dispatches.update_many(
+        {"id": {"$in": original_dispatch_ids}},
+        {"$set": {"invoice_number": None, "invoice_id": None}}
+    )
+    
+    # RULE #7: Reset credit notes that were adjusted against this invoice
+    for cn_adj in original_credit_note_adjustments:
+        cn_id = cn_adj.get("credit_note_id")
+        adj_amount = cn_adj.get("adjusted_amount", 0) or cn_adj.get("amount", 0) or 0
+        
+        if cn_id and adj_amount > 0:
+            credit_note = await db.retailer_credit_notes.find_one({"id": cn_id}, {"_id": 0})
+            if credit_note:
+                total_amount = credit_note.get("amount", 0) or 0
+                
+                # Remove ONLY this invoice's adjustment from the arrays
+                adjusted_in_invoices = credit_note.get("adjusted_in_invoices", [])
+                adjusted_against_invoices = credit_note.get("adjusted_against_invoices", [])
+                
+                adjusted_in_invoices = [
+                    inv for inv in adjusted_in_invoices 
+                    if inv.get("invoice_number") != original_invoice_number and inv.get("invoice_id") != invoice_id
+                ]
+                adjusted_against_invoices = [
+                    inv for inv in adjusted_against_invoices 
+                    if inv.get("invoice_number") != original_invoice_number and inv.get("invoice_id") != invoice_id
+                ]
+                
+                # Recalculate adjusted_amount from remaining adjustments
+                remaining_adjusted = sum(
+                    inv.get("adjusted_amount", 0) or inv.get("amount", 0) or 0 
+                    for inv in adjusted_in_invoices
+                )
+                new_pending = total_amount - remaining_adjusted
+                
+                if remaining_adjusted <= 0:
+                    new_status = "pending"
+                elif remaining_adjusted >= total_amount:
+                    new_status = "adjusted"
+                else:
+                    new_status = "partial"
+                
+                await db.retailer_credit_notes.update_one(
+                    {"id": cn_id},
+                    {"$set": {
+                        "adjusted_amount": round(remaining_adjusted, 2),
+                        "pending_amount": round(new_pending, 2),
+                        "status": new_status,
+                        "adjusted_in_invoices": adjusted_in_invoices,
+                        "adjusted_against_invoices": adjusted_against_invoices,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+    
+    # Delete the original invoice
+    await db.retailer_invoices.delete_one({"id": invoice_id})
+    
+    # STEP 3: Create the new invoice
+    # RULE #4: Default to original invoice date and use same number format
+    new_invoice_date_str = input.get("invoice_date") or original_invoice_date
+    try:
+        new_invoice_date = datetime.fromisoformat(new_invoice_date_str[:10])
+    except:
+        new_invoice_date = datetime.fromisoformat(original_invoice_date)
+    
+    # Get dispatches for the invoice
+    dispatches = await db.retailer_dispatches.find(
+        {"id": {"$in": original_dispatch_ids}},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Calculate items - use input.selected_items if provided, otherwise use original
+    all_items = []
+    gross_value = 0
+    rejection_amount = 0
+    
+    if input.get("selected_items") and len(input.get("selected_items", [])) > 0:
+        # Use new selected items
+        combined_items = {}
+        for item in input.get("selected_items", []):
+            combine_key = f"{item.get('product_id', '')}|{item.get('variant_name', '')}"
+            
+            if combine_key in combined_items:
+                existing = combined_items[combine_key]
+                existing['net_qty'] += item.get('net_qty', 0)
+                existing['supplied_qty'] += item.get('supplied_qty', 0)
+                existing['rejected_qty'] += item.get('rejected_qty', 0) or 0
+                existing['total_value'] += item.get('total_value', 0)
+            else:
+                combined_items[combine_key] = {
+                    'dispatch_id': item.get('dispatch_id', ''),
+                    'product_id': item.get('product_id', ''),
+                    'product_name': item.get('product_name', ''),
+                    'variant_name': item.get('variant_name', ''),
+                    'net_qty': item.get('net_qty', 0),
+                    'supplied_qty': item.get('supplied_qty', 0),
+                    'rejected_qty': item.get('rejected_qty', 0) or 0,
+                    'mrp': item.get('mrp', 0),
+                    'total_value': item.get('total_value', 0)
+                }
+        
+        for item_data in combined_items.values():
+            all_items.append({
+                "dispatch_id": item_data['dispatch_id'],
+                "product_id": item_data['product_id'],
+                "product_name": item_data['product_name'],
+                "variant_name": item_data['variant_name'],
+                "quantity": item_data['net_qty'],
+                "supplied_qty": item_data['supplied_qty'],
+                "rejected_qty": item_data['rejected_qty'],
+                "mrp": item_data['mrp'],
+                "total_value": item_data['total_value']
+            })
+            item_gross = item_data['supplied_qty'] * item_data['mrp']
+            gross_value += item_gross
+            rejection_amount += (item_data.get('rejected_qty') or 0) * item_data['mrp']
+    else:
+        # Use original invoice items
+        for item in original_invoice.get("items", []):
+            all_items.append(item)
+            gross_value += item.get("supplied_qty", item.get("quantity", 0)) * item.get("mrp", 0)
+            rejection_amount += (item.get("rejected_qty", 0) or 0) * item.get("mrp", 0)
+    
+    # Calculate totals based on retailer model
+    if is_100_percent_upfront:
+        total_mrp_value = gross_value
+        commission_amount = gross_value * commission / 100
+        net_payable = gross_value - commission_amount
+    else:
+        total_mrp_value = gross_value - rejection_amount
+        commission_amount = total_mrp_value * commission / 100
+        net_payable = total_mrp_value - commission_amount
+    
+    # RULE #4: Keep the same invoice number
+    new_invoice_number = original_invoice_number
+    
+    # RULE #5: Add revision stamp
+    revision_stamp = {
+        "revised_on": datetime.now(timezone.utc).isoformat(),
+        "revised_by": current_user.get("user_id"),
+        "revised_by_name": current_user.get("name", "Admin"),
+        "original_invoice_id": invoice_id
+    }
+    
+    new_invoice_id = str(uuid.uuid4())
+    
+    # STEP 4: RULE #1 - Restore ONLY the original invoice's credit notes
+    # Re-apply the original credit note adjustments to this new invoice
+    credit_note_adjustments = []
+    total_credit_adjusted = 0
+    
+    for cn_id in original_cn_ids:
+        credit_note = await db.retailer_credit_notes.find_one({"id": cn_id}, {"_id": 0})
+        if not credit_note:
+            continue
+        
+        # Find the original adjustment amount for this CN
+        original_adj = next(
+            (adj for adj in original_credit_note_adjustments if adj.get("credit_note_id") == cn_id),
+            None
+        )
+        if not original_adj:
+            continue
+        
+        original_adj_amount = original_adj.get("adjusted_amount", 0) or original_adj.get("amount", 0) or 0
+        
+        # Get current pending amount of the CN (after reset)
+        cn_pending = credit_note.get("pending_amount", credit_note.get("amount", 0)) or 0
+        
+        # Adjust up to the original amount or what's still pending
+        adjust_amount = min(original_adj_amount, cn_pending, max(0, net_payable - total_credit_adjusted))
+        
+        if adjust_amount > 0:
+            # Record the adjustment
+            adjustment = {
+                "credit_note_id": cn_id,
+                "credit_note_number": credit_note.get("credit_note_number"),
+                "credit_note_date": credit_note.get("created_at", ""),
+                "original_invoice_id": credit_note.get("original_invoice_id", ""),
+                "original_invoice_number": credit_note.get("original_invoice_number", ""),
+                "original_amount": credit_note.get("amount", 0),
+                "adjusted_amount": adjust_amount,
+                "rejection_id": credit_note.get("rejection_id"),
+                "source": credit_note.get("source", "rejection")
+            }
+            credit_note_adjustments.append(adjustment)
+            total_credit_adjusted += adjust_amount
+            
+            # Update the credit note
+            cn_total_amount = credit_note.get("amount", 0) or 0
+            cn_current_adjusted = credit_note.get("adjusted_amount", 0) or 0
+            new_cn_adjusted = cn_current_adjusted + adjust_amount
+            new_cn_pending = cn_total_amount - new_cn_adjusted
+            new_cn_status = "adjusted" if new_cn_pending <= 0 else "partial"
+            
+            adjusted_in_invoices = credit_note.get("adjusted_in_invoices", [])
+            adjusted_in_invoices.append({
+                "invoice_id": new_invoice_id,
+                "invoice_number": new_invoice_number,
+                "adjusted_amount": adjust_amount,
+                "adjusted_at": datetime.now(timezone.utc).isoformat()
+            })
+            
+            await db.retailer_credit_notes.update_one(
+                {"id": cn_id},
+                {"$set": {
+                    "adjusted_amount": round(new_cn_adjusted, 2),
+                    "pending_amount": round(new_cn_pending, 2),
+                    "status": new_cn_status,
+                    "adjusted_in_invoices": adjusted_in_invoices,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+            logger.info(f"Re-applied CN {credit_note.get('credit_note_number')} to regenerated invoice: ₹{adjust_amount}")
+    
+    final_payable = net_payable - total_credit_adjusted
+    
+    # STEP 5: RULE #2 - Re-link original payments to the new invoice and update paid_amount
+    total_relinked_payments = 0
+    for payment in original_payments:
+        payment_amount = payment.get("amount", 0) or 0
+        total_relinked_payments += payment_amount
+        
+        # Re-link payment to new invoice
+        await db.retailer_payments.update_one(
+            {"id": payment.get("id")},
+            {"$set": {
+                "invoice_id": new_invoice_id,
+                "invoice_number": new_invoice_number,
+                "relinked_at": datetime.now(timezone.utc).isoformat(),
+                "relinked_from_invoice": invoice_id
+            },
+            "$unset": {
+                "original_invoice_id": "",
+                "original_invoice_number": "",
+                "unlinked_at": "",
+                "unlinked_reason": "",
+                "needs_relinking": ""
+            }}
+        )
+    
+    # RULE #2: Update paid_amount with the re-linked payments
+    new_paid_amount = total_relinked_payments
+    
+    # RULE #3: Handle overpayment and underpayment
+    overpayment_cn = None
+    if new_paid_amount > final_payable + 0.01:  # Overpaid
+        excess_amount = new_paid_amount - final_payable
+        
+        # Auto-generate a credit note for the excess
+        shop_name = retailer.get("company_name") or retailer.get("name") or "RET"
+        retailer_prefix = ''.join(c for c in shop_name[:3] if c.isalnum()).upper()
+        if len(retailer_prefix) < 3:
+            retailer_prefix = (retailer_prefix + "XXX")[:3]
+        
+        overpayment_cn_number = await get_next_credit_note_number(db, retailer_prefix)
+        overpayment_cn_id = str(uuid.uuid4())
+        
+        overpayment_cn = {
+            "id": overpayment_cn_id,
+            "credit_note_number": overpayment_cn_number,
+            "retailer_id": retailer_id,
+            "retailer_name": retailer.get("company_name") or retailer.get("name", ""),
+            "amount": round(excess_amount, 2),
+            "adjusted_amount": 0,
+            "pending_amount": round(excess_amount, 2),
+            "status": "pending",
+            "source": "overpayment_on_regeneration",
+            "original_invoice_id": new_invoice_id,
+            "original_invoice_number": new_invoice_number,
+            "notes": f"Auto-generated due to overpayment after invoice regeneration. Original paid: ₹{new_paid_amount}, New payable: ₹{final_payable}",
+            "adjusted_in_invoices": [],
+            "adjusted_against_invoices": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": current_user.get("user_id")
+        }
+        await db.retailer_credit_notes.insert_one(overpayment_cn)
+        logger.info(f"Created overpayment CN {overpayment_cn_number} for ₹{excess_amount} on regenerated invoice {new_invoice_number}")
+    
+    # Determine payment status
+    if new_paid_amount >= final_payable - 0.01:
+        payment_status = "paid"
+    elif new_paid_amount > 0 or total_credit_adjusted > 0:
+        payment_status = "partial"
+    else:
+        payment_status = "pending"
+    
+    # Build the new invoice document
+    new_invoice_doc = {
+        "id": new_invoice_id,
+        "invoice_number": new_invoice_number,
+        "retailer_id": retailer_id,
+        "retailer_name": retailer.get("company_name") or retailer.get("name", "Unknown"),
+        "invoice_date": new_invoice_date.isoformat(),
+        "dispatch_ids": original_dispatch_ids,
+        "items": all_items,
+        "gross_value": round(gross_value, 2),
+        "rejection_amount": round(rejection_amount, 2),
+        "total_mrp_value": round(total_mrp_value, 2),
+        "commission_percentage": commission,
+        "commission_amount": round(commission_amount, 2),
+        "net_payable": round(net_payable, 2),
+        "credit_note_adjustments": credit_note_adjustments,
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "final_payable": round(final_payable, 2),
+        "paid_amount": round(new_paid_amount, 2),
+        "status": payment_status,
+        "remarks": input.get("remarks", original_invoice.get("remarks", "")),
+        "created_by": original_invoice.get("created_by"),
+        "created_at": original_invoice.get("created_at"),
+        # RULE #5: Revision stamp
+        "revision_history": [revision_stamp],
+        "is_revised": True,
+        "last_revised_on": revision_stamp["revised_on"],
+        "last_revised_by": revision_stamp["revised_by"],
+        "last_revised_by_name": revision_stamp["revised_by_name"]
+    }
+    
+    # If invoice is fully covered, mark as paid
+    if new_invoice_doc["final_payable"] <= 0.01 or payment_status == "paid":
+        new_invoice_doc["payment_status"] = "paid"
+        new_invoice_doc["status"] = "paid"
+    
+    await db.retailer_invoices.insert_one(new_invoice_doc)
+    
+    # Re-link dispatches to new invoice
+    await db.retailer_dispatches.update_many(
+        {"id": {"$in": original_dispatch_ids}},
+        {"$set": {"invoice_number": new_invoice_number, "invoice_id": new_invoice_id}}
+    )
+    
+    # RULE #3: Calculate pending balance if underpaid
+    pending_balance = max(0, final_payable - new_paid_amount)
+    
+    response = {
+        "id": new_invoice_id,
+        "invoice_number": new_invoice_number,
+        "message": f"Invoice regenerated successfully. Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {current_user.get('name', 'Admin')}",
+        "net_payable": round(net_payable, 2),
+        "total_credit_adjusted": round(total_credit_adjusted, 2),
+        "final_payable": round(final_payable, 2),
+        "paid_amount": round(new_paid_amount, 2),
+        "pending_balance": round(pending_balance, 2),
+        "payments_relinked": len(original_payments),
+        "credit_notes_restored": len(credit_note_adjustments),
+        "status": payment_status,
+        "revision_stamp": f"Invoice Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {current_user.get('name', 'Admin')}"
+    }
+    
+    if overpayment_cn:
+        response["overpayment_credit_note"] = {
+            "id": overpayment_cn["id"],
+            "credit_note_number": overpayment_cn["credit_note_number"],
+            "amount": overpayment_cn["amount"]
+        }
+        response["message"] += f". Overpayment of ₹{overpayment_cn['amount']} converted to Credit Note {overpayment_cn['credit_note_number']}"
+    
+    return response
+
 
 # Record payment against an invoice
 @router.post("/retailer-invoices/{invoice_id}/payment")

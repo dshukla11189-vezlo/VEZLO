@@ -1,0 +1,36 @@
+{
+  "summary": "Backend testing of Rules #1-#7 for backdated invoice deletion/regeneration in retailer_portal.py. Created pytest suite (11 tests) exercising DELETE, POST /regenerate, GET /orphans, POST /relink endpoints against live preview API. All tests pass. Test data was inserted directly into MongoDB with a TEST_ marker and cleaned up in module teardown so no user/production data was mutated.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "review_request paths", "issue": "Reviewer-supplied paths were '/api/retailer/retailer-invoices/...' but actual routes are '/api/retailer-invoices/...' (retailer_portal router is included with prefix='/api', not '/api/retailer'). Tests use correct paths."},
+      {"endpoint": "GET /api/retailer-payments/orphans", "issue": "Endpoint scans full retailer_payments + retailer_invoices collections in-memory (639 payments, 605 invoices in preview). Fine now but O(N) scan will hurt at scale — consider indexed queries on needs_relinking=true and $lookup for orphan check."},
+      {"endpoint": "DELETE /api/retailer-invoices/{id}", "issue": "Response returns 'credit_notes_reset' count but does not return list of affected credit_note_ids or unlinked payment_ids — makes it harder for the UI to surface which docs were touched."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_backdated_invoice_deletion.py",
+    "/app/test_reports/pytest/backdated_invoice.xml"
+  ],
+  "action_items": [
+    "None blocking. Consider (a) returning affected CN / payment IDs in DELETE response, (b) exposing revision stamp in a first-class field (currently stored under 'revision_stamp' but code path merges it into the dict — good, just ensure schema/docs mention it), (c) index retailer_payments.needs_relinking for orphans endpoint scalability."
+  ],
+  "critical_code_review_comments": [
+    "delete_retailer_invoice + regenerate_retailer_invoice share ~60 lines of CN-reset logic (lines ~5464-5520 vs 5620-5667). Extract into a helper reset_credit_notes_for_invoice(db, invoice_id, invoice_number, cn_adjustments) to satisfy DRY.",
+    "regenerate_retailer_invoice is ~350 lines in one function — split into (1) capture_original_state, (2) delete_original, (3) build_new_invoice_doc, (4) reapply_credit_notes, (5) relink_payments_and_handle_over_underpayment. Improves testability & readability.",
+    "retailer_portal.py is 11,600 lines — well past the 700-line guideline. Should be broken into invoices/payments/credit_notes/dispatches sub-modules.",
+    "regenerate endpoint deletes the old invoice BEFORE the new one is fully constructed and inserted. If any exception happens after line 5670 (delete_one) the data is lost with no rollback. Wrap in a MongoDB transaction or at minimum snapshot the original doc and re-insert on failure.",
+    "Status-computation logic (paid vs partial vs pending) is duplicated in at least 4 places (update payment, delete payment, regenerate invoice, relink). Extract compute_invoice_status(paid, final_payable, credit_adjusted).",
+    "In delete_retailer_invoice, 'invoice_date' string comparison `invoice_date < today` (line 5415) relies on ISO YYYY-MM-DD prefix; safe here but a parse-and-compare would be more robust to malformed data."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_backdated_invoice_deletion.py (new)"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "n/a"},
+  "test_credentials": "admin@freshflow.com/admin123 (admin); vanitachopade99@gmail.com/staff123 (staff) — from /app/memory/test_credentials.md",
+  "seed_data_creation": "Ephemeral. Each test inserts synthetic invoice/payment/credit-note docs with _test_marker='TEST_backdated_delete' and TEST-INV-/TEST-CN- number prefixes. Module-scoped fixture cleans up retailer_invoices, retailer_credit_notes, retailer_payments, and deleted_invoices_audit at teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Rules #1-#7 verified: staff 403 on backdated delete + regenerate (Rule #6), admin delete returns credit_notes_reset & payments_unlinked counts + writes deleted_invoices_audit, payments become needs_relinking=true and appear in GET /api/retailer-payments/orphans 'needs_relinking' array (Rule #2), POST /relink relinks payment and updates invoice.paid_amount (Rule #2), regenerate keeps original invoice_number (Rule #4), relinks original payments (Rule #2), adds revision stamp (Rule #5), and CNs fully reset (adjusted_amount=0, pending=full, status=pending, arrays cleared per Rule #7). Not exercised end-to-end: overpayment auto-CN (Rule #3) — code path exists but a dedicated over/underpayment scenario should be added if regressions found."
+}

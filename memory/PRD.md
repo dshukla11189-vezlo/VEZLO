@@ -2,6 +2,43 @@
 
 ## Changelog (August 2026)
 
+### August 16, 2026 - Backdated Invoice Regeneration Overhaul ✅
+- **CRITICAL Backend Logic Changes** in `/app/backend/routes/retailer_portal.py`:
+
+- **7 Rules Implemented for Backdated Invoice Handling**:
+  1. **Restore only original credit notes/payments**: When regenerating, only the original invoice's CNs and payments are restored - not all pending CNs
+  2. **No orphaned payments**: Payments are either relinked or flagged with `needs_relinking=true` - never left pointing at deleted invoices. `paid_amount` is updated correctly
+  3. **Auto-balance handling**: Overpaid upon regeneration → auto-generates a credit note; underpaid → shows pending balance in response
+  4. **Preserve original date/number**: Regenerated invoice defaults to original invoice date and retains same invoice number
+  5. **Revision stamp**: Invoice marked with `is_revised=true`, `last_revised_on`, `last_revised_by_name` and `revision_history` array
+  6. **Admin-only for backdated**: Staff CANNOT delete backdated invoices (only same-day). Admins can delete/regenerate any invoice
+  7. **Credit note full reset**: When CN is released, fully reset: `adjusted_amount=0`, `pending_amount=full`, `status='pending'`, clear `adjusted_in_invoices` and `adjusted_against_invoices` arrays
+
+- **New Endpoints Created**:
+  - `POST /api/retailer/retailer-invoices/{invoice_id}/regenerate` - Regenerate a backdated invoice with proper payment/CN restoration
+  - `POST /api/retailer/retailer-payments/{payment_id}/relink` - Manually relink an orphaned payment to a new invoice
+  - Updated `GET /api/retailer/retailer-payments/orphans` - Now also returns `needs_relinking` payments
+
+- **Deletion Audit Trail**:
+  - New MongoDB collection `deleted_invoices_audit` stores deletion records with:
+    - Original invoice details
+    - Payments unlinked count
+    - Credit notes reset count
+    - Who deleted and when
+    - Dispatch IDs for potential restoration
+
+- **Schema Changes**:
+  - `retailer_invoices` now has: `is_revised`, `revision_history[]`, `last_revised_on`, `last_revised_by`, `last_revised_by_name`
+  - `retailer_payments` now has: `needs_relinking`, `unlinked_at`, `unlinked_reason`, `original_invoice_id`, `original_invoice_number`, `relinked_at`, `relinked_from_invoice`
+  - `retailer_credit_notes` updates: Both `adjusted_in_invoices` and `adjusted_against_invoices` arrays are properly cleared when released
+
+- **Files Modified**:
+  - `backend/routes/retailer_portal.py` (delete_retailer_invoice, new regenerate_retailer_invoice, new relink_payment_to_invoice, updated get_orphan_payments)
+
+- **Testing**:
+  - Backend test file: `/app/backend/tests/test_backdated_invoice_deletion.py` (11 tests, 100% pass rate)
+  - Test report: `/app/test_reports/iteration_51.json`
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

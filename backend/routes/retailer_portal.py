@@ -5784,10 +5784,16 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
     new_invoice_number = original_invoice_number
     
     # RULE #5: Add revision stamp
+    # Look up the user's real name from the database (login token doesn't include name)
+    reviser_user = await db.users.find_one({"id": current_user.get("user_id")}, {"_id": 0, "name": 1, "email": 1})
+    reviser_name = reviser_user.get("name") if reviser_user else None
+    if not reviser_name:
+        reviser_name = reviser_user.get("email") if reviser_user else "Admin"
+    
     revision_stamp = {
         "revised_on": datetime.now(timezone.utc).isoformat(),
         "revised_by": current_user.get("user_id"),
-        "revised_by_name": current_user.get("name", "Admin"),
+        "revised_by_name": reviser_name,
         "original_invoice_id": invoice_id
     }
     
@@ -5989,7 +5995,7 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
     response = {
         "id": new_invoice_id,
         "invoice_number": new_invoice_number,
-        "message": f"Invoice regenerated successfully. Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {current_user.get('name', 'Admin')}",
+        "message": f"Invoice regenerated successfully. Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {reviser_name}",
         "net_payable": round(net_payable, 2),
         "total_credit_adjusted": round(total_credit_adjusted, 2),
         "final_payable": round(final_payable, 2),
@@ -5998,7 +6004,7 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
         "payments_relinked": payments_relinked_count,
         "credit_notes_restored": len(credit_note_adjustments),
         "status": payment_status,
-        "revision_stamp": f"Invoice Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {current_user.get('name', 'Admin')}",
+        "revision_stamp": f"Invoice Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {reviser_name}",
         "used_audit_record": audit_record is not None
     }
     

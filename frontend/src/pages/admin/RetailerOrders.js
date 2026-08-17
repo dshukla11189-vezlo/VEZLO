@@ -12726,7 +12726,7 @@ export default function RetailerOrders() {
                               {invoice.is_revised && (
                                 <div className="text-xs text-amber-600 flex items-center gap-1 mt-0.5" title={`Revised on ${formatDate(invoice.last_revised_on)} by ${invoice.last_revised_by_name || 'Admin'}`}>
                                   <Edit2 size={10} />
-                                  <span>Revised {invoice.last_revised_on ? formatDate(invoice.last_revised_on) : ''}</span>
+                                  <span>Revised {invoice.last_revised_on ? formatDate(invoice.last_revised_on) : ''} by {invoice.last_revised_by_name || 'Admin'}</span>
                                 </div>
                               )}
                             </td>

@@ -88,12 +88,20 @@
   - Modal subtitle: "Modify items, quantities, or MRP. Payment and credit notes will be preserved."
   
 - **Invoice List Enhancement**:
-  - When `invoice.is_revised` is true, shows "Revised {date}" badge under invoice number
-  - Hover tooltip shows full revision details (date and who revised)
+  - When `invoice.is_revised` is true, shows "Revised {date} by {name}" badge under invoice number
+  - Hover tooltip shows full revision details
 
 - **Overpayment/Shortfall Warning**:
   - Purple warning box when new total < paid amount (overpayment → CN will be created)
   - Amber warning box when new total > paid amount (shortfall → pending balance)
+
+### August 17, 2026 - Reviser Name Fix ✅
+- **Backend Fix**: Regenerate endpoint now looks up user's real name from `users` collection
+  - Queries `db.users.find_one({"id": current_user["user_id"]})` to get actual name
+  - Falls back to email if name not found, then "Admin"
+  - Fixed in revision_stamp, last_revised_by_name, and response message
+- **Frontend Fix**: Revised badge now shows name in visible text (not just tooltip)
+  - Format: "Revised {date} by {name}"
 
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:

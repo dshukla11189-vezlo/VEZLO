@@ -103,6 +103,17 @@
 - **Frontend Fix**: Revised badge now shows name in visible text (not just tooltip)
   - Format: "Revised {date} by {name}"
 
+### August 17, 2026 - Edit Invoice Modal Enhancements ✅
+- **S.No Column**: Added as first column in items table, shows row number (index + 1)
+- **Per-row Delete Icon**: Trash icon at end of each row to permanently remove item from form
+- **Add Item Button**: 
+  - Fetches uninvoiced dispatched items via `GET /api/retailer-dispatches/uninvoiced?retailer_id={id}`
+  - Shows picker modal with checkbox selection (same UI pattern as Create Invoice)
+  - Selected items are mapped to correct shape: dispatch_id, product_id, product_name, variant_name, quantity, supplied_qty, rejected_qty, mrp, total_value, selected
+  - Filters out items already on the invoice
+- **New State Variables**: `showEditInvoiceAddItems`, `editInvoiceUninvoicedItems`, `editInvoiceSelectedItemIds`, `editInvoiceAddItemsLoading`
+- **New Functions**: `removeEditInvoiceItem`, `fetchEditInvoiceUninvoicedItems`, `toggleEditInvoiceItemSelection`, `addSelectedItemsToEditInvoice`
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

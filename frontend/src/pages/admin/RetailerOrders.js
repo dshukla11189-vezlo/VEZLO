@@ -383,6 +383,11 @@ export default function RetailerOrders() {
   const [editInvoicePayments, setEditInvoicePayments] = useState([]); // Payment history for edit modal
   const [editInvoicePaymentsLoading, setEditInvoicePaymentsLoading] = useState(false);
   const [editInvoiceCreditAdjustments, setEditInvoiceCreditAdjustments] = useState([]); // Credit notes for edit modal
+  // State for adding items to edit invoice
+  const [showEditInvoiceAddItems, setShowEditInvoiceAddItems] = useState(false);
+  const [editInvoiceUninvoicedItems, setEditInvoiceUninvoicedItems] = useState([]);
+  const [editInvoiceSelectedItemIds, setEditInvoiceSelectedItemIds] = useState([]);
+  const [editInvoiceAddItemsLoading, setEditInvoiceAddItemsLoading] = useState(false);
   // For item-level selection
   const [uninvoicedItems, setUninvoicedItems] = useState([]); // All uninvoiced items
   const [selectedItemIds, setSelectedItemIds] = useState([]);
@@ -7079,6 +7084,95 @@ export default function RetailerOrders() {
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete payment');
     }
+  };
+
+  // Remove item from edit invoice form by index
+  const removeEditInvoiceItem = (index) => {
+    setEditInvoiceForm(prev => {
+      const items = [...prev.items];
+      items.splice(index, 1);
+      return { ...prev, items };
+    });
+  };
+
+  // Fetch uninvoiced items for adding to edit invoice
+  const fetchEditInvoiceUninvoicedItems = async () => {
+    if (!editingInvoice?.retailer_id) return;
+    
+    setEditInvoiceAddItemsLoading(true);
+    try {
+      const response = await api.get(`/api/retailer-dispatches/uninvoiced?retailer_id=${editingInvoice.retailer_id}`);
+      const dispatches = response.data || [];
+      
+      // Flatten all items from uninvoiced dispatches
+      const items = [];
+      for (const dispatch of dispatches) {
+        for (const item of (dispatch.items || [])) {
+          items.push({
+            item_id: `${dispatch.id}_${item.product_id}_${item.variant_id || item.variant_name || ''}`,
+            dispatch_id: dispatch.id,
+            dispatch_date: dispatch.dispatch_date,
+            dispatch_created_at: dispatch.created_at,
+            product_id: item.product_id,
+            product_name: item.product_name,
+            variant_id: item.variant_id,
+            variant_name: item.variant_name,
+            ordered_qty: item.ordered_qty || item.quantity || 0,
+            supplied_qty: item.supplied_qty || item.quantity || 0,
+            mrp: item.mrp || 0
+          });
+        }
+      }
+      
+      // Filter out items that are already in the edit invoice form
+      const existingKeys = new Set(
+        editInvoiceForm.items.map(i => `${i.product_id}_${i.variant_name || ''}`)
+      );
+      const filteredItems = items.filter(i => !existingKeys.has(`${i.product_id}_${i.variant_name || ''}`));
+      
+      setEditInvoiceUninvoicedItems(filteredItems);
+      setEditInvoiceSelectedItemIds([]);
+      setShowEditInvoiceAddItems(true);
+    } catch (error) {
+      console.error('Failed to load uninvoiced items:', error);
+      toast.error('Failed to load uninvoiced items');
+    } finally {
+      setEditInvoiceAddItemsLoading(false);
+    }
+  };
+
+  // Toggle item selection in edit invoice add items picker
+  const toggleEditInvoiceItemSelection = (itemId) => {
+    setEditInvoiceSelectedItemIds(prev => 
+      prev.includes(itemId) ? prev.filter(id => id !== itemId) : [...prev, itemId]
+    );
+  };
+
+  // Add selected items to edit invoice form
+  const addSelectedItemsToEditInvoice = () => {
+    const selectedItems = editInvoiceUninvoicedItems.filter(i => editInvoiceSelectedItemIds.includes(i.item_id));
+    
+    const newItems = selectedItems.map(item => ({
+      dispatch_id: item.dispatch_id,
+      product_id: item.product_id,
+      product_name: item.product_name,
+      variant_name: item.variant_name || '',
+      quantity: item.supplied_qty || 0,
+      supplied_qty: item.supplied_qty || 0,
+      rejected_qty: 0,
+      mrp: item.mrp || 0,
+      total_value: (item.supplied_qty || 0) * (item.mrp || 0),
+      selected: true
+    }));
+    
+    setEditInvoiceForm(prev => ({
+      ...prev,
+      items: [...prev.items, ...newItems]
+    }));
+    
+    setShowEditInvoiceAddItems(false);
+    setEditInvoiceSelectedItemIds([]);
+    toast.success(`Added ${newItems.length} item(s) to invoice`);
   };
 
   const handleDeleteInvoice = async (invoiceId) => {
@@ -18161,28 +18255,43 @@ export default function RetailerOrders() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-2 block">Items</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-medium text-gray-700">Items</label>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      onClick={fetchEditInvoiceUninvoicedItems}
+                      disabled={editInvoiceAddItemsLoading}
+                      className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                    >
+                      <Plus size={14} className="mr-1" /> Add Item
+                    </Button>
+                  </div>
                   <div className="border rounded overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
+                          <th className="p-2 text-center w-10">S.No</th>
                           <th className="p-2 text-left w-8"></th>
                           <th className="p-2 text-left">Product</th>
                           <th className="p-2 text-center w-24">Qty</th>
                           <th className="p-2 text-center w-28">MRP</th>
                           <th className="p-2 text-right">Amount</th>
+                          <th className="p-2 text-center w-10"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {editInvoiceForm.items.map((item, idx) => (
                           <tr key={idx} className={`border-t ${item.selected === false ? 'bg-red-50 opacity-60' : ''}`}>
+                            <td className="p-2 text-center text-gray-500 text-xs">{idx + 1}</td>
                             <td className="p-2 text-center">
                               <input
                                 type="checkbox"
                                 checked={item.selected !== false}
                                 onChange={(e) => updateEditInvoiceItem(idx, 'selected', e.target.checked)}
                                 className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                                title={item.selected === false ? 'Include this item' : 'Remove this item'}
+                                title={item.selected === false ? 'Include this item' : 'Exclude this item'}
                               />
                             </td>
                             <td className="p-2">
@@ -18214,29 +18323,41 @@ export default function RetailerOrders() {
                             <td className={`p-2 text-right font-medium ${item.selected === false ? 'line-through text-gray-400' : ''}`}>
                               ₹{(item.selected === false ? 0 : (item.total_value || 0)).toFixed(2)}
                             </td>
+                            <td className="p-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeEditInvoiceItem(idx)}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                title="Remove item"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-gray-50">
                         <tr>
-                          <td colSpan={4} className="p-2 text-right font-medium">Total:</td>
+                          <td colSpan={5} className="p-2 text-right font-medium">Total:</td>
                           <td className="p-2 text-right font-bold">
                             ₹{editInvoiceForm.items.filter(i => i.selected !== false).reduce((sum, i) => sum + (i.total_value || 0), 0).toFixed(2)}
                           </td>
+                          <td></td>
                         </tr>
                         {editInvoiceForm.items.some(i => i.selected === false) && (
                           <tr className="text-amber-600">
-                            <td colSpan={4} className="p-2 text-right text-xs">Items removed:</td>
+                            <td colSpan={5} className="p-2 text-right text-xs">Items excluded:</td>
                             <td className="p-2 text-right text-xs">
                               {editInvoiceForm.items.filter(i => i.selected === false).length} item(s)
                             </td>
+                            <td></td>
                           </tr>
                         )}
                       </tfoot>
                     </table>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Uncheck items to remove them. Changes will recalculate totals and handle any overpayment/shortfall.
+                    Uncheck items to exclude them. Use the trash icon to permanently remove. Changes will recalculate totals.
                   </p>
                   
                   {/* Show warning if new total differs from paid amount */}
@@ -18425,6 +18546,152 @@ export default function RetailerOrders() {
                   </Button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== ADD ITEMS TO EDIT INVOICE PICKER ==================== */}
+        {showEditInvoiceAddItems && editingInvoice && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div>
+                  <h3 className="text-lg font-semibold">Add Items to Invoice</h3>
+                  <p className="text-sm text-gray-500">Select uninvoiced dispatched items for {editingInvoice.retailer_name || 'this retailer'}</p>
+                </div>
+                <button onClick={() => { setShowEditInvoiceAddItems(false); setEditInvoiceSelectedItemIds([]); }} className="p-1 hover:bg-gray-100 rounded">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-4 overflow-y-auto flex-1">
+                {editInvoiceAddItemsLoading ? (
+                  <div className="text-center py-8 text-gray-500">Loading uninvoiced items...</div>
+                ) : editInvoiceUninvoicedItems.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <Package size={48} className="mx-auto mb-2 opacity-50" />
+                    <p>No uninvoiced items found for this retailer</p>
+                    <p className="text-xs mt-1">All dispatched items are already invoiced</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm text-gray-600">{editInvoiceSelectedItemIds.length} of {editInvoiceUninvoicedItems.length} selected</span>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          if (editInvoiceSelectedItemIds.length === editInvoiceUninvoicedItems.length) {
+                            setEditInvoiceSelectedItemIds([]);
+                          } else {
+                            setEditInvoiceSelectedItemIds(editInvoiceUninvoicedItems.map(i => i.item_id));
+                          }
+                        }}
+                      >
+                        {editInvoiceSelectedItemIds.length === editInvoiceUninvoicedItems.length ? 'Deselect All' : 'Select All'}
+                      </Button>
+                    </div>
+                    <div className="border rounded max-h-80 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="p-2 w-8 text-center">
+                              <input 
+                                type="checkbox"
+                                checked={editInvoiceUninvoicedItems.length > 0 && editInvoiceSelectedItemIds.length === editInvoiceUninvoicedItems.length}
+                                onChange={() => {
+                                  if (editInvoiceSelectedItemIds.length === editInvoiceUninvoicedItems.length) {
+                                    setEditInvoiceSelectedItemIds([]);
+                                  } else {
+                                    setEditInvoiceSelectedItemIds(editInvoiceUninvoicedItems.map(i => i.item_id));
+                                  }
+                                }}
+                                className="w-4 h-4 rounded border-gray-300 text-[#14532D] focus:ring-[#14532D] cursor-pointer"
+                              />
+                            </th>
+                            <th className="p-2 text-left">Product</th>
+                            <th className="p-2 text-center">Qty</th>
+                            <th className="p-2 text-right">MRP</th>
+                            <th className="p-2 text-right">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editInvoiceUninvoicedItems.map((item) => {
+                            const dispatchDateOnly = item.dispatch_date ? new Date(item.dispatch_date) : null;
+                            const formattedDate = dispatchDateOnly 
+                              ? dispatchDateOnly.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })
+                              : '';
+                            
+                            return (
+                              <tr 
+                                key={item.item_id} 
+                                className={`border-t cursor-pointer hover:bg-gray-50 ${editInvoiceSelectedItemIds.includes(item.item_id) ? 'bg-green-50' : ''}`}
+                                onClick={() => toggleEditInvoiceItemSelection(item.item_id)}
+                              >
+                                <td className="p-2 text-center">
+                                  <input 
+                                    type="checkbox"
+                                    checked={editInvoiceSelectedItemIds.includes(item.item_id)}
+                                    onChange={() => toggleEditInvoiceItemSelection(item.item_id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-4 h-4 rounded border-gray-300 text-[#14532D] focus:ring-[#14532D] cursor-pointer"
+                                  />
+                                </td>
+                                <td className="p-2">
+                                  <div className="font-medium">{item.product_name}</div>
+                                  {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                                  {formattedDate && (
+                                    <div className="text-xs text-blue-600 mt-0.5 flex items-center gap-1">
+                                      <Clock size={10} />
+                                      <span>Dispatch: {formattedDate}</span>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-2 text-center font-medium">{item.supplied_qty}</td>
+                                <td className="p-2 text-right">₹{(item.mrp || 0).toFixed(2)}</td>
+                                <td className="p-2 text-right font-medium">₹{((item.supplied_qty || 0) * (item.mrp || 0)).toFixed(2)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {editInvoiceSelectedItemIds.length > 0 && (
+                <div className="p-4 border-t bg-green-50">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm">
+                      <span className="font-medium text-green-700">{editInvoiceSelectedItemIds.length} item(s) selected</span>
+                      <span className="text-green-600 ml-2">
+                        Total: ₹{editInvoiceUninvoicedItems
+                          .filter(i => editInvoiceSelectedItemIds.includes(i.item_id))
+                          .reduce((sum, i) => sum + ((i.supplied_qty || 0) * (i.mrp || 0)), 0)
+                          .toFixed(2)}
+                      </span>
+                    </div>
+                    <Button onClick={addSelectedItemsToEditInvoice} className="bg-[#14532D]">
+                      <Plus size={14} className="mr-1" /> Add Selected Items
+                    </Button>
+                  </div>
+                </div>
+              )}
+              
+              {editInvoiceSelectedItemIds.length === 0 && editInvoiceUninvoicedItems.length > 0 && (
+                <div className="p-4 border-t">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => { setShowEditInvoiceAddItems(false); setEditInvoiceSelectedItemIds([]); }} 
+                    className="w-full"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         )}

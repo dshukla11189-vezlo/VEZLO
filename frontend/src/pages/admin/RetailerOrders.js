@@ -23,7 +23,7 @@ import {
   Plus, Package, Truck, AlertTriangle, AlertCircle, DollarSign, 
   Edit, Edit2, Trash2, X, ChevronDown, ChevronRight, ChevronLeft, FileText, Download, Check,
   Search, IndianRupee, ShoppingCart, CreditCard, TrendingUp, FileSpreadsheet, Clock, Zap, ClipboardList, Pencil, CheckCircle, Save, Eye, RefreshCw, Tag, Printer, Calendar, Info, ChevronsUpDown, Wrench,
-  UserPlus, UserCheck, Activity, UserX, Users
+  UserPlus, UserCheck, Activity, UserX, Users, RotateCcw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
@@ -7052,7 +7052,62 @@ export default function RetailerOrders() {
       loadInvoices();
       loadDispatches();
     } catch (error) {
-      toast.error('Failed to delete invoice');
+      toast.error(error.response?.data?.detail || 'Failed to delete invoice');
+    }
+  };
+
+  // Regenerate invoice (admin-only for backdated invoices)
+  // Uses POST /api/retailer-invoices/{id}/regenerate which:
+  // - Keeps original invoice number and date
+  // - Re-links original payments and updates paid_amount
+  // - Restores only the invoice's own original credit notes
+  // - Adds revision stamp with admin name and timestamp
+  const handleRegenerateInvoice = async (invoice) => {
+    const retailerName = invoice.retailer_name || getRetailerNameById(invoice.retailer_id) || 'Unknown';
+    const invoiceDate = invoice.invoice_date?.split('T')[0] || '';
+    
+    const confirmMsg = `Regenerate invoice ${invoice.invoice_number}?\n\n` +
+      `Retailer: ${retailerName}\n` +
+      `Date: ${invoiceDate}\n` +
+      `Amount: ₹${(invoice.net_payable || 0).toFixed(2)}\n` +
+      `Paid: ₹${(invoice.paid_amount || 0).toFixed(2)}\n\n` +
+      `This will:\n` +
+      `• Keep the original invoice number and date\n` +
+      `• Re-link all original payments\n` +
+      `• Restore any original credit notes\n` +
+      `• Mark invoice as "Revised" with your name`;
+    
+    if (!window.confirm(confirmMsg)) return;
+    
+    try {
+      const response = await api.post(`/api/retailer-invoices/${invoice.id}/regenerate`, {
+        // Pass current items if we want to refresh calculations
+        // Otherwise the endpoint will use original items
+      });
+      
+      const data = response.data;
+      let successMsg = `Invoice ${data.invoice_number} regenerated successfully!`;
+      
+      if (data.payments_relinked > 0) {
+        successMsg += `\n• ${data.payments_relinked} payment(s) re-linked (₹${data.paid_amount})`;
+      }
+      if (data.credit_notes_restored > 0) {
+        successMsg += `\n• ${data.credit_notes_restored} credit note(s) restored`;
+      }
+      if (data.pending_balance > 0) {
+        successMsg += `\n• Pending balance: ₹${data.pending_balance.toFixed(2)}`;
+      }
+      if (data.overpayment_credit_note) {
+        successMsg += `\n• Overpayment CN created: ${data.overpayment_credit_note.credit_note_number} (₹${data.overpayment_credit_note.amount})`;
+      }
+      
+      toast.success(successMsg, { duration: 5000 });
+      loadInvoices();
+      loadCreditNotes();
+      loadPayments();
+    } catch (error) {
+      console.error('Regenerate invoice error:', error);
+      toast.error(error.response?.data?.detail || 'Failed to regenerate invoice');
     }
   };
 
@@ -12768,6 +12823,18 @@ export default function RetailerOrders() {
                                 >
                                   <RefreshCw size={14} className="text-purple-600" />
                                 </Button>
+                                {/* Regenerate button - preserves payments, credit notes, date and invoice number */}
+                                {getCurrentUserRole() === 'admin' && (
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    onClick={() => handleRegenerateInvoice(invoice)}
+                                    title="Regenerate invoice (keeps payments, CNs, date)"
+                                    className="hover:bg-teal-50"
+                                  >
+                                    <RotateCcw size={14} className="text-teal-600" />
+                                  </Button>
+                                )}
                                 {canEditDeleteInvoice(invoice) && (
                                   <Button size="sm" variant="ghost" onClick={() => handleDeleteInvoice(invoice.id)} title="Delete Invoice">
                                     <Trash2 size={14} className="text-red-600" />

@@ -39,6 +39,18 @@
   - Backend test file: `/app/backend/tests/test_backdated_invoice_deletion.py` (11 tests, 100% pass rate)
   - Test report: `/app/test_reports/iteration_51.json`
 
+### August 16, 2026 - Frontend Regenerate Invoice Button ✅
+- **UI Change**: Added "Regenerate" button (teal RotateCcw icon) to invoice action buttons
+- **Location**: Invoice table actions, between Recalculate and Delete buttons
+- **Visibility**: Admin-only (uses `getCurrentUserRole()` check)
+- **Functionality**: 
+  - Calls `POST /api/retailer-invoices/{invoice_id}/regenerate`
+  - Does NOT delete-and-recreate, uses single regenerate endpoint
+  - Shows detailed confirmation dialog before regenerating
+  - Success toast shows payments relinked, CNs restored, pending balance
+- **Files Modified**:
+  - `frontend/src/pages/admin/RetailerOrders.js` (Added RotateCcw import, handleRegenerateInvoice function, UI button)
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

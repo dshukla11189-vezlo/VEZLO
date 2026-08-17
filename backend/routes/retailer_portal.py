@@ -7799,14 +7799,16 @@ async def generate_auto_indents_for_tomorrow(buffer_pct: float = 30.0):
             retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
             
             try:
-                # Check if indent already exists for tomorrow
+                # Check if AUTO-GENERATED indent already exists for tomorrow
+                # Manual indents (is_auto_generated: false) should NOT block auto-generation
                 existing_indent = await db.retailer_indents.find_one({
                     "retailer_id": retailer_id,
-                    "indent_date": {"$regex": f"^{tomorrow_str}"}
+                    "indent_date": {"$regex": f"^{tomorrow_str}"},
+                    "is_auto_generated": True  # Only check for auto-generated indents
                 })
                 
                 if existing_indent:
-                    logger.info(f"Indent already exists for {retailer_name} on {tomorrow_str}, skipping")
+                    logger.info(f"Auto-generated indent already exists for {retailer_name} on {tomorrow_str}, skipping")
                     continue
                 
                 # Get all invoices for this retailer
@@ -8239,16 +8241,18 @@ async def generate_single_auto_indent(
         
         retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
         
-        # Check if indent already exists for this retailer and date
+        # Check if AUTO-GENERATED indent already exists for this retailer and date
+        # Manual indents (is_auto_generated: false) should NOT block auto-generation
         existing_indent = await db.retailer_indents.find_one({
             "retailer_id": retailer_id,
-            "indent_date": target_date.isoformat()
+            "indent_date": target_date.isoformat(),
+            "is_auto_generated": True  # Only check for auto-generated indents
         })
         
         if existing_indent:
             return {
                 "success": False,
-                "message": f"An indent already exists for {retailer_name} on {target_date.isoformat()}. Delete it first to regenerate."
+                "message": f"An auto-generated indent already exists for {retailer_name} on {target_date.isoformat()}. Delete it first to regenerate."
             }
         
         # Handle Plan-based generation

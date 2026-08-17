@@ -40,16 +40,18 @@ async def generate_single_auto_indent(
         
         retailer_name = retailer.get("company_name") or retailer.get("name", "Unknown")
         
-        # Check if indent already exists for this retailer and date
+        # Check if AUTO-GENERATED indent already exists for this retailer and date
+        # Manual indents (is_auto_generated: false) should NOT block auto-generation
         existing_indent = await db.retailer_indents.find_one({
             "retailer_id": retailer_id,
-            "indent_date": target_date.isoformat()
+            "indent_date": target_date.isoformat(),
+            "is_auto_generated": True  # Only check for auto-generated indents
         })
         
         if existing_indent:
             return {
                 "success": False,
-                "message": f"An indent already exists for {retailer_name} on {target_date.isoformat()}. Delete it first to regenerate."
+                "message": f"An auto-generated indent already exists for {retailer_name} on {target_date.isoformat()}. Delete it first to regenerate."
             }
         
         # Get the target weekday (0=Monday, 6=Sunday)

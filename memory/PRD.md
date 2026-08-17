@@ -70,6 +70,15 @@
   - Test file: `/app/backend/tests/test_regenerate_audit_orphan_relink.py` (5 tests, 100% pass)
   - Test report: `/app/test_reports/iteration_52.json`
 
+### August 17, 2026 - Auto-Indent Only Checks Auto-Generated Indents ✅
+- **Change**: Auto-indent "already exists" check now only considers auto-generated indents
+- **Impact**: Manual indents (created by field team/retailer/admin) no longer block auto-generation
+- **Filter Added**: `is_auto_generated: True` to existing-indent lookup queries
+- **Files Modified**:
+  - `backend/routes/retailer_portal.py` (bulk scheduler + single generate-auto-indent)
+  - `backend/routes/admin.py` (single generate-auto-indent)
+- **No Delete/Replace**: Manual indents are never deleted, replaced, or upserted
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

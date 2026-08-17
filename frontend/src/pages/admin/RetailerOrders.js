@@ -7008,17 +7008,54 @@ export default function RetailerOrders() {
     if (!editingInvoice) return;
 
     try {
-      await api.put(`/api/retailer-invoices/${editingInvoice.id}`, {
-        invoice_date: editInvoiceForm.invoice_date, // Send as YYYY-MM-DD string, not ISO timestamp
-        items: editInvoiceForm.items,
+      // Build selected_items array in the shape the regenerate endpoint expects
+      const selectedItems = editInvoiceForm.items
+        .filter(item => item.selected !== false) // Include items that are selected (or not explicitly deselected)
+        .map(item => ({
+          dispatch_id: item.dispatch_id || '',
+          product_id: item.product_id,
+          product_name: item.product_name,
+          variant_name: item.variant_name || '',
+          net_qty: item.quantity || item.net_qty || item.supplied_qty || 0,
+          supplied_qty: item.supplied_qty || item.quantity || 0,
+          rejected_qty: item.rejected_qty || 0,
+          mrp: item.mrp || 0,
+          total_value: (item.quantity || item.supplied_qty || 0) * (item.mrp || 0)
+        }));
+
+      // Call the regenerate endpoint with selected_items
+      // This will: recompute totals, re-link payments, restore credit notes, handle overpayment/underpayment, stamp revision
+      const response = await api.post(`/api/retailer-invoices/${editingInvoice.id}/regenerate`, {
+        selected_items: selectedItems,
+        invoice_date: editInvoiceForm.invoice_date,
         remarks: editInvoiceForm.remarks
       });
-      toast.success('Invoice updated successfully');
+
+      const data = response.data;
+      let successMsg = `Invoice ${data.invoice_number} updated successfully!`;
+      
+      if (data.payments_relinked > 0) {
+        successMsg += `\n• ${data.payments_relinked} payment(s) re-linked (₹${data.paid_amount})`;
+      }
+      if (data.credit_notes_restored > 0) {
+        successMsg += `\n• ${data.credit_notes_restored} credit note(s) restored`;
+      }
+      if (data.pending_balance > 0) {
+        successMsg += `\n• Pending balance: ₹${data.pending_balance.toFixed(2)}`;
+      }
+      if (data.overpayment_credit_note) {
+        successMsg += `\n• Overpayment CN created: ${data.overpayment_credit_note.credit_note_number} (₹${data.overpayment_credit_note.amount})`;
+      }
+      
+      toast.success(successMsg, { duration: 5000 });
       setShowEditInvoiceModal(false);
       setEditingInvoice(null);
       setEditInvoicePayments([]);
       loadInvoices();
+      loadCreditNotes();
+      loadPayments();
     } catch (error) {
+      console.error('Update invoice error:', error);
       toast.error(error.response?.data?.detail || 'Failed to update invoice');
     }
   };
@@ -12684,7 +12721,15 @@ export default function RetailerOrders() {
                             <td className="p-3">
                               {expandedInvoices[invoice.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                             </td>
-                            <td className="p-3 font-medium text-blue-600">{invoice.invoice_number}</td>
+                            <td className="p-3">
+                              <div className="font-medium text-blue-600">{invoice.invoice_number}</div>
+                              {invoice.is_revised && (
+                                <div className="text-xs text-amber-600 flex items-center gap-1 mt-0.5" title={`Revised on ${formatDate(invoice.last_revised_on)} by ${invoice.last_revised_by_name || 'Admin'}`}>
+                                  <Edit2 size={10} />
+                                  <span>Revised {invoice.last_revised_on ? formatDate(invoice.last_revised_on) : ''}</span>
+                                </div>
+                              )}
+                            </td>
                             <td className="p-3">{formatDate(invoice.invoice_date)}</td>
                             <td className="p-3 font-medium">{getRetailerNameById(invoice.retailer_id) || invoice.retailer_name}</td>
                             <td className="p-3 text-center">{invoice.items?.length || 0}</td>
@@ -18098,8 +18143,8 @@ export default function RetailerOrders() {
             <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-4 border-b">
                 <div>
-                  <h3 className="text-lg font-semibold">Edit Invoice - {editingInvoice.invoice_number}</h3>
-                  <p className="text-sm text-gray-500">Update invoice details</p>
+                  <h3 className="text-lg font-semibold">Edit & Regenerate Invoice - {editingInvoice.invoice_number}</h3>
+                  <p className="text-sm text-gray-500">Modify items, quantities, or MRP. Payment and credit notes will be preserved.</p>
                 </div>
                 <button onClick={() => { setShowEditInvoiceModal(false); setEditingInvoice(null); }} className="p-1 hover:bg-gray-100 rounded">
                   <X size={20} />
@@ -18121,6 +18166,7 @@ export default function RetailerOrders() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50">
                         <tr>
+                          <th className="p-2 text-left w-8"></th>
                           <th className="p-2 text-left">Product</th>
                           <th className="p-2 text-center w-24">Qty</th>
                           <th className="p-2 text-center w-28">MRP</th>
@@ -18129,10 +18175,19 @@ export default function RetailerOrders() {
                       </thead>
                       <tbody>
                         {editInvoiceForm.items.map((item, idx) => (
-                          <tr key={idx} className="border-t">
+                          <tr key={idx} className={`border-t ${item.selected === false ? 'bg-red-50 opacity-60' : ''}`}>
+                            <td className="p-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={item.selected !== false}
+                                onChange={(e) => updateEditInvoiceItem(idx, 'selected', e.target.checked)}
+                                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                                title={item.selected === false ? 'Include this item' : 'Remove this item'}
+                              />
+                            </td>
                             <td className="p-2">
-                              <div className="font-medium">{getProductName(item)}</div>
-                              {item.variant_name && <div className="text-xs text-gray-500">{item.variant_name}</div>}
+                              <div className={`font-medium ${item.selected === false ? 'line-through text-gray-400' : ''}`}>{getProductName(item)}</div>
+                              {item.variant_name && <div className={`text-xs ${item.selected === false ? 'line-through text-gray-300' : 'text-gray-500'}`}>{item.variant_name}</div>}
                             </td>
                             <td className="p-2">
                               <Input
@@ -18142,6 +18197,7 @@ export default function RetailerOrders() {
                                 value={item.quantity || item.supplied_qty || ''}
                                 onChange={(e) => updateEditInvoiceItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
                                 className="w-20 h-8 text-center"
+                                disabled={item.selected === false}
                               />
                             </td>
                             <td className="p-2">
@@ -18152,24 +18208,79 @@ export default function RetailerOrders() {
                                 value={item.mrp || ''}
                                 onChange={(e) => updateEditInvoiceItem(idx, 'mrp', parseFloat(e.target.value) || 0)}
                                 className="w-24 h-8 text-right"
+                                disabled={item.selected === false}
                               />
                             </td>
-                            <td className="p-2 text-right font-medium">
-                              ₹{(item.total_value || 0).toFixed(2)}
+                            <td className={`p-2 text-right font-medium ${item.selected === false ? 'line-through text-gray-400' : ''}`}>
+                              ₹{(item.selected === false ? 0 : (item.total_value || 0)).toFixed(2)}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-gray-50">
                         <tr>
-                          <td colSpan={3} className="p-2 text-right font-medium">Total:</td>
+                          <td colSpan={4} className="p-2 text-right font-medium">Total:</td>
                           <td className="p-2 text-right font-bold">
-                            ₹{editInvoiceForm.items.reduce((sum, i) => sum + (i.total_value || 0), 0).toFixed(2)}
+                            ₹{editInvoiceForm.items.filter(i => i.selected !== false).reduce((sum, i) => sum + (i.total_value || 0), 0).toFixed(2)}
                           </td>
                         </tr>
+                        {editInvoiceForm.items.some(i => i.selected === false) && (
+                          <tr className="text-amber-600">
+                            <td colSpan={4} className="p-2 text-right text-xs">Items removed:</td>
+                            <td className="p-2 text-right text-xs">
+                              {editInvoiceForm.items.filter(i => i.selected === false).length} item(s)
+                            </td>
+                          </tr>
+                        )}
                       </tfoot>
                     </table>
                   </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Uncheck items to remove them. Changes will recalculate totals and handle any overpayment/shortfall.
+                  </p>
+                  
+                  {/* Show warning if new total differs from paid amount */}
+                  {(() => {
+                    const newTotal = editInvoiceForm.items.filter(i => i.selected !== false).reduce((sum, i) => sum + (i.total_value || 0), 0);
+                    const paidAmount = editingInvoice.paid_amount || 0;
+                    const creditAdjusted = editingInvoice.total_credit_adjusted || 0;
+                    const commission = editingInvoice.commission_percentage || 0;
+                    const newNetPayable = newTotal - (newTotal * commission / 100);
+                    const newFinalPayable = newNetPayable - creditAdjusted;
+                    const difference = paidAmount - newFinalPayable;
+                    
+                    if (Math.abs(difference) > 0.5) {
+                      return (
+                        <div className={`mt-3 p-3 rounded-lg border ${difference > 0 ? 'bg-purple-50 border-purple-200' : 'bg-amber-50 border-amber-200'}`}>
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle size={16} className={difference > 0 ? 'text-purple-600 mt-0.5' : 'text-amber-600 mt-0.5'} />
+                            <div className="text-sm">
+                              {difference > 0 ? (
+                                <>
+                                  <span className="font-medium text-purple-700">Overpayment will occur</span>
+                                  <p className="text-purple-600 mt-1">
+                                    New payable: ₹{newFinalPayable.toFixed(2)} | Already paid: ₹{paidAmount.toFixed(2)}
+                                    <br />
+                                    <span className="font-semibold">A credit note of ₹{difference.toFixed(2)} will be auto-created.</span>
+                                  </p>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-medium text-amber-700">Shortfall will occur</span>
+                                  <p className="text-amber-600 mt-1">
+                                    New payable: ₹{newFinalPayable.toFixed(2)} | Already paid: ₹{paidAmount.toFixed(2)}
+                                    <br />
+                                    <span className="font-semibold">Pending balance of ₹{Math.abs(difference).toFixed(2)} will be shown.</span>
+                                  </p>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
 
                 <div>
@@ -18310,7 +18421,7 @@ export default function RetailerOrders() {
                     Cancel
                   </Button>
                   <Button type="submit" className="flex-1 bg-[#14532D]">
-                    Update Invoice
+                    <Save size={14} className="mr-1" /> Save & Regenerate
                   </Button>
                 </div>
               </form>

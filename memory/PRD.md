@@ -79,6 +79,22 @@
   - `backend/routes/admin.py` (single generate-auto-indent)
 - **No Delete/Replace**: Manual indents are never deleted, replaced, or upserted
 
+### August 17, 2026 - Edit & Regenerate Invoice Flow ✅
+- **Frontend Changes** in `RetailerOrders.js`:
+  - Edit modal now calls `POST /api/retailer-invoices/{id}/regenerate` with `selected_items` instead of `PUT`
+  - Added checkbox to each item to allow removing items from invoice
+  - Shows live preview of overpayment/shortfall when totals change
+  - Button renamed to "Save & Regenerate" with better modal header
+  - Modal subtitle: "Modify items, quantities, or MRP. Payment and credit notes will be preserved."
+  
+- **Invoice List Enhancement**:
+  - When `invoice.is_revised` is true, shows "Revised {date}" badge under invoice number
+  - Hover tooltip shows full revision details (date and who revised)
+
+- **Overpayment/Shortfall Warning**:
+  - Purple warning box when new total < paid amount (overpayment → CN will be created)
+  - Amber warning box when new total > paid amount (shortfall → pending balance)
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

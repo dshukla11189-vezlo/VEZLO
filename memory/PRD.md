@@ -51,6 +51,25 @@
 - **Files Modified**:
   - `frontend/src/pages/admin/RetailerOrders.js` (Added RotateCcw import, handleRegenerateInvoice function, UI button)
 
+### August 17, 2026 - Enhanced Regenerate Orphan Payment Recovery ✅
+- **Broadened Payment Re-linking**: Regenerate now finds orphaned payments from previous deletes
+  - Original query: `invoice_id == current_invoice_id`
+  - NEW query also includes: `needs_relinking=true AND original_invoice_number == invoice_number AND retailer_id matches`
+  - Payments are deduped before relinking
+  
+- **Audit Record Enhancements**:
+  - Delete now stores `payment_ids_unlinked` array (list of payment IDs) in `deleted_invoices_audit`
+  - Regenerate checks audit record for `credit_note_adjustments` that survive delete
+  - Response now includes `used_audit_record: true/false` to indicate audit was used
+
+- **Payment Re-link Cleanup**:
+  - Sets `invoice_id` and `invoice_number` to new invoice
+  - Clears flags: `needs_relinking`, `original_invoice_number`, `original_invoice_id`, `unlinked_at`, `unlinked_reason`
+
+- **Testing**:
+  - Test file: `/app/backend/tests/test_regenerate_audit_orphan_relink.py` (5 tests, 100% pass)
+  - Test report: `/app/test_reports/iteration_52.json`
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

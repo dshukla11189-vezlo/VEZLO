@@ -1,0 +1,36 @@
+{
+  "summary": "Backend testing of iteration_52 enhancements to DELETE + regenerate flow in retailer_portal.py. Wrote a fresh pytest suite (5 tests) covering all 6 features listed by main agent. All 5 tests PASSED against the live preview API. Tests use MongoDB seed data with _test_marker='TEST_regen_audit' and TEST-INV-/TEST-CN- prefixed numbers; module-scoped teardown cleans up retailer_invoices, retailer_credit_notes, retailer_payments, and deleted_invoices_audit — no production data mutated.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/retailer-invoices/{id}/regenerate", "issue": "deleted_invoices_audit lookup uses {deleted_invoice_number, retailer_id} and sort by deleted_at DESC — if the same invoice number gets deleted/regenerated multiple times, only the most recent audit is used. Older CN adjustments are effectively lost. Consider linking audit to the specific invoice_id being regenerated when possible."},
+      {"endpoint": "POST /api/retailer-invoices/{id}/regenerate", "issue": "Old invoice is deleted (line 5705) BEFORE the new invoice document is constructed and inserted (line 5978). No transaction / rollback — any exception in between loses the invoice. Recommend snapshot+restore or Mongo txn."},
+      {"endpoint": "POST /api/retailer-invoices/{id}/regenerate", "issue": "Orphaned-payment lookup {needs_relinking:true, original_invoice_number, retailer_id} does not scope by invoice_date — if the retailer has two deleted invoices sharing a number (edge case) all matching payments will be relinked into whichever invoice is regenerated first."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_regenerate_audit_orphan_relink.py",
+    "/app/test_reports/pytest/regenerate_audit.xml"
+  ],
+  "action_items": [
+    "None blocking. Consider (a) scoping audit lookup by invoice_id when audit records reference the source id, (b) wrapping regenerate in a MongoDB transaction so a mid-flow exception cannot lose the invoice, (c) indexing deleted_invoices_audit on (deleted_invoice_number, retailer_id, deleted_at) for O(log n) lookup at scale."
+  ],
+  "critical_code_review_comments": [
+    "regenerate_retailer_invoice remains ~450 lines — recommend splitting into capture_state / delete_original / build_new_doc / reapply_cns / relink_payments helpers.",
+    "CN reset logic in delete_retailer_invoice (lines 5464-5520) and regenerate_retailer_invoice (lines 5655-5702) is ~60 lines of duplicated code. Extract reset_credit_notes(...) helper.",
+    "Delete-then-insert in regenerate is not transactional — the invoice is dropped from Mongo before the new one is built. If build_new_invoice_doc raises (e.g. dispatch fetch fails), data is lost.",
+    "retailer_portal.py is 11641 lines — far above the 700-line guideline. Should be split into invoices/payments/credit_notes/dispatches/regeneration submodules.",
+    "Response field name inconsistency: DELETE returns 'payments_unlinked' (count) while audit stores both 'payments_unlinked' (count) and 'payment_ids_unlinked' (list). Consider renaming the list to 'payment_ids_unlinked' consistently and dropping the redundant count-with-similar-name."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_regenerate_audit_orphan_relink.py (new)"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "n/a"},
+  "test_credentials": "admin@freshflow.com/admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Ephemeral. Each test inserts synthetic invoice/payment/CN docs tagged _test_marker='TEST_regen_audit' with TEST-INV-/TEST-CN- number prefixes. Module-scoped autouse fixture cleans up all four affected collections at end of run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iteration_52 features verified: (1) DELETE stores payment_ids_unlinked list in deleted_invoices_audit, (2) regenerate finds orphan payments via needs_relinking + original_invoice_number + retailer_id keys, (3) regenerate clears needs_relinking + original_invoice_number + unlinked_at via $unset on relink, (4) regenerate pulls credit_note_adjustments from audit record when it exists (survives delete) — verified by creating a new invoice with empty CN list and confirming regen populated it from audit, (5) response includes used_audit_record boolean (True when audit found, False when not), (6) GET /orphans returns needs_relinking_count == len(needs_relinking). Test file: /app/backend/tests/test_regenerate_audit_orphan_relink.py.",
+  "rca of the issue": "n/a — all features working as designed."
+}

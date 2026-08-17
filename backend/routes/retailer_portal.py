@@ -5520,6 +5520,9 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
                 logger.info(f"Reset credit note {credit_note.get('credit_note_number')} - removed adj for invoice {invoice_number}, new adjusted: {remaining_adjusted}, pending: {new_pending}, status: {new_status}")
     
     # Store deletion record for audit trail
+    # Include payment IDs for potential restoration during regeneration
+    payment_ids_unlinked = [p.get("id") for p in payments_on_invoice]
+    
     deletion_record = {
         "id": str(uuid.uuid4()),
         "deleted_invoice_id": invoice_id,
@@ -5529,6 +5532,7 @@ async def delete_retailer_invoice(invoice_id: str, current_user: dict = Depends(
         "net_payable": invoice.get("net_payable", 0),
         "paid_amount": invoice.get("paid_amount", 0),
         "credit_note_adjustments": credit_note_adjustments,
+        "payment_ids_unlinked": payment_ids_unlinked,  # Store payment IDs for regeneration
         "payments_unlinked": payments_unlinked,
         "credit_notes_reset": cn_reset_count,
         "deleted_by": current_user.get("user_id"),
@@ -5594,21 +5598,52 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
     is_100_percent_upfront = (retailer.get("upfront_collection_percentage", 0) or 0) == 100
     
     # STEP 1: Capture original invoice's data BEFORE deletion
-    # Get payments linked to this invoice
+    # Get payments linked to this invoice (direct link)
     original_payments = await db.retailer_payments.find(
         {"invoice_id": invoice_id},
         {"_id": 0}
     ).to_list(100)
     
+    # ALSO find orphaned payments that need relinking (from a previous delete)
+    # Match: needs_relinking=true AND original_invoice_number matches AND retailer_id matches
+    orphaned_payments = await db.retailer_payments.find({
+        "needs_relinking": True,
+        "original_invoice_number": original_invoice_number,
+        "retailer_id": retailer_id
+    }, {"_id": 0}).to_list(100)
+    
+    # Combine and dedupe payments (some might match both queries)
+    all_payment_ids = set()
+    combined_payments = []
+    for p in original_payments + orphaned_payments:
+        if p.get("id") not in all_payment_ids:
+            all_payment_ids.add(p.get("id"))
+            combined_payments.append(p)
+    
+    logger.info(f"Found {len(original_payments)} direct payments + {len(orphaned_payments)} orphaned payments = {len(combined_payments)} total for regeneration")
+    
+    # Check for a deletion audit record - this survives the delete and holds original CN adjustments
+    audit_record = await db.deleted_invoices_audit.find_one({
+        "deleted_invoice_number": original_invoice_number,
+        "retailer_id": retailer_id
+    }, {"_id": 0}, sort=[("deleted_at", -1)])  # Most recent audit record
+    
     # Get credit notes that were adjusted against this invoice
-    original_credit_note_adjustments = original_invoice.get("credit_note_adjustments", [])
+    # Priority: audit record (survives delete) > original invoice (current state)
+    if audit_record and audit_record.get("credit_note_adjustments"):
+        original_credit_note_adjustments = audit_record.get("credit_note_adjustments", [])
+        logger.info(f"Using CN adjustments from audit record: {len(original_credit_note_adjustments)} CNs")
+    else:
+        original_credit_note_adjustments = original_invoice.get("credit_note_adjustments", [])
+        logger.info(f"Using CN adjustments from original invoice: {len(original_credit_note_adjustments)} CNs")
+    
     original_cn_ids = [cn.get("credit_note_id") for cn in original_credit_note_adjustments if cn.get("credit_note_id")]
     
     # Calculate original paid amount
     original_paid_amount = original_invoice.get("paid_amount", 0) or 0
     original_total_credit_adjusted = original_invoice.get("total_credit_adjusted", 0) or 0
     
-    logger.info(f"Regenerating invoice {original_invoice_number}: original paid={original_paid_amount}, credit_adjusted={original_total_credit_adjusted}, payments={len(original_payments)}, CNs={len(original_cn_ids)}")
+    logger.info(f"Regenerating invoice {original_invoice_number}: original paid={original_paid_amount}, credit_adjusted={original_total_credit_adjusted}, payments={len(combined_payments)}, CNs={len(original_cn_ids)}")
     
     # STEP 2: Delete the old invoice (internally, not via endpoint)
     # Unlink dispatches
@@ -5829,20 +5864,24 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
     
     final_payable = net_payable - total_credit_adjusted
     
-    # STEP 5: RULE #2 - Re-link original payments to the new invoice and update paid_amount
+    # STEP 5: RULE #2 - Re-link ALL payments (direct + orphaned) to the new invoice
+    # This includes payments that were orphaned by a previous delete operation
     total_relinked_payments = 0
-    for payment in original_payments:
+    payments_relinked_count = 0
+    
+    for payment in combined_payments:
         payment_amount = payment.get("amount", 0) or 0
         total_relinked_payments += payment_amount
+        payments_relinked_count += 1
         
-        # Re-link payment to new invoice
+        # Re-link payment to new invoice and clear orphan flags
         await db.retailer_payments.update_one(
             {"id": payment.get("id")},
             {"$set": {
                 "invoice_id": new_invoice_id,
                 "invoice_number": new_invoice_number,
                 "relinked_at": datetime.now(timezone.utc).isoformat(),
-                "relinked_from_invoice": invoice_id
+                "relinked_from_invoice": payment.get("original_invoice_id") or invoice_id
             },
             "$unset": {
                 "original_invoice_id": "",
@@ -5852,8 +5891,9 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
                 "needs_relinking": ""
             }}
         )
+        logger.info(f"Re-linked payment {payment.get('id')} (₹{payment_amount}) to regenerated invoice {new_invoice_number}")
     
-    # RULE #2: Update paid_amount with the re-linked payments
+    # RULE #2: Update paid_amount with the total re-linked payments
     new_paid_amount = total_relinked_payments
     
     # RULE #3: Handle overpayment and underpayment
@@ -5955,10 +5995,11 @@ async def regenerate_retailer_invoice(invoice_id: str, input: dict, current_user
         "final_payable": round(final_payable, 2),
         "paid_amount": round(new_paid_amount, 2),
         "pending_balance": round(pending_balance, 2),
-        "payments_relinked": len(original_payments),
+        "payments_relinked": payments_relinked_count,
         "credit_notes_restored": len(credit_note_adjustments),
         "status": payment_status,
-        "revision_stamp": f"Invoice Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {current_user.get('name', 'Admin')}"
+        "revision_stamp": f"Invoice Revised on {datetime.now(timezone.utc).strftime('%d %b %Y')} by {current_user.get('name', 'Admin')}",
+        "used_audit_record": audit_record is not None
     }
     
     if overpayment_cn:

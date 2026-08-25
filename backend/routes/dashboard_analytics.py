@@ -79,44 +79,43 @@ async def recalculate_dispatches_for_date(date: str) -> dict:
         if alias_id:
             cost_alias_id_map[product["id"]] = alias_id
     
-    # Get all dispatches for the target date
-    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
-    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
+    # Get all dispatches for the target date (filter at DB level)
+    all_qc_dispatches = await db.qc_dispatches.find(
+        {"dispatch_date": {"$regex": f"^{date}"}}, 
+        {"_id": 0}
+    ).to_list(None)
+    all_retailer_dispatches = await db.retailer_dispatches.find(
+        {"dispatch_date": {"$regex": f"^{date}"}}, 
+        {"_id": 0}
+    ).to_list(None)
     
     # Calculate dispatch totals by product (use cost_alias mapping) WITH combo decomposition
     dispatches_by_product = {}
     all_dispatch_items = []
     
     for d in all_qc_dispatches + all_retailer_dispatches:
-        dispatch_date = d.get("dispatch_date", "")
-        if isinstance(dispatch_date, datetime):
-            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
-        else:
-            dispatch_date_str = str(dispatch_date)[:10]
-        
-        if dispatch_date_str == date:
-            for item in d.get("items", []):
-                product_id = item.get("product_id")
-                product_name = item.get("product_name", "")
-                # Map to aliased product if applicable (e.g., Spinach → Palak)
-                target_product_id = cost_alias_id_map.get(product_id, product_id)
-                
-                supplied_qty = item.get("supplied_qty", 0)
-                packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
-                
-                # Collect for combo processing
-                all_dispatch_items.append(item)
-                
-                # Skip combo products from direct dispatch counting (they don't have base stock)
-                if is_combo_product(product_name):
-                    continue
-                
-                # Get weight from packaging map
-                weight_gm = packaging_map.get(packaging_name)
-                if not weight_gm:
-                    weight_gm = extract_weight_from_packaging_name(packaging_name)
-                if not weight_gm:
-                    weight_gm = 1000  # Default 1kg
+        for item in d.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            # Map to aliased product if applicable (e.g., Spinach → Palak)
+            target_product_id = cost_alias_id_map.get(product_id, product_id)
+            
+            supplied_qty = item.get("supplied_qty", 0)
+            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+            
+            # Collect for combo processing
+            all_dispatch_items.append(item)
+            
+            # Skip combo products from direct dispatch counting (they don't have base stock)
+            if is_combo_product(product_name):
+                continue
+            
+            # Get weight from packaging map
+            weight_gm = packaging_map.get(packaging_name)
+            if not weight_gm:
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            if not weight_gm:
+                weight_gm = 1000  # Default 1kg
                 
                 qty_kg = (supplied_qty * weight_gm) / 1000
                 
@@ -3580,43 +3579,39 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
     ).to_list(1000)
     existing_map = {s["product_id"]: s for s in existing_status}
     
-    # Get procurements for target date
-    procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
+    # Get procurements for target date (filter at DB level)
+    procurements = await db.procurements.find(
+        {"date": {"$regex": f"^{target_date}"}}, 
+        {"_id": 0}
+    ).to_list(None)
     purchases_by_product = {}
     for proc in procurements:
-        proc_date = proc.get("date", "")
-        if isinstance(proc_date, datetime):
-            proc_date_str = proc_date.strftime('%Y-%m-%d')
-        else:
-            proc_date_str = str(proc_date)[:10]
-        
-        if proc_date_str == target_date:
-            for item in proc.get("products", []):
-                product_id = item.get("product_id")
-                qty = item.get("quantity", 0)
-                unit = item.get("unit", "Kg")
-                unit_size = item.get("unit_size", "")
-                
-                # Convert to Kg for Packet, Bunch, Piece, Box etc.
-                unit_lower = unit.lower().strip()
-                if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
-                    weight_gm = None
-                    if unit_size:
-                        try:
-                            weight_gm = float(unit_size)
-                        except (ValueError, TypeError):
-                            pass
-                    if not weight_gm:
-                        defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
-                        weight_gm = defaults.get(unit_lower)
-                    if weight_gm:
-                        qty_kg = (qty * weight_gm) / 1000
-                    else:
-                        qty_kg = qty
+        for item in proc.get("products", []):
+            product_id = item.get("product_id")
+            qty = item.get("quantity", 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            
+            # Convert to Kg for Packet, Bunch, Piece, Box etc.
+            unit_lower = unit.lower().strip()
+            if unit_lower in ["bunch", "piece", "pack", "packet", "box", "crate", "dozen", "pcs"]:
+                weight_gm = None
+                if unit_size:
+                    try:
+                        weight_gm = float(unit_size)
+                    except (ValueError, TypeError):
+                        pass
+                if not weight_gm:
+                    defaults = {'packet': 200, 'pack': 200, 'bunch': 250, 'piece': 100, 'pcs': 100}
+                    weight_gm = defaults.get(unit_lower)
+                if weight_gm:
+                    qty_kg = (qty * weight_gm) / 1000
                 else:
                     qty_kg = qty
-                
-                purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
+            else:
+                qty_kg = qty
+            
+            purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
     
     # Get dispatches for target date and calculate dispatch_qty INCLUDING combo ingredient decomposition
     qc_dispatches = await db.qc_dispatches.find({
@@ -5669,38 +5664,40 @@ async def get_closable_products_for_date(
     ).to_list(1000)
     existing_map = {s["product_id"]: s for s in existing_status}
     
-    # Get procurements for target date (check multiple date formats)
-    procurements = await db.procurements.find({}, {"_id": 0}).to_list(1000)
+    # Get procurements for target date (filter at DB level)
+    procurements = await db.procurements.find(
+        {"date": {"$regex": f"^{target_date}"}}, 
+        {"_id": 0}
+    ).to_list(None)
     purchases_by_product = {}
     for proc in procurements:
-        proc_date = proc.get("date", "")
-        if isinstance(proc_date, datetime):
-            proc_date_str = proc_date.strftime('%Y-%m-%d')
-        else:
-            proc_date_str = str(proc_date)[:10]
-        
-        if proc_date_str == target_date:
-            for item in proc.get("products", []):
-                product_id = item.get("product_id")
-                qty = item.get("quantity", 0)
-                unit = item.get("unit", "Kg")
-                unit_size = item.get("unit_size", "")
-                
-                # Convert to Kg
-                if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
-                    try:
-                        weight_per_unit_gm = float(unit_size)
-                        qty_kg = (qty * weight_per_unit_gm) / 1000
-                    except (ValueError, TypeError):
-                        qty_kg = qty
-                else:
+        for item in proc.get("products", []):
+            product_id = item.get("product_id")
+            qty = item.get("quantity", 0)
+            unit = item.get("unit", "Kg")
+            unit_size = item.get("unit_size", "")
+            
+            # Convert to Kg
+            if unit.lower() in ["bunch", "piece", "pack"] and unit_size:
+                try:
+                    weight_per_unit_gm = float(unit_size)
+                    qty_kg = (qty * weight_per_unit_gm) / 1000
+                except (ValueError, TypeError):
                     qty_kg = qty
-                
-                purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
+            else:
+                qty_kg = qty
+            
+            purchases_by_product[product_id] = purchases_by_product.get(product_id, 0) + qty_kg
     
-    # Get dispatches for target date
-    all_qc_dispatches = await db.qc_dispatches.find({}, {"_id": 0}).to_list(1000)
-    all_retailer_dispatches = await db.retailer_dispatches.find({}, {"_id": 0}).to_list(1000)
+    # Get dispatches for target date (filter at DB level)
+    all_qc_dispatches = await db.qc_dispatches.find(
+        {"dispatch_date": {"$regex": f"^{target_date}"}}, 
+        {"_id": 0}
+    ).to_list(None)
+    all_retailer_dispatches = await db.retailer_dispatches.find(
+        {"dispatch_date": {"$regex": f"^{target_date}"}}, 
+        {"_id": 0}
+    ).to_list(None)
     
     # Get packaging weights from QC packaging table
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
@@ -5733,44 +5730,37 @@ async def get_closable_products_for_date(
             cost_alias_id_map[product["id"]] = alias_id
     
     for d in all_qc_dispatches + all_retailer_dispatches:
-        dispatch_date = d.get("dispatch_date", "")
-        if isinstance(dispatch_date, datetime):
-            dispatch_date_str = dispatch_date.strftime('%Y-%m-%d')
-        else:
-            dispatch_date_str = str(dispatch_date)[:10]
-        
-        if dispatch_date_str == target_date:
-            for item in d.get("items", []):
-                product_id = item.get("product_id")
-                product_name = item.get("product_name", "")
-                # Map to aliased product if applicable (e.g., Spinach dispatches → count under Palak)
-                target_product_id = cost_alias_id_map.get(product_id, product_id)
-                
-                supplied_qty = item.get("supplied_qty", 0)
-                # Check both packaging_name (QC) and variant_name (Retail)
-                packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
-                
-                # Collect all items for combo processing
-                all_dispatch_items.append(item)
-                
-                # Skip combo products from direct dispatch counting (they don't have stock status)
-                if is_combo_product(product_name):
-                    continue
-                
-                # Look up weight from packaging map first
-                weight_gm = packaging_map.get(packaging_name)
-                
-                # If not found, try extracting from the packaging name
-                if not weight_gm:
-                    weight_gm = extract_weight_from_packaging_name(packaging_name)
-                
-                # If still not found, assume bulk (1kg)
-                if not weight_gm:
-                    weight_gm = 1000
-                
-                qty_kg = (supplied_qty * weight_gm) / 1000
-                # Use target_product_id (mapped from alias) for aggregation
-                dispatches_by_product[target_product_id] = dispatches_by_product.get(target_product_id, 0) + qty_kg
+        for item in d.get("items", []):
+            product_id = item.get("product_id")
+            product_name = item.get("product_name", "")
+            # Map to aliased product if applicable (e.g., Spinach dispatches → count under Palak)
+            target_product_id = cost_alias_id_map.get(product_id, product_id)
+            
+            supplied_qty = item.get("supplied_qty", 0)
+            # Check both packaging_name (QC) and variant_name (Retail)
+            packaging_name = (item.get("packaging_name") or item.get("variant_name") or "").lower().strip()
+            
+            # Collect all items for combo processing
+            all_dispatch_items.append(item)
+            
+            # Skip combo products from direct dispatch counting (they don't have stock status)
+            if is_combo_product(product_name):
+                continue
+            
+            # Look up weight from packaging map first
+            weight_gm = packaging_map.get(packaging_name)
+            
+            # If not found, try extracting from the packaging name
+            if not weight_gm:
+                weight_gm = extract_weight_from_packaging_name(packaging_name)
+            
+            # If still not found, assume bulk (1kg)
+            if not weight_gm:
+                weight_gm = 1000
+            
+            qty_kg = (supplied_qty * weight_gm) / 1000
+            # Use target_product_id (mapped from alias) for aggregation
+            dispatches_by_product[target_product_id] = dispatches_by_product.get(target_product_id, 0) + qty_kg
     
     # Add combo ingredient dispatches to their respective base products
     dispatches_by_product = add_combo_ingredient_dispatches(

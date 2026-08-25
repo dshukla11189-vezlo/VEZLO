@@ -24,6 +24,9 @@ from models import (
 )
 from routes.combo_utils import (
     is_combo_product,
+    is_combo_product_db,
+    get_combo_components_db,
+    find_product_by_alias,
     parse_combo_product,
     get_combo_sku_mappings,
     KNOWN_COMBO_PRODUCTS,
@@ -559,8 +562,7 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             sku_has_without_roots = 'without roots' in sku_name_lower
             
             # Special product name mappings (Mint variants, Methi = Fenugreek)
-            # NOTE: Palak and Spinach are NOT aliased - they should match separately
-            # Each Excel SKU should match only its corresponding dispatch product
+            # NOTE: These are hardcoded defaults that can be extended by database aliases
             product_aliases = {
                 'mint': ['mint', 'fresh mint leaves', 'premium fresh mint leaves', 'fresh mint', 'premium mint'],
                 'fresh mint leaves': ['mint', 'fresh mint leaves', 'premium fresh mint leaves'],
@@ -568,9 +570,23 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
                 'methi': ['methi', 'fenugreek', 'fenugreek (methi)'],
                 'fenugreek': ['methi', 'fenugreek', 'fenugreek (methi)'],
                 'fenugreek (methi)': ['methi', 'fenugreek', 'fenugreek (methi)'],
-                'radish': ['radish', 'raddish'],  # Ninjacart spells it "Raddish" 
+                'radish': ['radish', 'raddish'],
                 'raddish': ['radish', 'raddish'],
             }
+            
+            # Extend with database-defined aliases from products
+            for p in products:
+                p_name_lower = p.get('name', '').lower().strip()
+                db_aliases = p.get('aliases', []) or []
+                if db_aliases:
+                    # Add the product name and all its aliases to the mapping
+                    all_aliases = [p_name_lower] + [a.lower().strip() for a in db_aliases]
+                    for alias in all_aliases:
+                        if alias not in product_aliases:
+                            product_aliases[alias] = all_aliases
+                        else:
+                            # Merge with existing aliases
+                            product_aliases[alias] = list(set(product_aliases[alias] + all_aliases))
             
             logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs} | SKU_weight: {sku_weight}gm | with_roots={sku_has_with_roots}")
             

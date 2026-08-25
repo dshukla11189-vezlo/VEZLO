@@ -114,6 +114,36 @@
 - **New State Variables**: `showEditInvoiceAddItems`, `editInvoiceUninvoicedItems`, `editInvoiceSelectedItemIds`, `editInvoiceAddItemsLoading`
 - **New Functions**: `removeEditInvoiceItem`, `fetchEditInvoiceUninvoicedItems`, `toggleEditInvoiceItemSelection`, `addSelectedItemsToEditInvoice`
 
+### August 25, 2026 - Product BOM (Bill of Materials) Structure ✅
+- **Product Model Extended** (`models.py`):
+  - Added `ComboComponent` class: `product_id`, `product_name`, `weight_gm`
+  - Added to Product: `is_combo: bool`, `components: List[ComboComponent]`, `aliases: List[str]`
+  - Updated ProductCreate and ProductUpdate models
+
+- **Database-Based Combo Detection** (`combo_utils.py`):
+  - `is_combo_product_db(product)` - checks is_combo flag and components array
+  - `get_combo_components_db(product, all_products)` - returns BOM structure
+  - `explode_combo_dispatch(product, qty, all_products)` - explodes combo into component quantities
+  - `find_product_by_alias(sku_name, all_products)` - matches SKU by aliases
+
+- **COGS & Wastage Calculation** (`dashboard_analytics.py`):
+  - `add_combo_ingredient_dispatches()` now checks DB BOM first, falls back to legacy name parsing
+  - Component quantities calculated: `used_kg = dispatch_units × component_weight_gm / 1000`
+  - Wastage allocated proportionally to components
+
+- **GRN Alias Matching** (`qc_grn.py`):
+  - Extended `product_aliases` dict to include database-defined aliases
+  - Products with `aliases[]` array now auto-matched during GRN processing
+
+- **Migration Endpoints** (`migrations.py`):
+  - `POST /api/migrate/setup-immunity-booster-combo` - Sets up BOM for Immunity Booster
+  - `POST /api/migrate/update-combo-dispatches` - Updates historical dispatch records
+  - `GET /api/migrate/combo-products` - Lists all combo products
+
+- **Immunity Booster Combo Migrated**:
+  - Components: Ginger 75gm, Fresh Mint 75gm, Amla 75gm, Lemon 75gm (300gm total)
+  - Aliases added for GRN matching
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

@@ -130,6 +130,13 @@ class UserUpdate(BaseModel):
     status: Optional[str] = None  # 'active' | 'churned'
 
 # Product Models
+class ComboComponent(BaseModel):
+    """Represents a component in a combo product's bill of materials"""
+    product_id: str  # Reference to the component product
+    product_name: Optional[str] = None  # Cached name for convenience
+    weight_gm: float  # Weight of this component per unit of combo (in grams)
+
+
 class Product(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -146,6 +153,10 @@ class Product(BaseModel):
     lifecycle_duration: Optional[str] = None  # "low" (3 days), "medium" (5 days), "high" (7 days)
     cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost (e.g., Spinach uses Palak's cost)
     image_url: Optional[str] = None  # Product image URL
+    # Combo/BOM fields
+    is_combo: bool = False  # True if this is a combo product with components
+    components: Optional[List[ComboComponent]] = None  # Bill of materials for combo products
+    aliases: Optional[List[str]] = None  # Alternative names/SKUs for GRN matching (e.g., Ninjacart SKU names)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class ProductCreate(BaseModel):
@@ -162,6 +173,10 @@ class ProductCreate(BaseModel):
     lifecycle_duration: Optional[str] = None  # "low", "medium", "high"
     cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost
     image_url: Optional[str] = None  # Product image URL
+    # Combo/BOM fields
+    is_combo: bool = False
+    components: Optional[List[ComboComponent]] = None
+    aliases: Optional[List[str]] = None
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
@@ -177,6 +192,10 @@ class ProductUpdate(BaseModel):
     lifecycle_duration: Optional[str] = None
     cost_alias_product_id: Optional[str] = None  # For P&L: use this product's purchase cost
     image_url: Optional[str] = None  # Product image URL
+    # Combo/BOM fields
+    is_combo: Optional[bool] = None
+    components: Optional[List[ComboComponent]] = None
+    aliases: Optional[List[str]] = None
 
 # Farmer Models
 class Farmer(BaseModel):

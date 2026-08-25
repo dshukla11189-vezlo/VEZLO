@@ -32,6 +32,10 @@ from utils.retailers import get_active_retailers_on_date, alloc_residual_to_firs
 from routes.daily_cogs import get_daily_cogs_map
 from routes.combo_utils import (
     is_combo_product,
+    is_combo_product_db,
+    get_combo_components_db,
+    explode_combo_dispatch,
+    find_product_by_alias,
     parse_combo_product,
     calculate_combo_cogs,
     calculate_combo_wastage_share,
@@ -190,148 +194,188 @@ def add_combo_ingredient_dispatches(dispatches_by_product: dict, dispatch_items:
     """
     Process combo product dispatches and add ingredient quantities to their respective base products.
     
-    For example, if a combo "Coriander and mint leaves (220 gm Pack)" with:
-    - Coriander: 120 gm
-    - Mint: 100 gm
+    NEW: First checks database is_combo flag and components array.
+    FALLBACK: Uses legacy name-based parsing if no BOM structure exists.
     
-    And 38 packs were dispatched, this function adds:
-    - 38 × 0.120 = 4.56 kg to Coriander's dispatch
-    - 38 × 0.100 = 3.8 kg to Mint's dispatch
+    For example, if a combo "Immunity Booster Combo" with:
+    - Ginger: 75 gm
+    - Mint: 75 gm
+    - Amla: 75 gm
+    - Lemon: 75 gm
+    
+    And 100 packs were dispatched, this function adds:
+    - 100 × 0.075 = 7.5 kg to Ginger's dispatch
+    - 100 × 0.075 = 7.5 kg to Mint's dispatch
+    - etc.
     
     Args:
         dispatches_by_product: Existing dispatch totals by product_id
         dispatch_items: List of dispatch items to process
-        products: List of all products (to map ingredient names to product IDs)
-        packaging_map: Packaging name to weight mapping
+        products: List of all products (for component lookup and name mapping)
+        packaging_map: Packaging name to weight mapping (for legacy parsing)
     
     Returns:
         Updated dispatches_by_product dict with combo ingredients added
     """
     import logging
     
-    # Build product name to ID mapping (case-insensitive)
+    # Build lookup maps
     product_name_to_id = {}
+    product_id_to_product = {}
     for p in products:
         name_lower = p.get("name", "").lower().strip()
         product_name_to_id[name_lower] = p.get("id")
+        if p.get("id"):
+            product_id_to_product[p["id"]] = p
     
-    # Log available product mappings for key ingredients
-    logging.info(f"[COMBO_DEBUG] Product mappings - Ginger: {product_name_to_id.get('ginger')}, Garlic: {product_name_to_id.get('garlic')}")
-    logging.info(f"[COMBO_DEBUG] Processing {len(dispatch_items)} dispatch items")
+    logging.info(f"[COMBO_DEBUG] Processing {len(dispatch_items)} dispatch items for combo explosion")
     
     combo_count = 0
+    db_combo_count = 0
+    legacy_combo_count = 0
+    
     for item in dispatch_items:
         product_name = item.get("product_name", "")
+        product_id = item.get("product_id", "")
         
-        # Check if this is a combo product
+        # Get the product from database
+        product = product_id_to_product.get(product_id)
+        
+        # Check if this is a combo using DATABASE structure first
+        if product and is_combo_product_db(product):
+            # Use database-based BOM structure
+            combo_count += 1
+            db_combo_count += 1
+            
+            components = product.get("components", [])
+            supplied_qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
+            
+            if supplied_qty <= 0:
+                logging.warning(f"[COMBO_DEBUG] DB combo has no supplied_qty: '{product_name}'")
+                continue
+            
+            logging.info(f"[COMBO_DEBUG] DB Combo '{product_name}' x {supplied_qty} packs, {len(components)} components")
+            
+            for component in components:
+                comp_product_id = component.get("product_id")
+                comp_name = component.get("product_name", "")
+                weight_gm = component.get("weight_gm", 0) or 0
+                
+                if not comp_product_id or weight_gm <= 0:
+                    continue
+                
+                # Calculate kg of this component
+                ingredient_qty_kg = (supplied_qty * weight_gm) / 1000
+                
+                logging.info(f"[COMBO_DEBUG] Component '{comp_name}' ({weight_gm}gm) x {supplied_qty} = {ingredient_qty_kg:.4f}kg")
+                
+                # Add to dispatches_by_product
+                _add_ingredient_to_dispatches(
+                    dispatches_by_product, 
+                    comp_product_id, 
+                    ingredient_qty_kg,
+                    item.get("_is_qc", True)
+                )
+            continue
+        
+        # FALLBACK: Check if this is a combo using LEGACY name-based detection
         if not is_combo_product(product_name):
             continue
         
         combo_count += 1
-        logging.info(f"[COMBO_DEBUG] Found combo item: '{product_name}'")
+        legacy_combo_count += 1
+        logging.info(f"[COMBO_DEBUG] Legacy combo item: '{product_name}'")
         
         # Parse the combo to get ingredients
         combo_info = parse_combo_product(product_name)
         if not combo_info or not combo_info.get("ingredients"):
-            logging.warning(f"[COMBO_DEBUG] Failed to parse combo: '{product_name}' -> {combo_info}")
+            logging.warning(f"[COMBO_DEBUG] Failed to parse legacy combo: '{product_name}'")
             continue
         
-        logging.info(f"[COMBO_DEBUG] Parsed combo '{product_name[:40]}...' -> ingredients: {combo_info.get('ingredients')}")
+        logging.info(f"[COMBO_DEBUG] Parsed legacy combo '{product_name[:40]}...' -> {len(combo_info.get('ingredients', []))} ingredients")
         
-        # Get the supplied quantity (number of packs)
-        supplied_qty = item.get("supplied_qty", 0) or 0
+        supplied_qty = item.get("supplied_qty", 0) or item.get("quantity", 0) or 0
         if supplied_qty <= 0:
-            logging.warning(f"[COMBO_DEBUG] Combo has no supplied_qty: '{product_name}'")
             continue
-        
-        logging.info(f"[COMBO_DEBUG] Combo supplied_qty: {supplied_qty} packs")
         
         # Add each ingredient's quantity to its base product
         for ingredient in combo_info.get("ingredients", []):
-            ing_name = ingredient.get("name", "")  # Normalized name (e.g., "Coriander", "Fresh Mint Leaves")
+            ing_name = ingredient.get("name", "")
             weight_gm = ingredient.get("weight_gm", 0) or 0
             
             if not ing_name or weight_gm <= 0:
-                logging.warning(f"[COMBO_DEBUG] Ingredient missing name or weight: {ingredient}")
                 continue
             
-            # Calculate total kg of this ingredient used in combo dispatches
             ingredient_qty_kg = (supplied_qty * weight_gm) / 1000
             
             # Find the product ID for this ingredient
             ing_name_lower = ing_name.lower().strip()
-            product_id = product_name_to_id.get(ing_name_lower)
+            comp_product_id = product_name_to_id.get(ing_name_lower)
             
-            logging.info(f"[COMBO_DEBUG] Ingredient '{ing_name}' ({weight_gm}gm) x {supplied_qty} = {ingredient_qty_kg:.2f}kg, product_id lookup '{ing_name_lower}' -> {product_id}")
-            
-            # If not found directly, try alternative names
-            if not product_id:
-                # Try common alternatives
+            # Try alternative names if not found
+            if not comp_product_id:
                 alternatives = {
                     "fresh mint leaves": ["mint", "mint leaves"],
                     "curry leaves": ["curry"],
-                    "green chilli": ["green chili", "chilli", "chili", "chilli light green"],
+                    "green chilli": ["green chili", "chilli", "chili"],
                     "fenugreek (methi)": ["methi", "fenugreek"],
                     "palak": ["spinach"],
+                    "lemon": ["lemon", "nimbu"],
+                    "amla": ["amla", "gooseberry"],
                 }
                 for key, alts in alternatives.items():
                     if ing_name_lower == key or ing_name_lower in alts:
-                        product_id = product_name_to_id.get(key)
-                        if not product_id:
+                        comp_product_id = product_name_to_id.get(key)
+                        if not comp_product_id:
                             for alt in alts:
-                                product_id = product_name_to_id.get(alt)
-                                if product_id:
+                                comp_product_id = product_name_to_id.get(alt)
+                                if comp_product_id:
                                     break
                         break
-                
-                if product_id:
-                    logging.info(f"[COMBO_DEBUG] Found via alternative: '{ing_name}' -> {product_id}")
-                else:
-                    logging.warning(f"[COMBO_DEBUG] NO PRODUCT ID FOUND for ingredient '{ing_name}'")
             
-            if product_id:
-                # Determine the format of dispatches_by_product
-                # New format: {"total": X, "qc": Y, "retail": Z}
-                # Or simple number for legacy
-                is_new_format = False
-                is_dict_format = False
-                if dispatches_by_product:
-                    sample_val = next(iter(dispatches_by_product.values()))
-                    is_dict_format = isinstance(sample_val, dict)
-                    is_new_format = is_dict_format and "total" in sample_val
-                
-                old_val = dispatches_by_product.get(product_id, 0 if not is_dict_format else {"qty": 0})
-                
-                if product_id not in dispatches_by_product:
-                    if is_new_format:
-                        dispatches_by_product[product_id] = {"total": 0, "qc": 0, "retail": 0}
-                    elif is_dict_format:
-                        dispatches_by_product[product_id] = {"qty": 0, "value": 0}
-                    else:
-                        dispatches_by_product[product_id] = 0
-                
-                # Get is_qc flag from item (added during dispatch processing)
-                is_qc = item.get("_is_qc", True)  # Default to QC for backward compat
-                
-                # Add the ingredient quantity
-                if is_new_format:
-                    dispatches_by_product[product_id]["total"] += ingredient_qty_kg
-                    if is_qc:
-                        dispatches_by_product[product_id]["qc"] += ingredient_qty_kg
-                    else:
-                        dispatches_by_product[product_id]["retail"] += ingredient_qty_kg
-                    new_val = dispatches_by_product[product_id]["total"]
-                elif is_dict_format:
-                    dispatches_by_product[product_id]["qty"] += ingredient_qty_kg
-                    new_val = dispatches_by_product[product_id]["qty"]
-                else:
-                    dispatches_by_product[product_id] += ingredient_qty_kg
-                    new_val = dispatches_by_product[product_id]
-                
-                logging.info(f"[COMBO_DEBUG] Added {ingredient_qty_kg:.2f}kg to {product_id} ({ing_name}): {old_val} -> {new_val}")
+            if comp_product_id:
+                _add_ingredient_to_dispatches(
+                    dispatches_by_product,
+                    comp_product_id,
+                    ingredient_qty_kg,
+                    item.get("_is_qc", True)
+                )
+            else:
+                logging.warning(f"[COMBO_DEBUG] No product ID found for ingredient '{ing_name}'")
     
-    logging.info(f"[COMBO_DEBUG] Processed {combo_count} combo items total")
+    logging.info(f"[COMBO_DEBUG] Processed {combo_count} combos ({db_combo_count} DB-based, {legacy_combo_count} legacy)")
     return dispatches_by_product
+
+
+def _add_ingredient_to_dispatches(dispatches_by_product: dict, product_id: str, qty_kg: float, is_qc: bool = True):
+    """Helper to add ingredient quantity to dispatches_by_product in the correct format."""
+    # Determine format from existing data
+    is_new_format = False
+    is_dict_format = False
+    if dispatches_by_product:
+        sample_val = next(iter(dispatches_by_product.values()), None)
+        if sample_val:
+            is_dict_format = isinstance(sample_val, dict)
+            is_new_format = is_dict_format and "total" in sample_val
+    
+    if product_id not in dispatches_by_product:
+        if is_new_format:
+            dispatches_by_product[product_id] = {"total": 0, "qc": 0, "retail": 0}
+        elif is_dict_format:
+            dispatches_by_product[product_id] = {"qty": 0, "value": 0}
+        else:
+            dispatches_by_product[product_id] = 0
+    
+    if is_new_format:
+        dispatches_by_product[product_id]["total"] += qty_kg
+        if is_qc:
+            dispatches_by_product[product_id]["qc"] += qty_kg
+        else:
+            dispatches_by_product[product_id]["retail"] += qty_kg
+    elif is_dict_format:
+        dispatches_by_product[product_id]["qty"] += qty_kg
+    else:
+        dispatches_by_product[product_id] += qty_kg
 
 
 async def derive_fresh_wastage_for_date(

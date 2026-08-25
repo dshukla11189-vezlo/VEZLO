@@ -2,15 +2,20 @@
 Combo Product Parsing Utilities
 ================================
 Handles parsing of combo product names that contain ingredient breakdowns.
+Now supports database-based BOM (Bill of Materials) structure.
 
-Format examples:
+Format examples (legacy name-based):
 - Coriander and mint leaves (220 gm Pack)-FK : ( Coriander - 120 gm & Mint 100 gm)
 - Herbs mix(280 gm Pack)-FK : (Curry 60 gm, Coriander 120 gm, Mint 100 gm)
 - fresh spices mix(620 gm Pack)-FK : (Green chill 100gm, Coriander 120gm, Garlic 200gm, Ginger 200gm)
+
+Database-based structure (new):
+- Product has is_combo=True and components[] array
+- Each component has product_id (reference) and weight_gm
 """
 
 import re
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any
 import logging
 
 # Ingredient name normalization map - maps various spellings to standard product names
@@ -31,7 +36,157 @@ INGREDIENT_NAME_MAP = {
     'methi': 'Fenugreek (Methi)',
     'dill': 'Dill Leaf',
     'dill leaf': 'Dill Leaf',
+    'lemon': 'Lemon',
+    'amla': 'Amla',
 }
+
+
+# ============== DATABASE-BASED COMBO FUNCTIONS ==============
+
+def is_combo_product_db(product: Dict) -> bool:
+    """
+    Check if a product is a combo using the database is_combo flag.
+    This is the preferred method over name-based detection.
+    """
+    if not product:
+        return False
+    return product.get('is_combo', False) and product.get('components')
+
+
+def get_combo_components_db(product: Dict, all_products: List[Dict]) -> Optional[Dict]:
+    """
+    Get combo components from the database structure.
+    
+    Args:
+        product: The combo product document
+        all_products: List of all products for looking up component details
+    
+    Returns:
+        {
+            'name': 'Immunity Booster Combo',
+            'total_weight_gm': 300,
+            'ingredients': [
+                {'name': 'Ginger', 'product_id': '...', 'weight_gm': 75},
+                {'name': 'Mint', 'product_id': '...', 'weight_gm': 75},
+                ...
+            ],
+            'is_combo': True
+        }
+    """
+    if not is_combo_product_db(product):
+        return None
+    
+    # Build product lookup map
+    product_map = {p.get('id'): p for p in all_products if p.get('id')}
+    
+    ingredients = []
+    total_weight = 0
+    
+    for component in product.get('components', []):
+        comp_product_id = component.get('product_id')
+        weight_gm = component.get('weight_gm', 0)
+        
+        # Look up component product name
+        comp_product = product_map.get(comp_product_id, {})
+        comp_name = component.get('product_name') or comp_product.get('name', 'Unknown')
+        
+        ingredients.append({
+            'name': comp_name,
+            'product_id': comp_product_id,
+            'raw_name': comp_name,
+            'weight_gm': weight_gm
+        })
+        total_weight += weight_gm
+    
+    return {
+        'name': product.get('name'),
+        'product_id': product.get('id'),
+        'total_weight_gm': total_weight,
+        'ingredients': ingredients,
+        'is_combo': True,
+        'original_name': product.get('name')
+    }
+
+
+def find_product_by_alias(sku_name: str, all_products: List[Dict]) -> Optional[Dict]:
+    """
+    Find a product by its alias (for GRN matching).
+    
+    Args:
+        sku_name: The SKU name from GRN/invoice
+        all_products: List of all products
+    
+    Returns:
+        The matching product dict, or None if not found
+    """
+    sku_lower = sku_name.lower().strip()
+    
+    for product in all_products:
+        # Check aliases
+        aliases = product.get('aliases', []) or []
+        for alias in aliases:
+            if alias.lower().strip() == sku_lower:
+                return product
+        
+        # Also check exact name match
+        if product.get('name', '').lower().strip() == sku_lower:
+            return product
+    
+    return None
+
+
+def explode_combo_dispatch(product: Dict, dispatch_qty: float, all_products: List[Dict]) -> List[Dict]:
+    """
+    Explode a combo product dispatch into its component dispatches.
+    
+    For each component: used_qty_kg = dispatch_qty * component_weight_gm / 1000
+    
+    Args:
+        product: The combo product
+        dispatch_qty: Number of combo units dispatched
+        all_products: List of all products for component lookup
+    
+    Returns:
+        List of component dispatch entries:
+        [
+            {'product_id': '...', 'product_name': 'Ginger', 'quantity_kg': 7.5, 'from_combo': True},
+            ...
+        ]
+    """
+    if not is_combo_product_db(product):
+        return []
+    
+    product_map = {p.get('id'): p for p in all_products if p.get('id')}
+    component_dispatches = []
+    
+    for component in product.get('components', []):
+        comp_product_id = component.get('product_id')
+        weight_gm = component.get('weight_gm', 0)
+        
+        # Calculate kg used: dispatch_qty units × weight_gm per unit / 1000
+        used_kg = (dispatch_qty * weight_gm) / 1000
+        
+        comp_product = product_map.get(comp_product_id, {})
+        comp_name = component.get('product_name') or comp_product.get('name', 'Unknown')
+        
+        component_dispatches.append({
+            'product_id': comp_product_id,
+            'product_name': comp_name,
+            'quantity_kg': round(used_kg, 4),
+            'weight_gm_per_unit': weight_gm,
+            'combo_units': dispatch_qty,
+            'from_combo': True,
+            'combo_product_id': product.get('id'),
+            'combo_product_name': product.get('name')
+        })
+    
+    return component_dispatches
+
+
+# ============== LEGACY NAME-BASED FUNCTIONS ==============
+
+
+# ============== LEGACY NAME-BASED FUNCTIONS ==============
 
 
 def is_combo_product(product_name: str) -> bool:

@@ -3528,62 +3528,10 @@ Email: ${companyEmail}`;
           </Card>
 
           <div className="flex flex-wrap gap-3 mb-4">
-            <Dialog open={openCustomer} onOpenChange={(open) => { setOpenCustomer(open); if (!open) resetCustomerForm(); }}>
-              <DialogTrigger asChild>
-                <Button variant="outline" data-testid="add-customer-btn">
-                  <UserPlus size={16} className="mr-2" />
-                  {editingCustomer ? 'Edit Customer' : 'Add Customer'}
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add QC Customer'}</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleSubmitCustomer} className="space-y-4">
-                  <div>
-                    <Label htmlFor="customer-name">Customer Name *</Label>
-                    <Input
-                      id="customer-name"
-                      placeholder="e.g., Blinkit, Zepto, Instamart"
-                      value={customerForm.name}
-                      onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
-                      required
-                      data-testid="customer-name-input"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="contact-person">Contact Person</Label>
-                    <Input
-                      id="contact-person"
-                      placeholder="Contact person name"
-                      value={customerForm.contact_person}
-                      onChange={(e) => setCustomerForm({ ...customerForm, contact_person: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="contact-number">Contact Number</Label>
-                    <Input
-                      id="contact-number"
-                      placeholder="+91 9876543210"
-                      value={customerForm.contact_number}
-                      onChange={(e) => setCustomerForm({ ...customerForm, contact_number: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="customer-address">Address</Label>
-                    <Input
-                      id="customer-address"
-                      placeholder="Warehouse address"
-                      value={customerForm.address}
-                      onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-customer-btn">
-                    {editingCustomer ? 'Update Customer' : 'Add Customer'}
-                  </Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+            <Button variant="outline" onClick={() => setOpenCustomer(true)} data-testid="add-customer-btn">
+              <UserPlus size={16} className="mr-2" />
+              {editingCustomer ? 'Edit Customer' : 'Add Customer'}
+            </Button>
 
             {/* OCR Upload Button */}
             <div className="relative">
@@ -6056,6 +6004,58 @@ Email: ${companyEmail}`;
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Customer Dialog - Rendered outside Tabs so it can be opened from any tab */}
+      <Dialog open={openCustomer} onOpenChange={(open) => { setOpenCustomer(open); if (!open) resetCustomerForm(); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{editingCustomer ? 'Edit Customer' : 'Add QC Customer'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmitCustomer} className="space-y-4">
+            <div>
+              <Label htmlFor="customer-name">Customer Name *</Label>
+              <Input
+                id="customer-name"
+                placeholder="e.g., Blinkit, Zepto, Instamart"
+                value={customerForm.name}
+                onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
+                required
+                data-testid="customer-name-input"
+              />
+            </div>
+            <div>
+              <Label htmlFor="contact-person">Contact Person</Label>
+              <Input
+                id="contact-person"
+                placeholder="Contact person name"
+                value={customerForm.contact_person}
+                onChange={(e) => setCustomerForm({ ...customerForm, contact_person: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="contact-number">Contact Number</Label>
+              <Input
+                id="contact-number"
+                placeholder="+91 9876543210"
+                value={customerForm.contact_number}
+                onChange={(e) => setCustomerForm({ ...customerForm, contact_number: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="customer-address">Address</Label>
+              <Input
+                id="customer-address"
+                placeholder="Warehouse address"
+                value={customerForm.address}
+                onChange={(e) => setCustomerForm({ ...customerForm, address: e.target.value })}
+              />
+            </div>
+            <Button type="submit" className="w-full bg-[#14532D] hover:bg-[#166534]" data-testid="submit-customer-btn">
+              {editingCustomer ? 'Update Customer' : 'Add Customer'}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Invoice Dialog - Rendered outside Tabs so it can be opened from any tab */}
       <Dialog open={openInvoice} onOpenChange={setOpenInvoice}>

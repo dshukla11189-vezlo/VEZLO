@@ -3211,9 +3211,16 @@ async def export_pnl_excel(
 async def get_all_stock_status(
     from_date: str = None,
     to_date: str = None,
+    limit: int = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Get all stock status records for sync purposes"""
+    """Get all stock status records for sync purposes.
+    
+    Args:
+        from_date: Start date filter (YYYY-MM-DD). Defaults to 6 months ago.
+        to_date: End date filter (YYYY-MM-DD). Defaults to today.
+        limit: Max records to return. If None, returns all matching records.
+    """
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -3228,8 +3235,12 @@ async def get_all_stock_status(
         
         query["date"] = {"$gte": from_date, "$lte": to_date}
         
-        logger.info(f"Fetching stock status from {from_date} to {to_date}")
-        stock_status = await db.daily_stock_status.find(query, {"_id": 0}).to_list(10000)
+        logger.info(f"Fetching stock status from {from_date} to {to_date}, limit={limit}")
+        
+        # Use limit if provided, otherwise fetch all (None means no limit)
+        cursor = db.daily_stock_status.find(query, {"_id": 0}).sort("date", 1)
+        stock_status = await cursor.to_list(length=limit)
+        
         logger.info(f"Found {len(stock_status)} stock status records")
         
         return stock_status

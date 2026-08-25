@@ -706,8 +706,7 @@ async def sync_from_production_full(
                 'retailer_orders': '/api/retailer-orders?limit=50000',
                 'retail_plans': '/api/retail-plans?limit=50000',
                 'sticker_mrp_overrides': '/api/sticker-mrp-overrides?limit=50000',
-                # Stock & Analytics
-                'daily_stock_status': '/api/stock-status?limit=50000',
+                # Stock & Analytics - NOTE: daily_stock_status uses date range (see date_range_endpoints below)
                 'daily_mrp': '/api/daily-mrp?limit=50000',
                 'daily_cogs': '/api/daily-cogs?limit=50000',
                 'cogs_snapshots': '/api/cogs-snapshots?limit=50000',
@@ -731,6 +730,8 @@ async def sync_from_production_full(
             date_range_endpoints = {
                 'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
                 'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
+                # Stock status with explicit date range to fetch all historical data
+                'daily_stock_status': f'/api/stock-status?from_date={from_date}&to_date={to_date}',
                 # NOTE: labour_attendance is handled specially below (day-by-day sync)
             }
             

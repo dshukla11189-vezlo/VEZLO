@@ -593,71 +593,104 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
             
             logger.info(f"Processing SKU: {sku_name} | Unit: {weight_unit} | is_pcs={sku_is_pcs} | Qty: {grn_qty_kg_or_pcs} | SKU_weight: {sku_weight}gm | with_roots={sku_has_with_roots}")
             
-            # Check if this is a combo SKU (matches any of the combo product prefixes)
+            # FIRST: Try to resolve SKU using database aliases (find_product_by_alias)
+            # This handles products like 'Immunity Booster Combo' with defined aliases
+            resolved_product = find_product_by_alias(sku_name, products)
             is_combo_sku = False
-            combo_prefixes = [
-                'coriander and mint leaves', 'coriander and mint',
-                'curry leaves and coriander leaves', 'curry and coriander',
-                'herbs mix', 'fresh spices mix', 'spices mix',
-                'spinach and coriander leaves', 'spinach and coriander', 'palak and coriander',
-                'mixed sprouts', 'mixed fruit chat', 'mixed microgreens', 'coriander hybrid'
-            ]
-            for prefix in combo_prefixes:
-                if sku_name_lower.startswith(prefix) or prefix in sku_name_lower:
+            resolved_product_id = None
+            
+            if resolved_product:
+                resolved_product_id = resolved_product.get('id')
+                # Check if the resolved product is a combo using database flag
+                if is_combo_product_db(resolved_product):
                     is_combo_sku = True
-                    logger.info(f"  COMBO SKU DETECTED: {sku_name} (matched prefix: '{prefix}')")
-                    break
+                    logger.info(f"  DB COMBO DETECTED: SKU '{sku_name}' -> Product '{resolved_product.get('name')}' (id={resolved_product_id})")
+                else:
+                    logger.info(f"  ALIAS MATCH: SKU '{sku_name}' -> Product '{resolved_product.get('name')}' (id={resolved_product_id})")
+            
+            # FALLBACK: Check hardcoded combo prefixes if not resolved via alias
+            if not is_combo_sku:
+                combo_prefixes = [
+                    'coriander and mint leaves', 'coriander and mint',
+                    'curry leaves and coriander leaves', 'curry and coriander',
+                    'herbs mix', 'fresh spices mix', 'spices mix',
+                    'spinach and coriander leaves', 'spinach and coriander', 'palak and coriander',
+                    'mixed sprouts', 'mixed fruit chat', 'mixed microgreens', 'coriander hybrid'
+                ]
+                for prefix in combo_prefixes:
+                    if sku_name_lower.startswith(prefix) or prefix in sku_name_lower:
+                        is_combo_sku = True
+                        logger.info(f"  LEGACY COMBO SKU DETECTED: {sku_name} (matched prefix: '{prefix}')")
+                        break
             
             # Find matching product group
             best_match_group = None
             best_match_score = 0
             
-            # FIRST: Check direct SKU mappings for combo products
+            # PRIORITY 1: If we resolved a product via alias with product_id, match by product_id in dispatches
+            direct_match_found = False
+            if resolved_product_id:
+                for base_name, items in product_groups.items():
+                    # Check if any item in this group has matching product_id
+                    matching_items = [i for i in items if i.get('product_id') == resolved_product_id]
+                    if matching_items:
+                        if is_combo_sku:
+                            # For combos, take all matching items
+                            best_match_group = (base_name, matching_items)
+                        else:
+                            # For regular products, apply PCS vs Kg filter
+                            if sku_is_pcs:
+                                type_matched_items = [i for i in matching_items if i.get('dispatch_is_pcs')]
+                            else:
+                                type_matched_items = [i for i in matching_items if not i.get('dispatch_is_pcs')]
+                            if type_matched_items:
+                                best_match_group = (base_name, type_matched_items)
+                        
+                        if best_match_group:
+                            best_match_score = 1.0
+                            direct_match_found = True
+                            logger.info(f"  PRODUCT_ID MATCH: SKU '{sku_name}' -> Product '{base_name}' via resolved id={resolved_product_id}")
+                            break
+            
+            # PRIORITY 2: Check direct SKU mappings for combo products (legacy)
             # These have completely different names in Excel vs dispatch system
             # Sort by length (longest first) to match more specific patterns first
-            # e.g., "mixed sprouts (pcs)" should match before "mixed sprouts"
-            direct_match_found = False
-            sorted_mappings = sorted(direct_sku_mappings.items(), key=lambda x: len(x[0]), reverse=True)
-            for sku_prefix, internal_name in sorted_mappings:
-                if sku_name_lower.startswith(sku_prefix) or sku_prefix in sku_name_lower:
-                    # Found a direct mapping - look for this product in dispatch
-                    internal_name_lower = internal_name.lower()
-                    for base_name, items in product_groups.items():
-                        base_name_lower = base_name.lower()
-                        
-                        # For COMBO products: Match only if base_name STARTS WITH the internal_name
-                        # This prevents "coriander" from matching "coriander and mint leaves"
-                        # The base_name will be the full combo name with ingredients
-                        if is_combo_sku:
-                            # Combo product: base_name should START WITH internal_name
-                            # e.g., "coriander and mint leaves (220 gm pack)-fk : (...)" starts with "coriander and mint leaves"
-                            if base_name_lower.startswith(internal_name_lower):
-                                # For combos, take all items regardless of PCS/Kg type
-                                type_matched_items = items
-                                logger.info(f"  COMBO MATCH: SKU '{sku_name}' -> Product '{base_name}' | items: {len(items)}")
-                                if type_matched_items:
-                                    best_match_group = (base_name, type_matched_items)
-                                    best_match_score = 1.0
-                                    direct_match_found = True
-                                    logger.info(f"  DIRECT MAPPING (COMBO): SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
-                                    break
-                        else:
-                            # Regular products: original matching logic
-                            if internal_name_lower == base_name_lower or internal_name_lower in base_name_lower or base_name_lower in internal_name_lower:
-                                # Apply PCS vs Kg filter
-                                if sku_is_pcs:
-                                    type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
-                                else:
-                                    type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
-                                
-                                if type_matched_items:
-                                    best_match_group = (base_name, type_matched_items)
-                                    best_match_score = 1.0
-                                    direct_match_found = True
-                                    logger.info(f"  DIRECT MAPPING: SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
-                                    break
-                    if direct_match_found:
-                        break
+            if not direct_match_found:
+                sorted_mappings = sorted(direct_sku_mappings.items(), key=lambda x: len(x[0]), reverse=True)
+                for sku_prefix, internal_name in sorted_mappings:
+                    if sku_name_lower.startswith(sku_prefix) or sku_prefix in sku_name_lower:
+                        # Found a direct mapping - look for this product in dispatch
+                        internal_name_lower = internal_name.lower()
+                        for base_name, items in product_groups.items():
+                            base_name_lower = base_name.lower()
+                            
+                            # For COMBO products: Match only if base_name STARTS WITH the internal_name
+                            if is_combo_sku:
+                                if base_name_lower.startswith(internal_name_lower):
+                                    type_matched_items = items
+                                    logger.info(f"  COMBO MATCH: SKU '{sku_name}' -> Product '{base_name}' | items: {len(items)}")
+                                    if type_matched_items:
+                                        best_match_group = (base_name, type_matched_items)
+                                        best_match_score = 1.0
+                                        direct_match_found = True
+                                        logger.info(f"  DIRECT MAPPING (COMBO): SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
+                                        break
+                            else:
+                                # Regular products: original matching logic
+                                if internal_name_lower == base_name_lower or internal_name_lower in base_name_lower or base_name_lower in internal_name_lower:
+                                    if sku_is_pcs:
+                                        type_matched_items = [i for i in items if i.get('dispatch_is_pcs')]
+                                    else:
+                                        type_matched_items = [i for i in items if not i.get('dispatch_is_pcs')]
+                                    
+                                    if type_matched_items:
+                                        best_match_group = (base_name, type_matched_items)
+                                        best_match_score = 1.0
+                                        direct_match_found = True
+                                        logger.info(f"  DIRECT MAPPING: SKU '{sku_name}' -> Product '{base_name}' via mapping '{sku_prefix}' -> '{internal_name}'")
+                                        break
+                        if direct_match_found:
+                            break
             
             # SECOND: Regular matching logic if no direct match found
             if not direct_match_found:

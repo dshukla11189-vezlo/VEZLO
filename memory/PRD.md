@@ -144,6 +144,23 @@
   - Components: Ginger 75gm, Fresh Mint 75gm, Amla 75gm, Lemon 75gm (300gm total)
   - Aliases added for GRN matching
 
+### August 26, 2026 - GRN Upload Dynamic Combo Recognition ✅
+- **Database-Driven SKU Matching** (`qc_grn.py`):
+  - GRN upload now uses `find_product_by_alias(sku_name, products)` as first priority for SKU matching
+  - Uses `is_combo_product_db(resolved_product)` to detect combos from database `is_combo` flag
+  - Falls back to hardcoded combo prefixes if alias match fails
+  - Logs DB COMBO DETECTED vs LEGACY COMBO SKU DETECTED for debugging
+  
+- **Priority Matching Order**:
+  1. Database alias match via `find_product_by_alias()` → product_id match in dispatches
+  2. Legacy direct SKU mappings (combo_sku_mappings)
+  3. Fuzzy product name matching
+  
+- **Benefits**:
+  - New combo products added via Products page are automatically recognized in GRN uploads
+  - No code changes needed when adding new combos
+  - Aliases provide flexible SKU name variations
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

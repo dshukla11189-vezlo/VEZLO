@@ -714,7 +714,7 @@ export default function BackupPage() {
                   <p className="font-medium text-green-800 mb-2">
                     ✓ {fullSyncResults.message}
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-3">
                     <div className="bg-green-100 p-2 rounded">
                       <span className="text-green-700">Mode: </span>
                       <span className="font-medium">{fullSyncResults.sync_mode}</span>
@@ -734,6 +734,88 @@ export default function BackupPage() {
                       </span>
                     </div>
                   </div>
+                  
+                  {/* Per-Collection Status Details */}
+                  {fullSyncResults.collections && Object.keys(fullSyncResults.collections).length > 0 && (
+                    <div className="border-t pt-3">
+                      <p className="text-xs font-medium text-gray-600 mb-2">Per-Collection Status:</p>
+                      <div className="max-h-64 overflow-y-auto space-y-1">
+                        {Object.entries(fullSyncResults.collections).map(([collName, collData]) => {
+                          const isSuccess = collData.status === 'synced';
+                          const hasError = collData.error || collData.status === 'error' || collData.status === 'failed';
+                          
+                          return (
+                            <div 
+                              key={collName} 
+                              className={`flex items-center justify-between p-2 rounded text-xs ${
+                                hasError ? 'bg-red-50 border border-red-200' : 
+                                isSuccess ? 'bg-green-50' : 'bg-gray-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${
+                                  hasError ? 'bg-red-500' : isSuccess ? 'bg-green-500' : 'bg-gray-400'
+                                }`}></span>
+                                <span className={`font-medium ${hasError ? 'text-red-700' : 'text-gray-700'}`}>
+                                  {collName}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-right">
+                                {collData.count !== undefined && (
+                                  <span className="text-gray-500">{collData.count} records</span>
+                                )}
+                                {collData.inserted !== undefined && (
+                                  <span className="text-green-600">+{collData.inserted}</span>
+                                )}
+                                {collData.updated !== undefined && collData.updated > 0 && (
+                                  <span className="text-blue-600">↻{collData.updated}</span>
+                                )}
+                                {collData.skipped !== undefined && collData.skipped > 0 && (
+                                  <span className="text-amber-600">⊘{collData.skipped}</span>
+                                )}
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  hasError ? 'bg-red-100 text-red-700' : 
+                                  isSuccess ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {collData.status || 'unknown'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Show Errors Section */}
+                      {Object.entries(fullSyncResults.collections).some(([_, c]) => c.error) && (
+                        <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                          <p className="text-xs font-medium text-red-700 mb-1">⚠ Errors:</p>
+                          <div className="space-y-1 text-xs text-red-600">
+                            {Object.entries(fullSyncResults.collections)
+                              .filter(([_, c]) => c.error)
+                              .map(([name, c]) => (
+                                <div key={name} className="flex gap-2">
+                                  <span className="font-medium">{name}:</span>
+                                  <span className="break-all">{c.error}</span>
+                                </div>
+                              ))
+                            }
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Show Global Errors if any */}
+                  {fullSyncResults.errors && fullSyncResults.errors.length > 0 && (
+                    <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded">
+                      <p className="text-xs font-medium text-red-700 mb-1">⚠ Sync Errors:</p>
+                      <ul className="text-xs text-red-600 list-disc list-inside">
+                        {fullSyncResults.errors.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

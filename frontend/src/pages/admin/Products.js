@@ -468,8 +468,15 @@ export default function Products() {
     price_per_packet: 0,
     lifecycle_duration: '',  // 'low', 'medium', 'high'
     cost_alias_product_id: '',  // For P&L: use this product's purchase cost
-    image_url: ''  // Product image URL
+    image_url: '',  // Product image URL
+    is_combo: false,  // Is this a combo product with components?
+    components: [],  // BOM: [{product_id, product_name, weight_gm}]
+    aliases: []  // Alternative names for GRN matching
   });
+  
+  // Combo component editor state
+  const [newComponentProductId, setNewComponentProductId] = useState('');
+  const [newComponentWeightGm, setNewComponentWeightGm] = useState('');
 
   // Load products (without images for performance)
   const loadProducts = useCallback(async () => {
@@ -1310,7 +1317,14 @@ export default function Products() {
         setUploadingImage(false);
       }
       
-      const productData = { ...formData, image_url: finalImageUrl };
+      const productData = { 
+        ...formData, 
+        image_url: finalImageUrl,
+        // Include combo fields
+        is_combo: formData.is_combo,
+        components: formData.is_combo ? formData.components : [],
+        aliases: formData.aliases || []
+      };
       
       if (editProduct) {
         await api.put(`/api/products/${editProduct.id}`, productData);
@@ -1321,9 +1335,11 @@ export default function Products() {
       }
       setOpen(false);
       setEditProduct(null);
-      setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', storage_type: 'Outdoor', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '' });
+      setFormData({ name: '', name_hi: '', name_mr: '', category: '', unit: 'Kg', product_type: '', storage_type: 'Outdoor', current_stock: 0, price_per_kg: 0, price_per_packet: 0, lifecycle_duration: '', cost_alias_product_id: '', image_url: '', is_combo: false, components: [], aliases: [] });
       setImageFile(null);
       setImagePreview(null);
+      setNewComponentProductId('');
+      setNewComponentWeightGm('');
       loadProducts();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save product');
@@ -1424,10 +1440,15 @@ export default function Products() {
       price_per_packet: product.price_per_packet || 0,
       lifecycle_duration: product.lifecycle_duration || '',
       cost_alias_product_id: product.cost_alias_product_id || '',
-      image_url: imageUrl
+      image_url: imageUrl,
+      is_combo: product.is_combo || false,
+      components: product.components || [],
+      aliases: product.aliases || []
     });
     setImageFile(null);
     setImagePreview(imageUrl || null);
+    setNewComponentProductId('');
+    setNewComponentWeightGm('');
     setOpen(true);
   };
 
@@ -1855,6 +1876,124 @@ export default function Products() {
                 <p className="text-xs text-gray-500 mt-1">Use another product's purchase cost for P&L (e.g., Spinach uses Palak's cost)</p>
               </div>
               
+              {/* Combo Product Section */}
+              <div className="border rounded-lg p-3 bg-amber-50/50">
+                <div className="flex items-center justify-between mb-3">
+                  <Label className="text-sm font-semibold text-amber-700 flex items-center gap-2">
+                    <Layers size={16} />
+                    Combo Product (Bill of Materials)
+                  </Label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_combo}
+                      onChange={(e) => setFormData({ ...formData, is_combo: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                    <span className="ms-2 text-xs text-gray-600">{formData.is_combo ? 'Yes' : 'No'}</span>
+                  </label>
+                </div>
+                
+                {formData.is_combo && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-amber-600">
+                      Define the components that make up this combo product. Each component's quantity will be exploded for COGS and stock calculations.
+                    </p>
+                    
+                    {/* Current Components List */}
+                    {formData.components.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-600">Components:</Label>
+                        <div className="space-y-1">
+                          {formData.components.map((comp, idx) => {
+                            const compProduct = products.find(p => p.id === comp.product_id);
+                            return (
+                              <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-2 border">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium">{compProduct?.name || comp.product_name || 'Unknown'}</span>
+                                  <span className="text-xs text-gray-500">({comp.weight_gm}gm per unit)</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const newComponents = formData.components.filter((_, i) => i !== idx);
+                                    setFormData({ ...formData, components: newComponents });
+                                  }}
+                                  className="text-red-500 hover:text-red-700"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                          <div className="text-xs text-amber-600 font-medium">
+                            Total weight per unit: {formData.components.reduce((sum, c) => sum + (c.weight_gm || 0), 0)}gm
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Add New Component */}
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <Label className="text-xs">Product</Label>
+                        <select
+                          value={newComponentProductId}
+                          onChange={(e) => setNewComponentProductId(e.target.value)}
+                          className="w-full h-9 px-2 rounded border border-gray-300 text-sm"
+                        >
+                          <option value="">Select product...</option>
+                          {products
+                            .filter(p => p.id !== editProduct?.id && !formData.components.some(c => c.product_id === p.id))
+                            .map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))
+                          }
+                        </select>
+                      </div>
+                      <div className="w-24">
+                        <Label className="text-xs">Weight (gm)</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          placeholder="75"
+                          value={newComponentWeightGm}
+                          onChange={(e) => setNewComponentWeightGm(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-9 text-amber-600 border-amber-300 hover:bg-amber-100"
+                        onClick={() => {
+                          if (!newComponentProductId || !newComponentWeightGm) {
+                            toast.error('Select a product and enter weight');
+                            return;
+                          }
+                          const selectedProduct = products.find(p => p.id === newComponentProductId);
+                          const newComponent = {
+                            product_id: newComponentProductId,
+                            product_name: selectedProduct?.name || '',
+                            weight_gm: parseFloat(newComponentWeightGm)
+                          };
+                          setFormData({
+                            ...formData,
+                            components: [...formData.components, newComponent]
+                          });
+                          setNewComponentProductId('');
+                          setNewComponentWeightGm('');
+                        }}
+                      >
+                        <Plus size={14} className="mr-1" /> Add
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
               {/* Product Image Upload */}
               <div>
                 <Label>Product Image</Label>
@@ -1938,6 +2077,11 @@ export default function Products() {
                       </div>
                     )}
                     <span>{product.name}</span>
+                    {product.is_combo && (
+                      <span className="ml-2 px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-700 rounded">
+                        COMBO
+                      </span>
+                    )}
                   </div>
                 </td>
                 <td>

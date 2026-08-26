@@ -144,6 +144,27 @@
   - Components: Ginger 75gm, Fresh Mint 75gm, Amla 75gm, Lemon 75gm (300gm total)
   - Aliases added for GRN matching
 
+### August 26, 2026 - Products Page Combo Editor UI ✅
+- **Form State Extended** (`Products.js`):
+  - Added `is_combo`, `components`, `aliases` to formData state
+  - Added `newComponentProductId`, `newComponentWeightGm` for component editor
+  
+- **Combo Editor UI**:
+  - Toggle switch for "Combo Product (Bill of Materials)"
+  - When enabled, shows component editor with:
+    - List of current components with product name and weight
+    - Remove button (X) for each component
+    - Total weight calculation
+    - "Add" form: product dropdown + weight input + Add button
+  - Products already added are filtered from dropdown
+  
+- **Product List Enhancement**:
+  - Added "COMBO" badge next to product names that have `is_combo=true`
+  
+- **Save Logic**:
+  - handleSubmit includes is_combo, components, aliases
+  - handleEdit loads existing combo fields
+
 ### August 13, 2026 - Incentives & Allowances Feature ✅
 - **New Feature in Payroll Processing Tab**:
   - Added "Add Incentive/Allowance" button (purple) to record employee incentives and allowances

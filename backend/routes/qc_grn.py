@@ -300,6 +300,9 @@ async def upload_ninjacart_grn_csv(file: UploadFile = File(...), current_user: d
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
     packaging_map = {p['name'].lower(): p for p in packaging_variants}
     
+    # Get all products for alias matching
+    products = await db.products.find({}, {"_id": 0}).to_list(10000)
+    
     # Parse rows and validate against dispatch dates
     # Support both old format (PO_DeliveryDate, Sku Name, GRNQuantity, GRNPrice, WeightUnit)
     # and new format (podate, Sku, GRN_Qty, Total_Value, Kgs_Pcs)

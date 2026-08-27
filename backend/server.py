@@ -80,7 +80,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 # Import modular routers
 from routes import auth_router, labour_router, health_router, users_router, farmers_router, qc_orders_customers_router, qc_indents_dispatches_router, qc_invoices_router, products_packaging_router, qc_grn_router, retail_plans_router, procurement_router, retailer_orders_wastage_router, expenses_router, backup_data_router, gmail_integration_router, dashboard_analytics_router, retailer_portal_router, admin_router
-from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date, save_daily_cogs
+from routes.daily_cogs import router as daily_cogs_router, compute_daily_cogs_for_date, save_daily_cogs, get_all_products
 from routes.background_jobs import router as background_jobs_router
 from routes.cogs_snapshot import router as cogs_snapshot_router
 from routes.field_team import router as field_team_router

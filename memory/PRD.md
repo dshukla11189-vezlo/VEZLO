@@ -200,6 +200,16 @@
   - `newAlias` state for alias input field
   - Reset on form submit and edit load
 
+### August 27, 2026 - Daily COGS Recompute & Scheduler Fix ✅
+- **COGS Gap Identified**: Data stopped at 2026-08-12 (scheduler failing for 15 days)
+- **Root Cause**: `server.py` line 83 was missing `get_all_products` in import from `daily_cogs.py`
+  - Error: `NameError: name 'get_all_products' is not defined`
+- **Fix Applied**: Added `get_all_products` to the import statement
+- **Data Recomputed**: Ran `trigger_cogs_recompute_from_date(db, '2026-08-13')` 
+  - Processed 15 days (2026-08-13 to 2026-08-27)
+  - 130 products per day, all saved successfully
+- **Verification**: Daily COGS scheduler will now run at 11:55 PM IST (18:25 UTC)
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

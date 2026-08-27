@@ -182,6 +182,24 @@
   - `product_by_name_lookup` for stock-status today
   - `product_by_name_map` for stock-status close
 
+### August 27, 2026 - SKU Aliases UI in Products Form ✅
+- **New UI Section** (`Products.js`):
+  - Added "SKU Aliases (Vendor SKUs)" section in product form (after Combo section, before Image)
+  - Blue-themed styling with Tag icon, consistent with existing form sections
+  - Helper text: "Add alternative names used by vendors (e.g., Ninjacart SKU names) for automatic GRN matching"
+
+- **Features**:
+  - Free-text input with placeholder "e.g., Immunity Combo Pack 300gm"
+  - Add button to push alias to `formData.aliases` array
+  - Enter key support for quick addition
+  - Removable list showing current aliases with X button
+  - Preserves exact text without trimming internal spaces
+  - Duplicate detection with toast error
+
+- **State Added**:
+  - `newAlias` state for alias input field
+  - Reset on form submit and edit load
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

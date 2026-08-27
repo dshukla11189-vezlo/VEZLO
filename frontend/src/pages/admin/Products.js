@@ -477,6 +477,9 @@ export default function Products() {
   // Combo component editor state
   const [newComponentProductId, setNewComponentProductId] = useState('');
   const [newComponentWeightGm, setNewComponentWeightGm] = useState('');
+  
+  // Alias editor state
+  const [newAlias, setNewAlias] = useState('');
 
   // Load products (without images for performance)
   const loadProducts = useCallback(async () => {
@@ -1340,6 +1343,7 @@ export default function Products() {
       setImagePreview(null);
       setNewComponentProductId('');
       setNewComponentWeightGm('');
+      setNewAlias('');
       loadProducts();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save product');
@@ -1449,6 +1453,7 @@ export default function Products() {
     setImagePreview(imageUrl || null);
     setNewComponentProductId('');
     setNewComponentWeightGm('');
+    setNewAlias('');
     setOpen(true);
   };
 
@@ -1992,6 +1997,93 @@ export default function Products() {
                     </div>
                   </div>
                 )}
+              </div>
+              
+              {/* SKU Aliases (Vendor SKUs) Section */}
+              <div className="border rounded-lg p-3 bg-blue-50/50">
+                <Label className="text-sm font-semibold text-blue-700 flex items-center gap-2 mb-3">
+                  <Tag size={16} />
+                  SKU Aliases (Vendor SKUs)
+                </Label>
+                <p className="text-xs text-blue-600 mb-3">
+                  Add alternative names used by vendors (e.g., Ninjacart SKU names) for automatic GRN matching.
+                </p>
+                
+                {/* Current Aliases List */}
+                {formData.aliases && formData.aliases.length > 0 && (
+                  <div className="space-y-2 mb-3">
+                    <Label className="text-xs text-gray-600">Current Aliases:</Label>
+                    <div className="space-y-1">
+                      {formData.aliases.map((alias, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-white rounded px-3 py-2 border">
+                          <span className="text-sm font-medium text-gray-700">{alias}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newAliases = formData.aliases.filter((_, i) => i !== idx);
+                              setFormData({ ...formData, aliases: newAliases });
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Add New Alias */}
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    placeholder="e.g., Immunity Combo Pack 300gm"
+                    value={newAlias}
+                    onChange={(e) => setNewAlias(e.target.value)}
+                    className="h-9 flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (newAlias && newAlias.length > 0) {
+                          const aliasToAdd = newAlias; // Preserve exact text without trimming
+                          if (!formData.aliases.includes(aliasToAdd)) {
+                            setFormData({
+                              ...formData,
+                              aliases: [...(formData.aliases || []), aliasToAdd]
+                            });
+                            setNewAlias('');
+                          } else {
+                            toast.error('This alias already exists');
+                          }
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-9 text-blue-600 border-blue-300 hover:bg-blue-100"
+                    onClick={() => {
+                      if (!newAlias || newAlias.length === 0) {
+                        toast.error('Enter an alias name');
+                        return;
+                      }
+                      const aliasToAdd = newAlias; // Preserve exact text without trimming
+                      if (formData.aliases && formData.aliases.includes(aliasToAdd)) {
+                        toast.error('This alias already exists');
+                        return;
+                      }
+                      setFormData({
+                        ...formData,
+                        aliases: [...(formData.aliases || []), aliasToAdd]
+                      });
+                      setNewAlias('');
+                    }}
+                  >
+                    <Plus size={14} className="mr-1" /> Add
+                  </Button>
+                </div>
               </div>
               
               {/* Product Image Upload */}

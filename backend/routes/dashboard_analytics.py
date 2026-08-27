@@ -997,6 +997,11 @@ async def get_pnl_report(
         extended_from_date = from_date
     daily_cogs_map = await get_daily_cogs_map(db, extended_from_date, to_date)
     
+    # Load products early for BOM-based combo detection
+    all_products_early = await db.products.find({}, {"_id": 0}).to_list(500)
+    product_by_name_early = {p.get("name", "").lower().strip(): p for p in all_products_early if p.get("name")}
+    product_by_id_early = {p.get("id"): p for p in all_products_early if p.get("id")}
+    
     # Sales by customer
     sales_by_customer = {}
     sales_by_date = {}
@@ -1126,36 +1131,106 @@ async def get_pnl_report(
             product_by_date[item_dispatch_date][product]["customers"][customer]["qty"] += grn_kg  # Use GRN qty
             
             # Add detailed line item for this customer-product combination
-            # Check if this is a combo product
-            qc_is_combo = is_combo_product(product)
+            # Check if this is a combo product - PREFER database BOM over legacy name parsing
+            db_product = product_by_name_early.get(product.lower().strip())
+            qc_is_combo = False
             qc_combo_info = None
             qc_combo_cogs = 0
             qc_combo_cogs_breakdown = None
             
-            if qc_is_combo:
+            # FIRST: Check database is_combo flag (BOM-based combos like 'Immunity Booster Combo')
+            if db_product and is_combo_product_db(db_product):
+                qc_is_combo = True
+                components = db_product.get("components", [])
+                
+                # Build combo_info from database BOM
+                total_weight_gm = sum(c.get("weight_gm", 0) for c in components)
+                qc_combo_info = {
+                    'name': db_product.get("name"),
+                    'product_id': db_product.get("id"),
+                    'total_weight_gm': total_weight_gm,
+                    'ingredients': [],
+                    'is_combo': True,
+                    'source': 'database_bom'
+                }
+                
+                # Calculate COGS from components using daily_cogs_map
+                combo_cogs_total = 0
+                cogs_breakdown = []
+                
+                for comp in components:
+                    comp_product_id = comp.get("product_id")
+                    comp_name = comp.get("product_name", "")
+                    weight_gm = comp.get("weight_gm", 0)
+                    weight_kg = weight_gm / 1000
+                    
+                    # Look up component product for COGS
+                    comp_product = product_by_id_early.get(comp_product_id, {})
+                    comp_product_name = comp_product.get("name", comp_name)
+                    
+                    # Find COGS rate for this component from daily_cogs_map
+                    cogs_rate = 0
+                    cogs_key = (comp_product_name, item_dispatch_date)
+                    if cogs_key in daily_cogs_map:
+                        cogs_rate = daily_cogs_map[cogs_key]
+                    else:
+                        # Try partial match
+                        for (prod_name, date_str), rate in daily_cogs_map.items():
+                            if date_str == item_dispatch_date and (comp_product_name.lower() in prod_name.lower() or prod_name.lower() in comp_product_name.lower()):
+                                cogs_rate = rate
+                                break
+                    
+                    comp_cogs = weight_kg * cogs_rate
+                    combo_cogs_total += comp_cogs
+                    
+                    qc_combo_info['ingredients'].append({
+                        'name': comp_product_name,
+                        'product_id': comp_product_id,
+                        'weight_gm': weight_gm
+                    })
+                    cogs_breakdown.append({
+                        'name': comp_product_name,
+                        'weight_gm': weight_gm,
+                        'weight_kg': round(weight_kg, 4),
+                        'cogs_rate_per_kg': round(cogs_rate, 2),
+                        'cogs_amount': round(comp_cogs, 2)
+                    })
+                
+                if combo_cogs_total > 0:
+                    qc_combo_cogs = combo_cogs_total * dispatch_qty_units
+                    qc_combo_cogs_breakdown = cogs_breakdown
+                    import logging
+                    logging.info(f"[QC_COMBO_COGS_DB] Product: {product}, Qty: {dispatch_qty_units}, COGS/pack: {combo_cogs_total:.2f}, Total COGS: {qc_combo_cogs:.2f}")
+            
+            # FALLBACK: Legacy name-based combo detection (products with ':' in name)
+            elif is_combo_product(product):
+                qc_is_combo = True
                 qc_combo_info = parse_combo_product(product)
                 if qc_combo_info:
+                    qc_combo_info['source'] = 'legacy_name_parsing'
                     # Calculate combo COGS using daily_cogs_map
                     combo_cogs_result = calculate_combo_cogs(qc_combo_info, daily_cogs_map, item_dispatch_date)
                     if combo_cogs_result and combo_cogs_result.get('total_cogs_per_pack', 0) > 0:
                         qc_combo_cogs = combo_cogs_result['total_cogs_per_pack'] * dispatch_qty_units
                         qc_combo_cogs_breakdown = combo_cogs_result.get('ingredients_breakdown')
                         import logging
-                        logging.info(f"[QC_COMBO_COGS] Product: {product[:50]}, Qty: {dispatch_qty_units}, COGS/pack: {combo_cogs_result['total_cogs_per_pack']}, Total COGS: {qc_combo_cogs}")
-                        
-                        # Update product_by_date purchase for combo products
-                        product_by_date[item_dispatch_date][product]["purchase"] += qc_combo_cogs
-                        product_by_date[item_dispatch_date][product]["purchase_qty"] += dispatch_qty_units
-                        
-                        # Update daily purchase totals for combo
-                        sales_by_date[item_dispatch_date]["purchase"] = sales_by_date[item_dispatch_date].get("purchase", 0) + qc_combo_cogs
-                        sales_by_date[item_dispatch_date]["purchase_qty"] = sales_by_date[item_dispatch_date].get("purchase_qty", 0) + dispatch_qty_units
-                        
-                        # Update product-level purchase tracking
-                        if product not in sales_by_product:
-                            sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
-                        sales_by_product[product]["purchase_amount"] += qc_combo_cogs
-                        sales_by_product[product]["purchase_qty"] += dispatch_qty_units
+                        logging.info(f"[QC_COMBO_COGS_LEGACY] Product: {product[:50]}, Qty: {dispatch_qty_units}, COGS/pack: {combo_cogs_result['total_cogs_per_pack']}, Total COGS: {qc_combo_cogs}")
+            
+            # Update purchase tracking for combo products
+            if qc_is_combo and qc_combo_cogs > 0:
+                # Update product_by_date purchase for combo products
+                product_by_date[item_dispatch_date][product]["purchase"] += qc_combo_cogs
+                product_by_date[item_dispatch_date][product]["purchase_qty"] += dispatch_qty_units
+                
+                # Update daily purchase totals for combo
+                sales_by_date[item_dispatch_date]["purchase"] = sales_by_date[item_dispatch_date].get("purchase", 0) + qc_combo_cogs
+                sales_by_date[item_dispatch_date]["purchase_qty"] = sales_by_date[item_dispatch_date].get("purchase_qty", 0) + dispatch_qty_units
+                
+                # Update product-level purchase tracking
+                if product not in sales_by_product:
+                    sales_by_product[product] = {"sales_amount": 0, "sales_qty": 0, "purchase_amount": 0, "purchase_qty": 0, "wastage_amount": 0}
+                sales_by_product[product]["purchase_amount"] += qc_combo_cogs
+                sales_by_product[product]["purchase_qty"] += dispatch_qty_units
             
             line_items_by_date[item_dispatch_date].append({
                 "customer": customer,
@@ -1187,6 +1262,8 @@ async def get_pnl_report(
     all_products = await db.products.find({}, {"_id": 0}).to_list(500)
     product_id_to_name = {p.get("id"): p.get("name") for p in all_products}
     product_name_to_id = {p.get("name"): p.get("id") for p in all_products}
+    # Build product lookup by name for combo detection (case-insensitive)
+    product_by_name = {p.get("name", "").lower().strip(): p for p in all_products if p.get("name")}
     
     # Load packaging variants for weight lookup
     all_packaging = await db.qc_packaging.find({}, {"_id": 0}).to_list(500)
@@ -1955,7 +2032,9 @@ async def get_pnl_report(
             product_name = pdata.get("product_name", "Unknown")
             
             # Skip combo products for totals (we only want base ingredients)
-            if is_combo_product(product_name):
+            # Check database BOM first, then fall back to legacy name detection
+            db_product = product_by_name_early.get(product_name.lower().strip())
+            if (db_product and is_combo_product_db(db_product)) or is_combo_product(product_name):
                 continue
             
             # Use FRESH values from helper
@@ -1985,8 +2064,13 @@ async def get_pnl_report(
         
         for line_item in line_items:
             if line_item.get('is_combo') and line_item.get('combo_cogs_breakdown'):
-                combo_info = parse_combo_product(line_item['product'])
-                if combo_info:
+                # Get combo_info - prefer stored combo_info (which handles both DB and legacy)
+                combo_info = line_item.get('combo_info')
+                if not combo_info:
+                    # Fallback: try to parse from product name (legacy)
+                    combo_info = parse_combo_product(line_item['product'])
+                
+                if combo_info and combo_info.get('ingredients'):
                     combo_qty_supplied = line_item.get('supplied_qty', 0)
                     
                     # Calculate proportional wastage for this combo
@@ -1995,8 +2079,8 @@ async def get_pnl_report(
                     combo_wastage_breakdown = []
                     
                     for ingredient in combo_info['ingredients']:
-                        ing_name = ingredient['name'].lower().strip()
-                        weight_gm = ingredient['weight_gm']
+                        ing_name = ingredient.get('name', '').lower().strip()
+                        weight_gm = ingredient.get('weight_gm', 0)
                         
                         # How much of this ingredient was used in this combo
                         used_in_combo_kg = (combo_qty_supplied * weight_gm) / 1000
@@ -2017,7 +2101,7 @@ async def get_pnl_report(
                             total_combo_wastage_value += wastage_share_value
                             
                             combo_wastage_breakdown.append({
-                                'ingredient': ingredient['name'],
+                                'ingredient': ingredient.get('name', ing_name),
                                 'used_kg': round(used_in_combo_kg, 4),
                                 'proportion': round(proportion, 4),
                                 'wastage_share_kg': round(wastage_share_kg, 4),
@@ -3302,8 +3386,10 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
         logger.info(f"Fetching today's stock status for date: {today}")
         yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
         
-        # Get all products - only fetch needed fields
-        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "unit": 1, "price_per_kg": 1, "cost_alias_product_id": 1}).to_list(1000)
+        # Get all products - include is_combo and components for BOM detection
+        products = await db.products.find({}, {"_id": 0, "id": 1, "name": 1, "unit": 1, "price_per_kg": 1, "cost_alias_product_id": 1, "is_combo": 1, "components": 1}).to_list(1000)
+        # Build product lookup by name for combo detection
+        product_by_name_lookup = {p.get("name", "").lower().strip(): p for p in products if p.get("name")}
     
         # Get yesterday's closing stock (for opening)
         yesterday_status = await db.daily_stock_status.find(
@@ -3418,7 +3504,9 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
                 all_dispatch_items.append(item)
                 
                 # Skip combo products from direct dispatch counting (they don't have stock status)
-                if is_combo_product(product_name):
+                # Check database BOM first, then fall back to legacy name detection
+                db_product = product_by_name_lookup.get(product_name.lower().strip())
+                if (db_product and is_combo_product_db(db_product)) or is_combo_product(product_name):
                     continue
                 
                 weight_gm = packaging_map.get(packaging_name)
@@ -3448,7 +3536,8 @@ async def get_today_stock_status(current_user: dict = Depends(get_current_user))
             product_name = product["name"]
             
             # Skip combo products from stock status - they shouldn't be tracked
-            if is_combo_product(product_name):
+            # Check database is_combo flag first, then fall back to legacy name detection
+            if is_combo_product_db(product) or is_combo_product(product_name):
                 continue
             
             purchase_data = purchases_by_product.get(product_id, {"qty": 0, "value": 0})
@@ -3547,6 +3636,8 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
     # Get all products
     all_products = await db.products.find({}, {"_id": 0}).to_list(1000)
     product_map = {p["id"]: p for p in all_products}
+    # Build product lookup by name for combo detection
+    product_by_name_map = {p.get("name", "").lower().strip(): p for p in all_products if p.get("name")}
     
     # Get packaging weights from QC packaging table
     packaging_variants = await db.qc_packaging.find({}, {"_id": 0}).to_list(100)
@@ -3637,7 +3728,9 @@ async def close_stock_status(entries: StockClosingBulkEntry, date: Optional[str]
             all_dispatch_items.append(item)
             
             # Skip combo products from direct dispatch counting (they don't have base stock)
-            if is_combo_product(product_name):
+            # Check database BOM first, then fall back to legacy name detection
+            db_product_close = product_by_name_map.get(product_name.lower().strip())
+            if (db_product_close and is_combo_product_db(db_product_close)) or is_combo_product(product_name):
                 continue
             
             weight_gm = packaging_map.get(packaging_name)

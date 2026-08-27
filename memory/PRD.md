@@ -161,6 +161,27 @@
   - No code changes needed when adding new combos
   - Aliases provide flexible SKU name variations
 
+### August 27, 2026 - P&L & Stock Status Database Combo Detection ✅
+- **P&L COGS Calculation Updated** (`dashboard_analytics.py`):
+  - Line ~1130: Changed from `is_combo_product(name)` to check `is_combo_product_db(product)` first
+  - BOM-based combos (like 'Immunity Booster Combo') now calculate COGS from `product.components`
+  - Each component's COGS looked up in `daily_cogs_map` and summed: `total_cogs = Σ(component_weight_kg × cogs_rate)`
+  - Falls back to legacy name parsing for products with `:` in name
+  - Logs `[QC_COMBO_COGS_DB]` for BOM-based and `[QC_COMBO_COGS_LEGACY]` for name-parsed combos
+
+- **Wastage Distribution Updated**:
+  - Line ~2035: Skip combo products from ingredient totals using both DB and legacy checks
+  - Line ~2067: Wastage distribution now uses stored `combo_info` (which handles both DB and legacy sources)
+
+- **Stock Status Endpoints Updated**:
+  - `/api/stock-status/today` (line ~3507, 3537): Excludes combo products using both checks
+  - `/api/stock-status/close` (line ~3731): Excludes combo products from dispatch counting
+
+- **Product Lookup Maps Added**:
+  - `product_by_name_early` for P&L report combo detection
+  - `product_by_name_lookup` for stock-status today
+  - `product_by_name_map` for stock-status close
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

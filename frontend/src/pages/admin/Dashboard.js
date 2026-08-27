@@ -93,6 +93,9 @@ export default function AdminDashboard() {
   const [cogsSortField, setCogsSortField] = useState('product_name');
   const [cogsSortAsc, setCogsSortAsc] = useState(true);
   const [cogsSubTab, setCogsSubTab] = useState('all'); // 'all' | 'qc' | 'retail'
+  const [cogsExportFromDate, setCogsExportFromDate] = useState('');
+  const [cogsExportToDate, setCogsExportToDate] = useState('');
+  const [cogsExporting, setCogsExporting] = useState(false);
   
   // Persist filters to localStorage
   useEffect(() => {
@@ -354,28 +357,37 @@ export default function AdminDashboard() {
       filtered = filtered.filter(p => p.product_name.toLowerCase().includes(cogsSearch.toLowerCase()));
     }
 
-    // Step 3: compute display_sp and sp_cp_multiplier
-    //   QC tab   → qc_sp_per_kg
-    //   Retail tab → retail_sp_per_kg
-    //   All tab  → average of qc_sp_per_kg and retail_sp_per_kg
-    //     - both present: (qc + retail) / 2
-    //     - only one present: use that one
-    //     - neither present: null (renders as "—")
+    // Step 3: compute display_sp, sp_cp_multiplier, and dispatch_qty
+    //   QC tab   → qc_sp_per_kg, qc_dispatch_qty
+    //   Retail tab → retail_sp_per_kg, retail_dispatch_qty
+    //   All tab  → average of qc_sp_per_kg and retail_sp_per_kg, sum of dispatch_qty
     filtered = filtered.map(p => {
       let display_sp = null;
-      if (cogsSubTab === 'qc') display_sp = p.qc_sp_per_kg;
-      else if (cogsSubTab === 'retail') display_sp = p.retail_sp_per_kg;
-      else {
+      let dispatch_qty = null;
+      
+      if (cogsSubTab === 'qc') {
+        display_sp = p.qc_sp_per_kg;
+        dispatch_qty = p.qc_dispatch_qty;
+      } else if (cogsSubTab === 'retail') {
+        display_sp = p.retail_sp_per_kg;
+        dispatch_qty = p.retail_dispatch_qty;
+      } else {
+        // All tab - average SP, sum dispatch qty
         const qc = (p.qc_sp_per_kg && p.qc_sp_per_kg > 0) ? p.qc_sp_per_kg : null;
         const rt = (p.retail_sp_per_kg && p.retail_sp_per_kg > 0) ? p.retail_sp_per_kg : null;
         if (qc != null && rt != null) display_sp = (qc + rt) / 2;
         else display_sp = qc != null ? qc : rt;
+        
+        // Sum dispatch qty from both
+        const qcQty = p.qc_dispatch_qty || 0;
+        const rtQty = p.retail_dispatch_qty || 0;
+        dispatch_qty = (qcQty + rtQty) > 0 ? (qcQty + rtQty) : null;
       }
 
       const sp_cp_multiplier = (display_sp && p.pp_per_kg && p.pp_per_kg > 0)
         ? Math.round((display_sp / p.pp_per_kg) * 100) / 100 : null;
 
-      return { ...p, display_sp, sp_cp_multiplier };
+      return { ...p, display_sp, sp_cp_multiplier, dispatch_qty };
     });
 
     // Step 4: sort (unchanged from prior AA3)
@@ -395,55 +407,119 @@ export default function AdminDashboard() {
     return filtered;
   }, [cogsSnapshot, cogsSearch, cogsSortField, cogsSortAsc, cogsSubTab, cogsSnapshotDate]);
 
-  const exportCogsToExcel = () => {
-    if (!cogsSnapshot?.products) {
-      toast.error('No COGS data to export');
+  const exportCogsToExcel = async () => {
+    // If date range is provided, fetch data for each date in range
+    const fromDate = cogsExportFromDate || cogsSnapshotDate;
+    const toDate = cogsExportToDate || cogsSnapshotDate;
+    
+    if (!fromDate || !toDate) {
+      toast.error('Please select date range for export');
       return;
     }
-    const wb = XLSX.utils.book_new();
-    const tabs = [
-      { key: 'all', label: 'All' },
-      { key: 'qc', label: 'QC' },
-      { key: 'retail', label: 'Retail' },
-    ];
-    tabs.forEach(tab => {
-      // Same filter as AA3
-      const tabProducts = cogsSnapshot.products.filter(p => {
-        const soldQC = p.qc_sp_date === cogsSnapshotDate;
-        const soldRetail = p.retail_invoice_date === cogsSnapshotDate;
-        if (tab.key === 'qc') return soldQC;
-        if (tab.key === 'retail') return soldRetail;
-        return soldQC || soldRetail;
-      });
-      const rows = tabProducts.map((p, idx) => {
-        // Same averaging logic as AA3
-        let sp = null;
-        if (tab.key === 'qc') sp = p.qc_sp_per_kg;
-        else if (tab.key === 'retail') sp = p.retail_sp_per_kg;
-        else {
-          const qc = (p.qc_sp_per_kg && p.qc_sp_per_kg > 0) ? p.qc_sp_per_kg : null;
-          const rt = (p.retail_sp_per_kg && p.retail_sp_per_kg > 0) ? p.retail_sp_per_kg : null;
-          if (qc != null && rt != null) sp = (qc + rt) / 2;
-          else sp = qc != null ? qc : rt;
+    
+    setCogsExporting(true);
+    
+    try {
+      const wb = XLSX.utils.book_new();
+      const tabs = [
+        { key: 'all', label: 'All' },
+        { key: 'qc', label: 'QC' },
+        { key: 'retail', label: 'Retail' },
+      ];
+      
+      // Generate list of dates in range
+      const dates = [];
+      let currentDate = new Date(fromDate);
+      const endDate = new Date(toDate);
+      while (currentDate <= endDate) {
+        dates.push(currentDate.toISOString().split('T')[0]);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Fetch data for each date
+      const allData = {};
+      for (const date of dates) {
+        try {
+          const response = await api.get(`/api/cogs/snapshot?date=${date}`);
+          allData[date] = response.data?.products || [];
+        } catch (error) {
+          console.warn(`Failed to fetch COGS for ${date}:`, error);
+          allData[date] = [];
         }
-        const multiplier = (sp && p.pp_per_kg && p.pp_per_kg > 0)
-          ? Math.round((sp / p.pp_per_kg) * 100) / 100 : '';
-        return {
-          'S No': idx + 1,
-          'Item Name': p.product_name,
-          'Purchase Price (₹/kg)': p.pp_per_kg ?? '',
-          'Sales Price (₹/kg)': sp ?? '',
-          'Unit': p.unit || 'Kg',
-          'SP/CP Multiplier': multiplier,
-          'Last Updated': p.last_updated || '',
-        };
+      }
+      
+      tabs.forEach(tab => {
+        const rows = [];
+        
+        for (const date of dates) {
+          const products = allData[date] || [];
+          
+          // Filter products by tab type
+          const tabProducts = products.filter(p => {
+            const soldQC = p.qc_sp_date === date;
+            const soldRetail = p.retail_invoice_date === date;
+            if (tab.key === 'qc') return soldQC;
+            if (tab.key === 'retail') return soldRetail;
+            return soldQC || soldRetail;
+          });
+          
+          tabProducts.forEach((p, idx) => {
+            // Calculate SP based on tab
+            let sp = null;
+            let dispatchQty = null;
+            
+            if (tab.key === 'qc') {
+              sp = p.qc_sp_per_kg;
+              dispatchQty = p.qc_dispatch_qty;
+            } else if (tab.key === 'retail') {
+              sp = p.retail_sp_per_kg;
+              dispatchQty = p.retail_dispatch_qty;
+            } else {
+              const qc = (p.qc_sp_per_kg && p.qc_sp_per_kg > 0) ? p.qc_sp_per_kg : null;
+              const rt = (p.retail_sp_per_kg && p.retail_sp_per_kg > 0) ? p.retail_sp_per_kg : null;
+              if (qc != null && rt != null) sp = (qc + rt) / 2;
+              else sp = qc != null ? qc : rt;
+              
+              // Sum dispatch qty
+              const qcQty = p.qc_dispatch_qty || 0;
+              const rtQty = p.retail_dispatch_qty || 0;
+              dispatchQty = (qcQty + rtQty) > 0 ? (qcQty + rtQty) : null;
+            }
+            
+            const multiplier = (sp && p.pp_per_kg && p.pp_per_kg > 0)
+              ? Math.round((sp / p.pp_per_kg) * 100) / 100 : '';
+            
+            rows.push({
+              'Date': date,
+              'S No': idx + 1,
+              'Item Name': p.product_name,
+              'Purchase Price (₹/kg)': p.pp_per_kg ?? '',
+              'Sales Price (₹/kg)': sp != null ? Math.round(sp * 100) / 100 : '',
+              'Dispatched Qty (kg)': dispatchQty ?? '',
+              'Unit': p.unit || 'Kg',
+              'SP/CP Multiplier': multiplier,
+              'Last Updated': p.last_updated || '',
+            });
+          });
+        }
+        
+        const ws = XLSX.utils.json_to_sheet(rows);
+        ws['!cols'] = [{wch:12},{wch:6},{wch:25},{wch:18},{wch:18},{wch:16},{wch:8},{wch:14},{wch:14}];
+        XLSX.utils.book_append_sheet(wb, ws, tab.label);
       });
-      const ws = XLSX.utils.json_to_sheet(rows);
-      ws['!cols'] = [{wch:6},{wch:25},{wch:18},{wch:18},{wch:8},{wch:16},{wch:14}];
-      XLSX.utils.book_append_sheet(wb, ws, tab.label);
-    });
-    XLSX.writeFile(wb, `COGS_Snapshot_${cogsSnapshotDate}.xlsx`);
-    toast.success('COGS data exported to Excel!');
+      
+      const filename = fromDate === toDate 
+        ? `COGS_Snapshot_${fromDate}.xlsx`
+        : `COGS_Snapshot_${fromDate}_to_${toDate}.xlsx`;
+      
+      XLSX.writeFile(wb, filename);
+      toast.success(`COGS data exported for ${dates.length} day(s)!`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export COGS data');
+    } finally {
+      setCogsExporting(false);
+    }
   };
   
   // Multi-level expansion states
@@ -3817,14 +3893,34 @@ export default function AdminDashboard() {
                       disabled={cogsLoading}>
                       {cogsLoading ? <RefreshCw className="animate-spin" size={14} /> : <RefreshCw size={14} />}
                     </Button>
-                    <Button size="sm" variant="outline"
-                      onClick={exportCogsToExcel}
-                      disabled={cogsLoading || !cogsSnapshot}
-                      title="Export All / QC / Retail to Excel">
-                      <FileSpreadsheet size={14} className="mr-1" />
-                      Export Excel
-                    </Button>
                   </div>
+                </div>
+                {/* Export Date Range Controls */}
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                    <span>Export Range:</span>
+                    <Input 
+                      type="date" 
+                      value={cogsExportFromDate || cogsSnapshotDate} 
+                      onChange={(e) => setCogsExportFromDate(e.target.value)}
+                      className="h-7 text-xs w-32"
+                    />
+                    <span>to</span>
+                    <Input 
+                      type="date" 
+                      value={cogsExportToDate || cogsSnapshotDate} 
+                      onChange={(e) => setCogsExportToDate(e.target.value)}
+                      className="h-7 text-xs w-32"
+                    />
+                  </div>
+                  <Button size="sm" variant="outline"
+                    onClick={exportCogsToExcel}
+                    disabled={cogsLoading || cogsExporting}
+                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                    title="Export All / QC / Retail to Excel for date range">
+                    {cogsExporting ? <RefreshCw className="animate-spin mr-1" size={14} /> : <FileSpreadsheet size={14} className="mr-1" />}
+                    Export Excel
+                  </Button>
                 </div>
                 {/* Sub-tabs mirror pnlOverviewViewMode pattern */}
                 <div className="flex gap-1 mt-2">
@@ -3885,6 +3981,13 @@ export default function AdminDashboard() {
                               }}>
                             SALES PRICE {cogsSortField === 'display_sp' && (cogsSortAsc ? '▲' : '▼')}
                           </th>
+                          <th className="p-2 text-right font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
+                              onClick={() => {
+                                if (cogsSortField === 'dispatch_qty') setCogsSortAsc(!cogsSortAsc);
+                                else { setCogsSortField('dispatch_qty'); setCogsSortAsc(false); }
+                              }}>
+                            DISPATCHED QTY {cogsSortField === 'dispatch_qty' && (cogsSortAsc ? '▲' : '▼')}
+                          </th>
                           <th className="p-2 text-center font-medium text-gray-500 cursor-pointer hover:bg-gray-100"
                               onClick={() => {
                                 if (cogsSortField === 'unit') setCogsSortAsc(!cogsSortAsc);
@@ -3910,7 +4013,7 @@ export default function AdminDashboard() {
                       </thead>
                       <tbody>
                         {filteredCogsProducts.length === 0 ? (
-                          <tr><td colSpan={7} className="p-8 text-center text-gray-400">
+                          <tr><td colSpan={8} className="p-8 text-center text-gray-400">
                             {cogsSearch ? 'No products match your search' : 'No items sold on this date'}
                           </td></tr>
                         ) : (
@@ -3926,6 +4029,11 @@ export default function AdminDashboard() {
                               <td className="p-2 text-right">
                                 {product.display_sp != null
                                   ? <span className="font-medium">₹{product.display_sp.toLocaleString()}</span>
+                                  : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="p-2 text-right">
+                                {product.dispatch_qty != null
+                                  ? <span className="font-medium">{product.dispatch_qty.toLocaleString()}</span>
                                   : <span className="text-gray-300">—</span>}
                               </td>
                               <td className="p-2 text-center text-gray-500">{product.unit || 'Kg'}</td>

@@ -102,6 +102,7 @@ async def get_cogs_snapshot(
     
     # Build QC SP map with carry-forward
     qc_sp_by_product_date = {}  # {(product_name, date): {"total_value": x, "total_qty": y}}
+    qc_qty_by_product = {}  # Track total QC dispatch qty for target date
     
     for grn in qc_grns:
         for item in grn.get("items", []):
@@ -118,6 +119,12 @@ async def get_cogs_snapshot(
                 qc_sp_by_product_date[key] = {"total_value": 0, "total_qty": 0}
             qc_sp_by_product_date[key]["total_value"] += rate_per_kg * qty_kg
             qc_sp_by_product_date[key]["total_qty"] += qty_kg
+            
+            # Track dispatch qty for target date
+            if dispatch_date == target_date_str:
+                if pname not in qc_qty_by_product:
+                    qc_qty_by_product[pname] = 0
+                qc_qty_by_product[pname] += qty_kg
     
     # Find QC SP for each product with carry-forward
     qc_sp_by_product = {}
@@ -150,6 +157,7 @@ async def get_cogs_snapshot(
     
     # Build Retail SP map
     retail_sp_by_product_date = {}  # {(product_name, date): {"total_value": x, "total_qty_kg": y}}
+    retail_qty_by_product = {}  # Track total retail dispatch qty for target date
     
     for dispatch in retail_dispatches:
         # Bug1-fix: permanently exclude Wholesale from Retail SP (customer's explicit exclusion ask)
@@ -187,6 +195,12 @@ async def get_cogs_snapshot(
                 retail_sp_by_product_date[key] = {"total_value": 0, "total_qty_kg": 0}
             retail_sp_by_product_date[key]["total_value"] += total_value
             retail_sp_by_product_date[key]["total_qty_kg"] += qty_kg
+            
+            # Track dispatch qty for target date
+            if dispatch_date == target_date_str:
+                if pname not in retail_qty_by_product:
+                    retail_qty_by_product[pname] = 0
+                retail_qty_by_product[pname] += qty_kg
     
     # Find Retail SP for each product with carry-forward
     retail_sp_by_product = {}
@@ -292,6 +306,10 @@ async def get_cogs_snapshot(
         
         # Only include products that have at least one data point
         if pp_value > 0 or qc_data.get("value", 0) > 0 or retail_data.get("value", 0) > 0:
+            # Get dispatch quantities for target date
+            qc_dispatch_qty = round(qc_qty_by_product.get(pname, 0), 2)
+            retail_dispatch_qty = round(retail_qty_by_product.get(pname, 0), 2)
+            
             result.append({
                 "product_name": pname,
                 "product_id": pinfo.get("id"),
@@ -301,8 +319,10 @@ async def get_cogs_snapshot(
                 "pp_change": pp_change,
                 "qc_sp_per_kg": qc_data.get("value"),
                 "qc_sp_date": qc_data.get("date"),
+                "qc_dispatch_qty": qc_dispatch_qty if qc_dispatch_qty > 0 else None,
                 "retail_sp_per_kg": retail_data.get("value"),
                 "retail_sp_date": retail_data.get("date"),
+                "retail_dispatch_qty": retail_dispatch_qty if retail_dispatch_qty > 0 else None,
                 "retail_invoice_date": retail_invoice_date_by_product.get(pname),  # AA-backend: invoice-based date for Retail tab
                 "last_updated": last_updated
             })

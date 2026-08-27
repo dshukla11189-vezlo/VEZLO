@@ -253,6 +253,23 @@
   - Filename includes date range: `Variable_Expenses_{from}_to_{to}.xlsx`
   - Proper column widths for readability
 
+### August 27, 2026 - COGS Tab Enhancements ✅
+- **Dispatched Qty Column Added**:
+  - Backend (`cogs_snapshot.py`): Added `qc_dispatch_qty` and `retail_dispatch_qty` to API response
+  - Frontend (`Dashboard.js`): New "DISPATCHED QTY" column in table (between Sales Price and Unit)
+  - All tab shows sum of QC + Retail dispatch qty
+  - QC tab shows QC-specific dispatch qty
+  - Retail tab shows Retail-specific dispatch qty
+  - Column is sortable
+
+- **Date Range Export**:
+  - Added "Export Range:" with From/To date pickers above the sub-tabs
+  - Export fetches COGS data for each date in the range (API calls per date)
+  - Excel file includes 3 sheets: All, QC, Retail
+  - Each sheet includes: Date, S No, Item Name, Purchase Price, Sales Price, Dispatched Qty, Unit, SP/CP Multiplier, Last Updated
+  - Filename format: `COGS_Snapshot_{from}_to_{to}.xlsx` or `COGS_Snapshot_{date}.xlsx` for single date
+  - Loading indicator during export
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

@@ -2161,23 +2161,13 @@ async def get_pnl_report(
                                 'wastage_share_value': round(wastage_share_value, 2)
                             })
                     
-                    # Update line item with proportional wastage
-                    line_item['wastage_kg'] = round(total_combo_wastage_kg, 4)
-                    line_item['wastage_value'] = round(total_combo_wastage_value, 2)
-                    line_item['combo_wastage_breakdown'] = combo_wastage_breakdown
-                    
-                    # SUBTRACT combo wastage shares from product_by_date so regular line items
-                    # only distribute the REMAINING wastage (prevents double-counting)
-                    for cwb_item in combo_wastage_breakdown:
-                        cwb_ingredient = cwb_item['ingredient']
-                        cwb_value = cwb_item['wastage_share_value']
-                        for prod_key in list(product_by_date.get(date_key, {}).keys()):
-                            if prod_key.lower().strip() == cwb_ingredient.lower().strip():
-                                product_by_date[date_key][prod_key]["wastage"] = max(
-                                    0,
-                                    product_by_date[date_key][prod_key]["wastage"] - cwb_value
-                                )
-                                break
+                    # OPTION 2: Wastage stays on constituent product lines, combo shows zero wastage.
+                    # The constituents already include the combo's exploded consumption via 
+                    # add_combo_ingredient_dispatches, so we do NOT add combo wastage here.
+                    # Set combo line's own wastage to 0
+                    line_item['wastage_kg'] = 0
+                    line_item['wastage_value'] = 0
+                    line_item['combo_wastage_breakdown'] = []  # Clear breakdown since we're not using it
 
     # ========== VARIABLE EXPENSES ==========
     variable_expenses = await db.variable_expenses.find({
@@ -2566,12 +2556,12 @@ async def get_pnl_report(
                 # total pool is 110 kg and wastage is distributed proportionally
                 total_kg_for_alias_group = product_total_supplied_kg_with_alias.get(wastage_lookup_product, 0)
                 
-                # For COMBO products: use the pre-calculated wastage from combo_wastage_breakdown
-                # This was calculated earlier by distributing ingredient wastage proportionally
-                if is_combo and item.get("combo_wastage_breakdown"):
-                    # Sum up the wastage from all ingredients in the combo
-                    wastage_kg = sum(w.get('wastage_share_kg', 0) for w in item["combo_wastage_breakdown"])
-                    wastage_value = sum(w.get('wastage_share_value', 0) for w in item["combo_wastage_breakdown"])
+                # For COMBO products: OPTION 2 - wastage stays on constituent lines, combo shows zero
+                # The constituents already include the combo's exploded consumption via 
+                # add_combo_ingredient_dispatches, so combo line itself has zero wastage
+                if is_combo:
+                    wastage_kg = 0
+                    wastage_value = 0
                 else:
                     # Regular products: distribute wastage from total pool
                     # For wastage, combine quantities of aliased products

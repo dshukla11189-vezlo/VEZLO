@@ -226,6 +226,17 @@
   3. Try exact match, then partial match on fallback date
   4. Final fallback: fresh procurement rate or avg_price
 
+### August 27, 2026 - Combo Wastage Option 2 ✅
+- **Switch to Option 2**: Wastage stays on constituent product lines, combo's own line shows zero wastage
+- **Rationale**: Constituents already include combo's exploded consumption via `add_combo_ingredient_dispatches`
+
+- **Changes Made** (`dashboard_analytics.py`):
+  1. **Lines 2164-2167**: Set combo line's wastage to 0 (`wastage_kg=0`, `wastage_value=0`, `combo_wastage_breakdown=[]`)
+  2. **Lines 2169-2180**: REMOVED the subtraction block that was reducing constituent wastage by combo's share
+  3. **Lines 2559-2580**: Presentation layer now zeroes combo wastage (`if is_combo: wastage_kg=0, wastage_value=0`)
+
+- **Result**: Ingredient lines keep their full wastage; combo lines show zero wastage but retain their COGS
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

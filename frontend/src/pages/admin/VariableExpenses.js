@@ -11,8 +11,9 @@ import { Checkbox } from '../../components/ui/checkbox';
 import { 
   Plus, Receipt, Filter, Calendar, Edit2, Trash2, RefreshCw, 
   CheckCircle, Clock, AlertCircle, DollarSign, Users, Search, Eye, IndianRupee,
-  Copy, Building2, UserPlus
+  Copy, Building2, UserPlus, FileSpreadsheet
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const EXPENSE_CATEGORIES = [
   'Transportation',
@@ -911,6 +912,96 @@ export default function VariableExpenses() {
     return acc;
   }, {});
 
+  // Export to Excel function
+  const exportToExcel = () => {
+    if (expenses.length === 0) {
+      toast.error('No expenses to export');
+      return;
+    }
+
+    try {
+      // Prepare data for export
+      const exportData = expenses.map((expense, index) => ({
+        'S.No': index + 1,
+        'Date': expense.date ? new Date(expense.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+        'Category': expense.category || '',
+        'Description': expense.description || '',
+        'Rate (₹)': expense.rate || 0,
+        'Quantity': expense.quantity || 1,
+        'Amount (₹)': expense.amount || 0,
+        'Vertical': expense.vertical === 'all' ? 'All' : expense.vertical === 'qc' ? 'QC' : expense.vertical === 'retail' ? 'Retail' : expense.vertical || 'All',
+        'Paid To': expense.paid_to || '',
+        'Paid By': expense.paid_by || 'Company',
+        'Payment Mode': expense.payment_mode || '',
+        'Payment Status': expense.payment_status === 'paid' ? 'Paid' : expense.payment_status === 'partially_paid' ? 'Partially Paid' : 'Pending',
+        'Paid Amount (₹)': expense.paid_amount || 0,
+        'Settlement Status': expense.settlement_status === 'settled' ? 'Settled' : expense.settlement_status === 'partial' ? 'Partial' : 'Unsettled',
+        'Receipt No': expense.receipt_no || '',
+        'Payment Reference': expense.payment_reference || ''
+      }));
+
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 6 },   // S.No
+        { wch: 12 },  // Date
+        { wch: 15 },  // Category
+        { wch: 30 },  // Description
+        { wch: 10 },  // Rate
+        { wch: 8 },   // Quantity
+        { wch: 12 },  // Amount
+        { wch: 10 },  // Vertical
+        { wch: 20 },  // Paid To
+        { wch: 15 },  // Paid By
+        { wch: 12 },  // Payment Mode
+        { wch: 14 },  // Payment Status
+        { wch: 12 },  // Paid Amount
+        { wch: 14 },  // Settlement Status
+        { wch: 12 },  // Receipt No
+        { wch: 15 }   // Payment Reference
+      ];
+
+      // Add summary row
+      const totalRow = {
+        'S.No': '',
+        'Date': '',
+        'Category': '',
+        'Description': 'TOTAL',
+        'Rate (₹)': '',
+        'Quantity': '',
+        'Amount (₹)': totalAmount,
+        'Vertical': '',
+        'Paid To': '',
+        'Paid By': '',
+        'Payment Mode': '',
+        'Payment Status': '',
+        'Paid Amount (₹)': expenses.reduce((sum, e) => sum + (e.paid_amount || 0), 0),
+        'Settlement Status': '',
+        'Receipt No': '',
+        'Payment Reference': ''
+      };
+      XLSX.utils.sheet_add_json(ws, [totalRow], { skipHeader: true, origin: -1 });
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Variable Expenses');
+
+      // Generate filename with date range
+      const fromStr = filterDateFrom || 'start';
+      const toStr = filterDateTo || new Date().toISOString().split('T')[0];
+      const filename = `Variable_Expenses_${fromStr}_to_${toStr}.xlsx`;
+
+      // Download the file
+      XLSX.writeFile(wb, filename);
+      toast.success(`Exported ${expenses.length} expenses to Excel`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export expenses');
+    }
+  };
+
   return (
     <Layout>
       <div data-testid="variable-expenses-page">
@@ -952,6 +1043,15 @@ export default function VariableExpenses() {
               className="text-gray-600"
             >
               <Building2 size={14} className="mr-1" /> Manage Vendors
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={exportToExcel}
+              className="text-blue-600 border-blue-300 hover:bg-blue-50"
+              data-testid="export-excel-btn"
+            >
+              <FileSpreadsheet size={14} className="mr-1" /> Export Excel
             </Button>
             <Button size="sm" onClick={() => { resetForm(); setShowAddDialog(true); }} className="bg-[#14532D] hover:bg-[#166534]">
               <Plus size={14} className="mr-1" /> Add Expense

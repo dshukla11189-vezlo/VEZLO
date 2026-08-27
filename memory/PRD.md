@@ -237,6 +237,22 @@
 
 - **Result**: Ingredient lines keep their full wastage; combo lines show zero wastage but retain their COGS
 
+### August 27, 2026 - Variable Expenses Export Excel ✅
+- **New Feature** (`VariableExpenses.js`):
+  - Added "Export Excel" button in header (blue theme with FileSpreadsheet icon)
+  - Uses XLSX library for proper Excel file generation
+  
+- **Export Columns**:
+  - S.No, Date, Category, Description, Rate, Quantity, Amount
+  - Vertical, Paid To, Paid By, Payment Mode, Payment Status
+  - Paid Amount, Settlement Status, Receipt No, Payment Reference
+  
+- **Features**:
+  - Exports currently filtered expenses (respects date filters, category, status, etc.)
+  - Includes TOTAL summary row at bottom
+  - Filename includes date range: `Variable_Expenses_{from}_to_{to}.xlsx`
+  - Proper column widths for readability
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

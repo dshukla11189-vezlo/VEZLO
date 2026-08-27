@@ -1169,16 +1169,43 @@ async def get_pnl_report(
                     comp_product_name = comp_product.get("name", comp_name)
                     
                     # Find COGS rate for this component from daily_cogs_map
+                    # Build available dates for fallback (sorted descending)
+                    available_dates = sorted(set(d for (p, d) in daily_cogs_map.keys()), reverse=True)
                     cogs_rate = 0
+                    cogs_date_used = item_dispatch_date
+                    
+                    # Try exact date match first
                     cogs_key = (comp_product_name, item_dispatch_date)
                     if cogs_key in daily_cogs_map:
                         cogs_rate = daily_cogs_map[cogs_key]
                     else:
-                        # Try partial match
+                        # Try partial match for exact date
+                        found = False
                         for (prod_name, date_str), rate in daily_cogs_map.items():
                             if date_str == item_dispatch_date and (comp_product_name.lower() in prod_name.lower() or prod_name.lower() in comp_product_name.lower()):
                                 cogs_rate = rate
+                                found = True
                                 break
+                        
+                        # FALLBACK: If not found for exact date, try the most recent available date on or before dispatch date
+                        if not found and available_dates:
+                            for fallback_date in available_dates:
+                                if fallback_date <= item_dispatch_date:  # Only use dates up to the dispatch date
+                                    # Try exact match on fallback date
+                                    fallback_key = (comp_product_name, fallback_date)
+                                    if fallback_key in daily_cogs_map:
+                                        cogs_rate = daily_cogs_map[fallback_key]
+                                        cogs_date_used = fallback_date
+                                        break
+                                    # Try partial match on fallback date
+                                    for (prod_name, d), rate in daily_cogs_map.items():
+                                        if d == fallback_date and (comp_product_name.lower() in prod_name.lower() or prod_name.lower() in comp_product_name.lower()):
+                                            cogs_rate = rate
+                                            cogs_date_used = fallback_date
+                                            found = True
+                                            break
+                                    if found:
+                                        break
                     
                     comp_cogs = weight_kg * cogs_rate
                     combo_cogs_total += comp_cogs
@@ -1978,15 +2005,41 @@ async def get_pnl_report(
         # If helper didn't have data, fallback to stored values with COGS pricing
         if not fresh_product_data:
             wastage_qty = status.get("wastage_qty", 0) or 0
+            wastage_rate = 0
+            
+            # Try exact date match first
             daily_cogs_key = (product, status_date)
             if daily_cogs_key in daily_cogs_map and daily_cogs_map[daily_cogs_key] > 0:
                 wastage_rate = daily_cogs_map[daily_cogs_key]
             else:
-                # Fallback to fresh procurement rate
-                fresh_purchase = fresh_purchases_by_date_product.get(status_date, {}).get(product_id, {"qty": 0, "value": 0})
-                purchase_qty = fresh_purchase.get("qty", 0)
-                purchase_value = fresh_purchase.get("value", 0)
-                wastage_rate = purchase_value / purchase_qty if purchase_qty > 0 else (status.get("avg_price", 0) or 0)
+                # FALLBACK: Try the most recent available date on or before status_date
+                wastage_available_dates = sorted(set(d for (p, d) in daily_cogs_map.keys()), reverse=True)
+                fallback_found = False
+                
+                for fallback_date in wastage_available_dates:
+                    if fallback_date <= status_date:  # Only use dates up to the status date
+                        # Try exact match on fallback date
+                        fallback_key = (product, fallback_date)
+                        if fallback_key in daily_cogs_map and daily_cogs_map[fallback_key] > 0:
+                            wastage_rate = daily_cogs_map[fallback_key]
+                            fallback_found = True
+                            break
+                        # Try partial match on fallback date
+                        for (prod_name, d), rate in daily_cogs_map.items():
+                            if d == fallback_date and rate > 0 and (product.lower() in prod_name.lower() or prod_name.lower() in product.lower()):
+                                wastage_rate = rate
+                                fallback_found = True
+                                break
+                        if fallback_found:
+                            break
+                
+                # Final fallback: fresh procurement rate
+                if wastage_rate == 0:
+                    fresh_purchase = fresh_purchases_by_date_product.get(status_date, {}).get(product_id, {"qty": 0, "value": 0})
+                    purchase_qty = fresh_purchase.get("qty", 0)
+                    purchase_value = fresh_purchase.get("value", 0)
+                    wastage_rate = purchase_value / purchase_qty if purchase_qty > 0 else (status.get("avg_price", 0) or 0)
+            
             wastage_value = round(wastage_qty * wastage_rate, 2)
             fresh_dispatch_qty = status.get("dispatch_qty", 0) or 0
         

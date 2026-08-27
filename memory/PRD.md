@@ -210,6 +210,22 @@
   - 130 products per day, all saved successfully
 - **Verification**: Daily COGS scheduler will now run at 11:55 PM IST (18:25 UTC)
 
+### August 27, 2026 - COGS Lookup Date Fallback ✅
+- **Problem**: QC combo COGS lookup (line ~1171) and wastage-rate lookup (line ~2008) only matched exact dispatch date with no fallback
+- **Solution**: Added fallback to most recent available date on or before dispatch date (matching `combo_utils.py` pattern)
+
+- **QC Combo COGS Lookup** (lines 1171-1210):
+  1. Try exact date match: `(comp_product_name, item_dispatch_date)`
+  2. Try partial name match for exact date
+  3. FALLBACK: Loop through `available_dates` (sorted descending), find most recent ≤ dispatch date
+  4. Try exact match, then partial match on fallback date
+
+- **Wastage Rate Lookup** (lines 2006-2040):
+  1. Try exact date match: `(product, status_date)`
+  2. FALLBACK: Loop through dates descending, find most recent ≤ status date
+  3. Try exact match, then partial match on fallback date
+  4. Final fallback: fresh procurement rate or avg_price
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

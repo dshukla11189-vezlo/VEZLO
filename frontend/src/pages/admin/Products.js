@@ -2185,6 +2185,8 @@ export default function Products() {
                       product.product_type === 'Leafy' ? 'bg-emerald-100 text-emerald-700' :
                       product.product_type === 'Herbs' ? 'bg-teal-100 text-teal-700' :
                       product.product_type === 'Mushrooms' ? 'bg-amber-100 text-amber-700' :
+                      product.product_type === 'Flowers' ? 'bg-pink-100 text-pink-700' :
+                      product.product_type === 'Sprouts' ? 'bg-cyan-100 text-cyan-700' :
                       'bg-gray-100 text-gray-600'
                     }`}>
                       {product.product_type}

@@ -2764,8 +2764,11 @@ export default function RetailerOrders() {
       const indentIds = filteredIndents.map(i => i.id).filter(Boolean);
       if (indentIds.length === 0) return;
       
-      // Load dispatches for these indents (no date filter)
-      const response = await api.get('/api/retailer-dispatches');
+      // Load dispatches scoped to the same retailer as the visible indents (no date filter,
+      // since indent/dispatch date filters can differ independently) instead of the whole collection.
+      const retailerScope = indentRetailerFilter || selectedRetailer;
+      const dispatchParams = retailerScope ? `?retailer_id=${retailerScope}` : '';
+      const response = await api.get(`/api/retailer-dispatches${dispatchParams}`);
       const allDispatches = response.data || [];
       
       // Filter to only dispatches for our indents
@@ -2780,7 +2783,7 @@ export default function RetailerOrders() {
     } catch (error) {
       console.error('Failed to load dispatches for indents:', error);
     }
-  }, [filteredIndents]);
+  }, [filteredIndents, indentRetailerFilter, selectedRetailer]);
 
   // Load dispatches for indents when filtered indents change
   useEffect(() => {
@@ -11833,6 +11836,7 @@ export default function RetailerOrders() {
                                   'Fruits': 'bg-orange-600',
                                   'Exotic': 'bg-purple-600',
                                   'Sprouts': 'bg-cyan-600',
+                                  'Flowers': 'bg-pink-600',
                                   'Others': 'bg-gray-600'
                                 };
                                 
@@ -11867,7 +11871,7 @@ export default function RetailerOrders() {
                                         return (
                                           <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '420px'}}>
                                             <div 
-                                              className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
+                                              className={`${categoryColors[category] || 'bg-gray-600'} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
                                             >
                                               <div className="flex items-center gap-2">
@@ -11957,7 +11961,7 @@ export default function RetailerOrders() {
                                         return (
                                           <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '420px'}}>
                                             <div 
-                                              className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
+                                              className={`${categoryColors[category] || 'bg-gray-600'} text-white px-3 py-2 flex items-center cursor-pointer`}
                                               onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
                                             >
                                               <div className="flex items-center gap-2">
@@ -12325,7 +12329,7 @@ export default function RetailerOrders() {
                                           return (
                                             <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '320px'}}>
                                               <div 
-                                                className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
+                                                className={`${categoryColors[category] || 'bg-gray-600'} text-white px-3 py-2 flex items-center cursor-pointer`}
                                                 onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
                                               >
                                                 <div className="flex items-center gap-2">
@@ -12400,7 +12404,7 @@ export default function RetailerOrders() {
                                           return (
                                             <div key={category} className="border rounded-lg overflow-hidden" style={{width: 'fit-content', minWidth: '320px'}}>
                                               <div 
-                                                className={`${categoryColors[category]} text-white px-3 py-2 flex items-center cursor-pointer`}
+                                                className={`${categoryColors[category] || 'bg-gray-600'} text-white px-3 py-2 flex items-center cursor-pointer`}
                                                 onClick={() => setExpandedCategories(prev => ({ ...prev, [catKey]: !isExpanded }))}
                                               >
                                                 <div className="flex items-center gap-2">

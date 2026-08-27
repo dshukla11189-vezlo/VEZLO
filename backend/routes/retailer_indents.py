@@ -18,6 +18,9 @@ router = APIRouter(prefix="/api", tags=["retailer_indents"])
 @router.get("/retailer-indents")
 async def get_retailer_indents(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 1000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -26,8 +29,16 @@ async def get_retailer_indents(
         query["retailer_id"] = current_user["user_id"]
     elif retailer_id:
         query["retailer_id"] = retailer_id
-    
-    indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(1000)
+
+    if start_date or end_date:
+        date_filter = {}
+        if start_date:
+            date_filter["$gte"] = start_date[:10]
+        if end_date:
+            date_filter["$lte"] = end_date[:10] + "T23:59:59.999999"
+        query["indent_date"] = date_filter
+
+    indents = await db.retailer_indents.find(query, {"_id": 0}).sort("indent_date", -1).to_list(min(limit, 1000))
     return indents
 
 
@@ -128,6 +139,9 @@ async def get_previous_retailer_indent(retailer_id: str, current_user: dict = De
 @router.get("/retailer-dispatches")
 async def get_retailer_dispatches(
     retailer_id: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    limit: int = 1000,
     current_user: dict = Depends(get_current_user)
 ):
     query = {}
@@ -135,8 +149,16 @@ async def get_retailer_dispatches(
         query["retailer_id"] = current_user["user_id"]
     elif retailer_id:
         query["retailer_id"] = retailer_id
-    
-    dispatches = await db.retailer_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(1000)
+
+    if start_date or end_date:
+        date_filter = {}
+        if start_date:
+            date_filter["$gte"] = start_date[:10]
+        if end_date:
+            date_filter["$lte"] = end_date[:10] + "T23:59:59.999999"
+        query["dispatch_date"] = date_filter
+
+    dispatches = await db.retailer_dispatches.find(query, {"_id": 0}).sort("dispatch_date", -1).to_list(min(limit, 1000))
     return dispatches
 
 

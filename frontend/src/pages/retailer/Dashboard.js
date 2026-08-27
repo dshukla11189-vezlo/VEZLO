@@ -1734,6 +1734,8 @@ export default function RetailerDashboard({
       case 'Exotic': return 'bg-purple-100 text-purple-700 border-purple-200';
       case 'Herbs': return 'bg-teal-100 text-teal-700 border-teal-200';
       case 'Mushrooms': return 'bg-amber-100 text-amber-700 border-amber-200';
+      case 'Flowers': return 'bg-pink-100 text-pink-700 border-pink-200';
+      case 'Sprouts': return 'bg-cyan-100 text-cyan-700 border-cyan-200';
       default: return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };

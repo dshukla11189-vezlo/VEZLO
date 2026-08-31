@@ -3481,6 +3481,36 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
   - **Categories collapsed by default** - Product categories on Create Order page now start collapsed (user clicks to expand)
   - **Cart Modal shows translated names** - Product names in cart modal respect selected catalogue language
 
+### August 31, 2026 - Non-Ninjacart QC GRN Enhancements ✅
+- **Company-wise Saved GRN Display**: 
+  - Separated "Saved GRN Records" section into two parts:
+    1. **Other QC Customers (Non-Ninjacart)** - Groups saved GRNs by company (e.g., Amazon), then by date
+    2. **Ninjacart GRN Records** - Keeps the existing date-grouped view
+  - Each company accordion shows total value and item count
+  - Expandable date rows within each company section
+
+- **Fixed Manual GRN Field Mapping**:
+  - Added `normalizeItem()` helper to handle both Ninjacart and manual entry field names:
+    - `supplied_qty_kg` → `supplied_qty`
+    - `grn_qty_kg` → `grn_qty`
+    - `value` → `amount`
+    - Auto-calculates `difference` if not present
+  - Supplied column now displays clean numeric values (no redundant "1000 gm" text)
+
+- **Flexible Backend PUT Endpoint**:
+  - Updated `/api/qc-grns/{grn_id}` PUT to accept flexible dict instead of strict `QCGRNCreate` schema
+  - Now properly handles both Ninjacart (supplied_qty, grn_qty) and manual entry (supplied_qty_kg, grn_qty_kg) formats
+  - Merges existing GRN data with updates to preserve manual entry fields
+
+- **Payment Recording for Non-Ninjacart Customers**:
+  - "Record Payment" button now works for manual GRN entries (Amazon, etc.)
+  - Payment status shows as green checkmark with "Paid" label
+  - Edit/Delete payment functionality via same bulk payment modal
+
+- **Files Modified**:
+  - `frontend/src/pages/admin/QuickCommerce.js` (Lines 5706-6133 - Saved GRN rendering)
+  - `backend/routes/qc_grn.py` (Lines 111-150 - Flexible PUT endpoint)
+
 ### Completed (This Session - 21 May 2026)
 - **Payment Details Redesign (Replaces "Immediately Payable")** ✅ (P0 - VERIFIED)
   - **New Component**: Renamed "Immediately Payable" to "Payment Details" on Retailer Dashboard

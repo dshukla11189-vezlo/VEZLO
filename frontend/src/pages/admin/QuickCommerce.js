@@ -5222,7 +5222,7 @@ Email: ${companyEmail}`;
                                                   <td className="p-2 text-center text-gray-400">{idx + 1}</td>
                                                   <td className="p-2 font-medium">{item.product_name}</td>
                                                   <td className="p-2 text-gray-500">{item.packaging_name || '-'}</td>
-                                                  <td className="p-2 text-right">{item.supplied_qty} {item.unit}</td>
+                                                  <td className="p-2 text-right">{item.supplied_qty}</td>
                                                   <td className="p-1">
                                                     <Input
                                                       type="number"
@@ -5706,26 +5706,299 @@ Email: ${companyEmail}`;
                 ) : savedGrnData.length === 0 ? (
                   <p className="text-sm text-gray-500 text-center py-4">No GRN records found for selected date range</p>
                 ) : (
-                  /* Group GRNs by dispatch date */
+                  /* Group GRNs - separate Ninjacart (by date) from Others (by company) */
                   (() => {
-                    // Group all items by dispatch date
+                    // Separate Ninjacart and non-Ninjacart GRNs
+                    const ninjacartGrns = savedGrnData.filter(grn => 
+                      grn.customer_name?.toLowerCase().includes('ninja') && grn.source !== 'manual_entry'
+                    );
+                    const otherGrns = savedGrnData.filter(grn => 
+                      !grn.customer_name?.toLowerCase().includes('ninja') || grn.source === 'manual_entry'
+                    );
+                    
+                    // Helper to normalize item fields (manual entries use different field names)
+                    const normalizeItem = (item, grn) => {
+                      const suppliedQty = item.supplied_qty ?? item.supplied_qty_kg ?? 0;
+                      const grnQty = item.grn_qty ?? item.grn_qty_kg ?? 0;
+                      const amount = item.amount ?? item.value ?? 0;
+                      const difference = item.difference ?? (grnQty - suppliedQty);
+                      return {
+                        ...item,
+                        supplied_qty: suppliedQty,
+                        grn_qty: grnQty,
+                        amount: amount,
+                        difference: difference,
+                        customer_name: grn.customer_name,
+                        source: grn.source
+                      };
+                    };
+                    
+                    // Group Ninjacart items by dispatch date
                     const itemsByDate = {};
-                    savedGrnData.forEach(grn => {
+                    ninjacartGrns.forEach(grn => {
                       grn.items?.forEach((item, itemIndex) => {
                         const date = item.dispatch_date || 'Unknown';
                         if (!itemsByDate[date]) {
                           itemsByDate[date] = { items: [], grnIds: new Set() };
                         }
                         // Store the original item index along with grnId for proper deletion
-                        itemsByDate[date].items.push({ ...item, grnId: grn.id, originalItemIndex: itemIndex });
+                        itemsByDate[date].items.push({ ...normalizeItem(item, grn), grnId: grn.id, originalItemIndex: itemIndex });
                         itemsByDate[date].grnIds.add(grn.id);
                       });
                     });
                     
+                    // Group Other QC customers by company, then by date
+                    const itemsByCompany = {};
+                    otherGrns.forEach(grn => {
+                      const company = grn.customer_name || 'Unknown';
+                      if (!itemsByCompany[company]) {
+                        itemsByCompany[company] = { dates: {}, totalValue: 0, grnIds: new Set() };
+                      }
+                      grn.items?.forEach((item, itemIndex) => {
+                        const date = item.dispatch_date || 'Unknown';
+                        if (!itemsByCompany[company].dates[date]) {
+                          itemsByCompany[company].dates[date] = { items: [], grnIds: new Set() };
+                        }
+                        const normalizedItem = { ...normalizeItem(item, grn), grnId: grn.id, originalItemIndex: itemIndex };
+                        itemsByCompany[company].dates[date].items.push(normalizedItem);
+                        itemsByCompany[company].dates[date].grnIds.add(grn.id);
+                        itemsByCompany[company].grnIds.add(grn.id);
+                        itemsByCompany[company].totalValue += normalizedItem.amount || 0;
+                      });
+                    });
+                    
                     const sortedDates = Object.keys(itemsByDate).sort().reverse();
+                    const sortedCompanies = Object.keys(itemsByCompany).sort();
                     
                     return (
-                      <div className="space-y-2">
+                      <div className="space-y-4">
+                        {/* OTHER QC CUSTOMERS SECTION - Company-wise accordions */}
+                        {sortedCompanies.length > 0 && (
+                          <div className="mb-4">
+                            <h5 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                              <Building2 size={16} />
+                              Other QC Customers (Non-Ninjacart)
+                            </h5>
+                            <div className="space-y-2">
+                              {sortedCompanies.map((company) => {
+                                const companyData = itemsByCompany[company];
+                                const companyDates = Object.keys(companyData.dates).sort().reverse();
+                                const totalItems = companyDates.reduce((sum, d) => sum + companyData.dates[d].items.length, 0);
+                                const isCompanyExpanded = expandedSavedDates[`company_${company}`];
+                                
+                                return (
+                                  <div key={company} className="border rounded-lg overflow-hidden border-blue-200">
+                                    {/* Company Header */}
+                                    <div 
+                                      className="flex items-center gap-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 cursor-pointer hover:from-blue-100 hover:to-indigo-100"
+                                      onClick={() => setExpandedSavedDates(prev => ({ ...prev, [`company_${company}`]: !prev[`company_${company}`] }))}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        {isCompanyExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                        <Building2 size={16} className="text-blue-600" />
+                                        <span className="font-semibold text-blue-800">{company}</span>
+                                      </div>
+                                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                        {totalItems} items • {companyDates.length} date(s)
+                                      </span>
+                                      <span className="text-xs text-gray-700 ml-auto">
+                                        Total: <strong>₹{companyData.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Company Content - Dates */}
+                                    {isCompanyExpanded && (
+                                      <div className="p-2 space-y-2 bg-white">
+                                        {companyDates.map((date) => {
+                                          const dateData = companyData.dates[date];
+                                          const totalSupplied = dateData.items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
+                                          const totalGrn = dateData.items.reduce((sum, i) => sum + (i.grn_qty || 0), 0);
+                                          const totalAmount = dateData.items.reduce((sum, i) => sum + (i.amount || 0), 0);
+                                          const totalDiff = dateData.items.reduce((sum, i) => sum + (i.difference || 0), 0);
+                                          const itemWithPaymentInfo = dateData.items.find(i => i.payment_received);
+                                          const allPaid = dateData.items.every(item => item.payment_received);
+                                          const isDateExpanded = expandedSavedDates[`${company}_${date}`];
+                                          
+                                          return (
+                                            <div key={date} className="border rounded bg-gray-50">
+                                              {/* Date Row */}
+                                              <div 
+                                                className="flex items-center gap-3 p-2 cursor-pointer hover:bg-gray-100"
+                                                onClick={() => setExpandedSavedDates(prev => ({ ...prev, [`${company}_${date}`]: !prev[`${company}_${date}`] }))}
+                                              >
+                                                <div className="flex items-center gap-2">
+                                                  {isDateExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                  <Calendar size={14} className="text-gray-500" />
+                                                  <span className="font-medium text-sm">{date}</span>
+                                                </div>
+                                                <span className="text-xs text-gray-500">{dateData.items.length} items</span>
+                                                <span className="text-xs text-gray-600">
+                                                  Supplied: <strong>{totalSupplied.toFixed(0)}</strong>
+                                                </span>
+                                                <span className="text-xs text-gray-600">
+                                                  GRN: <strong>{totalGrn.toFixed(0)}</strong>
+                                                </span>
+                                                <span className="text-xs text-gray-700 ml-auto mr-2">
+                                                  ₹{totalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                                </span>
+                                                {/* Payment status indicator */}
+                                                {allPaid ? (
+                                                  <span className="text-xs text-green-600 flex items-center gap-1">
+                                                    <CheckCircle size={12} /> Paid
+                                                  </span>
+                                                ) : (
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      openBulkGrnPaymentModal(`${company}_${date}`, { ...dateData, company, isOtherQc: true });
+                                                    }}
+                                                    className="h-6 px-2 text-blue-600 border-blue-300 hover:bg-blue-100"
+                                                  >
+                                                    <IndianRupee size={12} className="mr-1" />
+                                                    <span className="text-xs">Record Payment</span>
+                                                  </Button>
+                                                )}
+                                                <Button
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteAllGrnsForDate(date, dateData.grnIds);
+                                                  }}
+                                                  className="h-6 px-2 text-red-600 hover:bg-red-100"
+                                                >
+                                                  <Trash2 size={12} />
+                                                </Button>
+                                              </div>
+                                              
+                                              {/* Items Table */}
+                                              {isDateExpanded && (
+                                                <div className="data-table overflow-x-auto">
+                                                  <table className="text-xs">
+                                                    <thead>
+                                                      <tr>
+                                                        <th>PRODUCT / PACKAGING</th>
+                                                        <th className="text-right">SUPPLIED</th>
+                                                        <th className="text-right">GRN</th>
+                                                        <th className="text-right">DIFF</th>
+                                                        <th className="text-right">RATE</th>
+                                                        <th className="text-right">AMOUNT</th>
+                                                        <th className="text-center">ACT</th>
+                                                      </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                      {dateData.items.map((item, idx) => {
+                                                        const currentRate = item.rate_per_kg || item.rate_per_unit || 0;
+                                                        return (
+                                                          <tr key={idx}>
+                                                            <td>
+                                                              <div className="font-medium text-[#14532D]">{getProductName(item)}</div>
+                                                              <div className="text-[10px] text-gray-500">{item.packaging_name || '-'}</div>
+                                                            </td>
+                                                            <td className="text-right">{typeof item.supplied_qty === 'number' ? item.supplied_qty.toFixed(0) : item.supplied_qty}</td>
+                                                            <td className="text-right font-semibold">{item.grn_qty?.toFixed(0)}</td>
+                                                            <td className="text-right">
+                                                              <span className={`font-bold ${
+                                                                item.difference > 0 ? 'text-green-600' : 
+                                                                item.difference < 0 ? 'text-red-600' : 'text-gray-400'
+                                                              }`}>
+                                                                {item.difference !== 0 ? (item.difference > 0 ? '+' : '') + item.difference?.toFixed(0) : '-'}
+                                                              </span>
+                                                            </td>
+                                                            <td className="text-right whitespace-nowrap">
+                                                              ₹{currentRate.toFixed(1)}/Kg
+                                                            </td>
+                                                            <td className="text-right font-semibold whitespace-nowrap">
+                                                              ₹{item.amount?.toFixed(0)}
+                                                            </td>
+                                                            <td className="text-center">
+                                                              <div className="flex items-center justify-center gap-0.5">
+                                                                <Button 
+                                                                  size="sm" 
+                                                                  variant="ghost" 
+                                                                  onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeleteSavedGrnItem(item.grnId, item.originalItemIndex);
+                                                                  }}
+                                                                  className="h-6 w-6 p-0 text-red-600"
+                                                                >
+                                                                  <Trash2 size={12} />
+                                                                </Button>
+                                                              </div>
+                                                            </td>
+                                                          </tr>
+                                                        );
+                                                      })}
+                                                    </tbody>
+                                                    <tfoot>
+                                                      <tr className="bg-gray-100 text-xs">
+                                                        <td className="font-semibold">Total ({dateData.items.length})</td>
+                                                        <td className="text-right font-bold">{totalSupplied.toFixed(0)}</td>
+                                                        <td className="text-right font-bold">{totalGrn.toFixed(0)}</td>
+                                                        <td className="text-right">
+                                                          <span className={`font-bold ${totalDiff > 0 ? 'text-green-600' : totalDiff < 0 ? 'text-red-600' : ''}`}>
+                                                            {totalDiff > 0 ? '+' : ''}{totalDiff.toFixed(0)}
+                                                          </span>
+                                                        </td>
+                                                        <td></td>
+                                                        <td className="text-right font-bold">₹{totalAmount.toFixed(0)}</td>
+                                                        <td></td>
+                                                      </tr>
+                                                    </tfoot>
+                                                  </table>
+                                                </div>
+                                              )}
+                                              
+                                              {/* Payment Details if paid */}
+                                              {isDateExpanded && allPaid && itemWithPaymentInfo && (
+                                                <div className="m-2 p-2 bg-green-50 border border-green-200 rounded text-xs">
+                                                  <div className="flex items-center justify-between">
+                                                    <span className="text-green-700 font-medium flex items-center gap-1">
+                                                      <CheckCircle size={12} /> Payment Recorded
+                                                    </span>
+                                                    <div className="flex gap-2">
+                                                      <span className="text-gray-600">
+                                                        {itemWithPaymentInfo.payment_date} • {itemWithPaymentInfo.payment_mode}
+                                                      </span>
+                                                      <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        className="h-5 px-1 text-red-600 hover:bg-red-50"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          if (window.confirm(`Delete payment record for ${date}?`)) {
+                                                            handleClearPaymentForDate(date, dateData);
+                                                          }
+                                                        }}
+                                                      >
+                                                        <Trash2 size={10} />
+                                                      </Button>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* NINJACART SECTION - Date-grouped view */}
+                        {sortedDates.length > 0 && (
+                          <div>
+                            <h5 className="text-sm font-semibold text-green-800 mb-2 flex items-center gap-2">
+                              <Package size={16} />
+                              Ninjacart GRN Records
+                            </h5>
+                            <div className="space-y-2">
                         {sortedDates.map((date) => {
                           const dateData = itemsByDate[date];
                           const totalSupplied = dateData.items.reduce((sum, i) => sum + (i.supplied_qty || 0), 0);
@@ -6085,6 +6358,9 @@ Email: ${companyEmail}`;
                             </div>
                           );
                         })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()

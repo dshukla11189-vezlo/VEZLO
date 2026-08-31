@@ -109,8 +109,8 @@ async def create_qc_grn(input: QCGRNCreate, current_user: dict = Depends(get_cur
     return {"id": grn.id, "message": "GRN created successfully"}
 
 @router.put("/qc-grns/{grn_id}")
-async def update_qc_grn(grn_id: str, input: QCGRNCreate, current_user: dict = Depends(get_current_user)):
-    """Update an existing GRN record"""
+async def update_qc_grn(grn_id: str, input: dict, current_user: dict = Depends(get_current_user)):
+    """Update an existing GRN record - flexible schema to support both Ninjacart and manual entries"""
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
@@ -119,17 +119,28 @@ async def update_qc_grn(grn_id: str, input: QCGRNCreate, current_user: dict = De
     if not existing:
         raise HTTPException(status_code=404, detail="GRN not found")
     
-    # Prepare update data
-    update_data = input.model_dump()
-    update_data['grn_date'] = update_data['grn_date'].isoformat() if hasattr(update_data['grn_date'], 'isoformat') else update_data['grn_date']
-    # Keep grn_date anchored to the supply date, not the edit timestamp.
-    update_data['grn_date'] = _derive_grn_date(update_data.get('items', []), update_data['grn_date'])
+    # Prepare update data - merge existing with new data
+    update_data = {**existing, **input}
+    
+    # Handle grn_date - convert if needed and anchor to supply date
+    if 'grn_date' in update_data:
+        grn_date = update_data['grn_date']
+        if hasattr(grn_date, 'isoformat'):
+            update_data['grn_date'] = grn_date.isoformat()
+        update_data['grn_date'] = _derive_grn_date(update_data.get('items', []), update_data['grn_date'])
 
-    # Recalculate totals from items
+    # Recalculate totals from items - handle both Ninjacart and manual entry field names
     items = update_data.get('items', [])
-    update_data['total_supplied'] = sum(item.get('supplied_qty', 0) for item in items)
-    update_data['total_grn'] = sum(item.get('grn_qty', 0) for item in items)
+    update_data['total_supplied'] = sum(item.get('supplied_qty', 0) or item.get('supplied_qty_kg', 0) for item in items)
+    update_data['total_grn'] = sum(item.get('grn_qty', 0) or item.get('grn_qty_kg', 0) for item in items)
     update_data['total_difference'] = sum(item.get('difference', 0) for item in items)
+    
+    # For manual entries, also calculate total_value
+    if existing.get('source') == 'manual_entry':
+        update_data['total_value'] = sum(item.get('value', 0) or item.get('amount', 0) for item in items)
+    
+    # Remove _id if present to avoid MongoDB errors
+    update_data.pop('_id', None)
     
     # Update the GRN
     await db.qc_grns.update_one(

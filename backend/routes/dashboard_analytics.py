@@ -1084,8 +1084,13 @@ async def get_pnl_report(
                 supplied_kg = item.get("supplied_qty_kg", 0) or item.get("supplied_qty", 0) or 0
                 grn_kg = item.get("grn_qty_kg", 0) or item.get("grn_qty", 0) or supplied_kg
                 grn_qty_kg = grn_kg
+                # For manual entries, dispatch_qty_units IS the supplied_kg (already in kg, not units)
+                dispatch_qty_units = supplied_kg
+                # Also store the GRN rate from the manual entry (rate_per_kg)
+                manual_rate_per_kg = item.get("rate_per_kg", 0) or 0
             else:
                 # Ninjacart entries - convert units to kg using packaging weight
+                manual_rate_per_kg = 0  # Not a manual entry
                 dispatch_qty_units = item.get("supplied_qty", 0) or qty
                 if packaging_weight_gm > 0:
                     # Convert dispatch units to kg
@@ -1277,9 +1282,11 @@ async def get_pnl_report(
                 "unit": unit,
                 "supplied_qty": round(dispatch_qty_units, 2),
                 "supplied_kg": round(supplied_kg, 3),
+                "grn_qty_kg": round(grn_kg, 3),  # GRN qty (what was actually accepted/sold)
                 "revenue": round(amount, 2),
-                "rate_per_kg": round(rate_per_kg, 2),
+                "rate_per_kg": round(manual_rate_per_kg if is_manual_entry else rate_per_kg, 2),
                 "rate_per_unit": round(rate_per_unit, 2),
+                "is_manual_entry": is_manual_entry,  # Flag to identify manual GRN entries
                 # COGS - for combos use pre-calculated, for others will be calculated later
                 "cogs": round(qc_combo_cogs, 2) if qc_is_combo else 0,
                 "wastage_kg": 0,
@@ -2459,6 +2466,7 @@ async def get_pnl_report(
                         "unit": line["unit"],
                         "supplied_qty": 0,
                         "supplied_kg": 0,
+                        "grn_qty_kg": 0,  # GRN qty (what was accepted/sold)
                         "revenue": 0,
                         "rate_per_kg": line["rate_per_kg"],
                         "rate_per_unit": line["rate_per_unit"],
@@ -2466,6 +2474,7 @@ async def get_pnl_report(
                         "rejection_qty": 0,
                         "rejection_value": 0,
                         "rejection_cogs": 0,
+                        "is_manual_entry": line.get("is_manual_entry", False),  # Flag for manual GRN entries
                         # Combo product fields
                         "is_combo": line.get("is_combo", False),
                         "combo_cogs_breakdown": line.get("combo_cogs_breakdown"),
@@ -2474,10 +2483,18 @@ async def get_pnl_report(
                     }
                 customer_product_map[key]["supplied_qty"] += line["supplied_qty"]
                 customer_product_map[key]["supplied_kg"] += line["supplied_kg"]
+                customer_product_map[key]["grn_qty_kg"] += line.get("grn_qty_kg", 0) or line["supplied_kg"]  # Fallback to supplied_kg for non-QC
                 customer_product_map[key]["revenue"] += line["revenue"]
                 customer_product_map[key]["rejection_qty"] += line.get("rejection_qty", 0)
                 customer_product_map[key]["rejection_value"] += line.get("rejection_value", 0)
                 customer_product_map[key]["rejection_cogs"] += line.get("rejection_cogs", 0)
+            
+            # Post-processing: For manual entries, use grn_qty_kg as the "sales qty" (what was actually sold)
+            for key, item in customer_product_map.items():
+                if item.get("is_manual_entry", False):
+                    # Override supplied_qty with grn_qty_kg for manual entries
+                    # This makes the "QTY" column show what was actually sold (GRN qty)
+                    item["supplied_qty"] = item["grn_qty_kg"]
             
             # Now calculate COGS and wastage allocation per line item
             # Get product-level COGS rate using:
@@ -2611,8 +2628,11 @@ async def get_pnl_report(
                 line_gross_profit = net_revenue - net_cogs - wastage_value - commission_value - item_rejection_cogs
                 line_gross_margin = (line_gross_profit / net_revenue * 100) if net_revenue > 0 else 0
                 
-                # Calculate price/kg metrics using supplied_kg
-                selling_price_per_kg = (item["revenue"] / item["supplied_kg"]) if item["supplied_kg"] > 0 else 0
+                # Calculate price/kg metrics
+                # For QC items, use grn_qty_kg (what was actually accepted/sold) for selling price
+                # For Retail, use supplied_kg (what was dispatched)
+                grn_qty_kg_val = item.get("grn_qty_kg", 0) or item["supplied_kg"]
+                selling_price_per_kg = (item["revenue"] / grn_qty_kg_val) if grn_qty_kg_val > 0 else 0
                 purchase_price_per_kg = cogs_rate
                 profit_per_qty = (line_gross_profit / item["supplied_qty"]) if item["supplied_qty"] > 0 else 0
                 
@@ -2623,6 +2643,7 @@ async def get_pnl_report(
                     "unit": item["unit"],
                     "supplied_qty": round(item["supplied_qty"], 2),
                     "supplied_kg": round(item["supplied_kg"], 3),
+                    "grn_qty_kg": round(grn_qty_kg_val, 3),  # GRN qty (what was accepted/sold)
                     "revenue": round(item["revenue"], 2),
                     "cogs": round(cogs, 2),
                     "wastage_kg": round(wastage_kg, 3),
@@ -2636,6 +2657,7 @@ async def get_pnl_report(
                     "selling_price_per_kg": round(selling_price_per_kg, 2),
                     "purchase_price_per_kg": round(purchase_price_per_kg, 2),
                     "profit_per_qty": round(profit_per_qty, 2),
+                    "is_manual_entry": item.get("is_manual_entry", False),  # Flag for manual GRN entries
                     # Combo product fields
                     "is_combo": is_combo,
                     "combo_cogs_breakdown": item.get("combo_cogs_breakdown") if is_combo else None,

@@ -736,11 +736,12 @@ async def create_procurement_payment(procurement_id: str, payment_data: dict, cu
     all_payments = await db.procurement_payments.find({"procurement_id": procurement_id}).to_list(100)
     new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
     total_amount = procurement.get("total_amount", 0)
-    pending_amount = max(0, total_amount - new_paid_amount)
+    # Allow negative pending amount to indicate overpayment
+    pending_amount = total_amount - new_paid_amount
     
     # Determine payment status
     if new_paid_amount >= total_amount:
-        payment_status = "paid"
+        payment_status = "paid"  # Fully paid or overpaid
     elif new_paid_amount > 0:
         payment_status = "partial"
     else:
@@ -845,10 +846,11 @@ async def update_procurement_payment(payment_id: str, payment_data: dict, curren
             all_payments = await db.procurement_payments.find({"procurement_id": procurement_id}).to_list(100)
             new_paid_amount = sum(p.get("amount", 0) for p in all_payments)
             total_amount = procurement.get("total_amount", 0)
-            pending_amount = max(0, total_amount - new_paid_amount)
+            # Allow negative pending amount to indicate overpayment
+            pending_amount = total_amount - new_paid_amount
             
             if new_paid_amount >= total_amount:
-                payment_status = "paid"
+                payment_status = "paid"  # Fully paid or overpaid
             elif new_paid_amount > 0:
                 payment_status = "partial"
             else:
@@ -904,10 +906,11 @@ async def delete_procurement_payment(payment_id: str, current_user: dict = Depen
             remaining_payments = await db.procurement_payments.find({"procurement_id": procurement_id}).to_list(100)
             new_paid_amount = sum(p.get("amount", 0) for p in remaining_payments)
             total_amount = procurement.get("total_amount", 0)
-            pending_amount = max(0, total_amount - new_paid_amount)
+            # Allow negative pending amount to indicate overpayment
+            pending_amount = total_amount - new_paid_amount
             
             if new_paid_amount >= total_amount:
-                payment_status = "paid"
+                payment_status = "paid"  # Fully paid or overpaid
             elif new_paid_amount > 0:
                 payment_status = "partial"
             else:

@@ -2,6 +2,32 @@
 
 ## Changelog (August 2026)
 
+### August 31, 2026 - Procurement Negative Pending & Multi-Sheet Excel Export ✅
+- **Feature 1: Negative Pending Amounts (Overpayment Support)**:
+  - **Problem**: When a farmer was overpaid, the pending amount was forced to 0 via `max(0, ...)`, making it impossible to track advance payments
+  - **Solution**: Removed `max(0, ...)` constraint in all backend payment calculation functions
+  - **Backend Changes** (`/app/backend/routes/procurement_new.py`):
+    - Line 740: `create_procurement_payment` - Already allowed negative (comment added)
+    - Lines 849-856: `update_procurement_payment` - Removed `max(0, ...)`, now shows negative
+    - Lines 908-915: `delete_procurement_payment` - Removed `max(0, ...)`, now shows negative
+  - **Frontend Display** (`/app/frontend/src/pages/admin/Procurement.js`):
+    - Line 4092: Shows "₹X (Overpaid)" in green when `pending_amount < 0`
+    - Line 4240: Expanded date-wise view also shows "(Overpaid)" label
+    - Line 2167: `pending_amount` calculation allows negative for overpayment
+
+- **Feature 2: Multi-Sheet Excel Export for Farmer Procurement**:
+  - **Function**: `exportFarmerProcurementExcel(farmerName, purchases, summary)` (lines 43-126)
+  - **Sheet 1 - "Product Details"**: Date, Product, Quantity, Unit, Rate, Product Total, Procurement Total, Paid, Pending
+  - **Sheet 2 - "Final Summary"**: Date, Procurement Amount, Paid Amount, Pending, Cumulative Pending
+  - **UI**: Green "Export Excel" button with FileSpreadsheet icon in expanded farmer view (line 4123-4141)
+  - **Library**: Uses `xlsx` library (v0.18.5, dynamically imported)
+  - **File naming**: `{FarmerName}_procurement_{date}.xlsx`
+
+- **Testing**:
+  - Backend test file: `/app/backend/tests/test_negative_pending_overpayment.py` (3 tests, 100% pass)
+  - Frontend verified: Overpaid label shows correctly, Excel downloads with both sheets
+  - Test report: `/app/test_reports/iteration_53.json`
+
 ### August 16, 2026 - Backdated Invoice Regeneration Overhaul ✅
 - **CRITICAL Backend Logic Changes** in `/app/backend/routes/retailer_portal.py`:
 

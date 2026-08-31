@@ -39,6 +39,92 @@ const exportToCSV = (data, filename, columns) => {
   toast.success(`Exported ${data.length} records to Excel`);
 };
 
+// Excel export with multiple sheets (for farmer procurement details + summary)
+const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
+  try {
+    // Dynamically import xlsx
+    const XLSX = await import('xlsx');
+    
+    // Sheet 1: Product-wise Details
+    const productData = [];
+    purchases.forEach(p => {
+      (p.items || []).forEach((item, idx) => {
+        productData.push({
+          'Date': p.date,
+          'Product': item.product_name,
+          'Quantity': item.quantity,
+          'Unit': item.unit,
+          'Rate': item.rate,
+          'Product Total': item.total,
+          'Procurement Total': idx === 0 ? p.total_amount : '',
+          'Paid': idx === 0 ? (p.paid_amount || 0) : '',
+          'Pending': idx === 0 ? ((p.total_amount || 0) - (p.paid_amount || 0)) : ''
+        });
+      });
+    });
+    
+    // Sheet 2: Final Summary (Date-wise cumulative)
+    const summaryData = [];
+    let cumulativePending = 0;
+    
+    // Sort purchases by date ascending for cumulative calculation
+    const sortedPurchases = [...purchases].sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    sortedPurchases.forEach(p => {
+      const procurementAmt = p.total_amount || 0;
+      const paidAmt = p.paid_amount || 0;
+      const pending = procurementAmt - paidAmt;
+      cumulativePending += pending;
+      
+      summaryData.push({
+        'Date': p.date,
+        'Procurement Amount': procurementAmt,
+        'Paid Amount': paidAmt,
+        'Pending': pending,
+        'Cumulative Pending': cumulativePending
+      });
+    });
+    
+    // Add total row
+    summaryData.push({
+      'Date': 'TOTAL',
+      'Procurement Amount': summary.totalAmount,
+      'Paid Amount': summary.paidAmount,
+      'Pending': summary.pendingAmount,
+      'Cumulative Pending': summary.pendingAmount
+    });
+    
+    // Create workbook with two sheets
+    const wb = XLSX.utils.book_new();
+    
+    // Add Product Details sheet
+    const ws1 = XLSX.utils.json_to_sheet(productData);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Product Details');
+    
+    // Add Final Summary sheet
+    const ws2 = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, ws2, 'Final Summary');
+    
+    // Set column widths
+    ws1['!cols'] = [
+      { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, 
+      { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
+    ];
+    ws2['!cols'] = [
+      { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 12 }, { wch: 18 }
+    ];
+    
+    // Generate and download
+    const filename = `${farmerName.replace(/[^a-zA-Z0-9]/g, '_')}_procurement_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    
+    toast.success(`Exported ${purchases.length} records to Excel with summary`);
+  } catch (error) {
+    console.error('Excel export error:', error);
+    toast.error('Failed to export Excel');
+  }
+};
+
 const UNIT_TYPES = [
   { value: 'Kg', label: 'Kg (Kilogram)' },
   { value: 'Bunch', label: 'Bunch' },
@@ -2076,15 +2162,17 @@ export default function Procurement() {
     });
 
     // Recalculate pending_amount for each farmer as total - paid
+    // Allow negative values to show overpayment (e.g., paid ₹33000 for ₹27876 = -₹5124)
     Object.values(farmerMap).forEach(f => {
-      f.pending_amount = Math.max(0, f.total_amount - f.paid_amount);
+      f.pending_amount = f.total_amount - f.paid_amount;  // Can be negative for overpayment
       // Sort purchases by date descending (newest first)
       f.purchases.sort((a, b) => new Date(b.date) - new Date(a.date));
     });
 
-    // Convert to array and filter only those with pending > 0
+    // Convert to array - include farmers with ANY pending (positive or negative)
+    // Filter out only those with exactly 0 pending (fully settled)
     return Object.values(farmerMap)
-      .filter(f => f.pending_amount > 0)
+      .filter(f => f.pending_amount !== 0)  // Include both positive pending and negative (overpaid)
       .sort((a, b) => b.pending_amount - a.pending_amount);
   };
 
@@ -3999,7 +4087,11 @@ export default function Procurement() {
                             <td className="text-right">{farmerData.purchase_count}</td>
                             <td className="text-right font-semibold">₹{farmerData.total_amount.toFixed(2)}</td>
                             <td className="text-right text-green-700">₹{farmerData.paid_amount.toFixed(2)}</td>
-                            <td className="text-right text-red-700 font-bold">₹{farmerData.pending_amount.toFixed(2)}</td>
+                            <td className={`text-right font-bold ${farmerData.pending_amount < 0 ? 'text-green-700' : farmerData.pending_amount > 0 ? 'text-red-700' : 'text-gray-500'}`}>
+                              {farmerData.pending_amount < 0 
+                                ? `₹${Math.abs(farmerData.pending_amount).toFixed(2)} (Overpaid)` 
+                                : `₹${farmerData.pending_amount.toFixed(2)}`}
+                            </td>
                             <td className="text-center">
                               <Button
                                 size="sm"
@@ -4026,7 +4118,28 @@ export default function Procurement() {
                                       <Calendar size={16} />
                                       Date-wise Purchase Summary
                                     </h4>
-                                    {selectedPurchasesForPayment.length > 0 && (
+                                    <div className="flex items-center gap-2">
+                                      {/* Export to Excel Button */}
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="text-green-700 border-green-300 hover:bg-green-50"
+                                        onClick={() => {
+                                          exportFarmerProcurementExcel(
+                                            farmerData.farmer_name,
+                                            farmerData.purchases,
+                                            {
+                                              totalAmount: farmerData.total_amount,
+                                              paidAmount: farmerData.paid_amount,
+                                              pendingAmount: farmerData.pending_amount
+                                            }
+                                          );
+                                        }}
+                                      >
+                                        <FileSpreadsheet size={14} className="mr-1" />
+                                        Export Excel
+                                      </Button>
+                                      {selectedPurchasesForPayment.length > 0 && (
                                       <Button
                                         size="sm"
                                         className="bg-[#14532D] hover:bg-[#166534]"
@@ -4053,6 +4166,7 @@ export default function Procurement() {
                                         Pay Selected ({selectedPurchasesForPayment.length})
                                       </Button>
                                     )}
+                                    </div>
                                   </div>
                                   
                                   <div className="bg-white rounded-lg border overflow-hidden">
@@ -4122,7 +4236,9 @@ export default function Procurement() {
                                                 </td>
                                                 <td className="p-2 text-right">₹{purchase.total_amount?.toFixed(2)}</td>
                                                 <td className="p-2 text-right text-green-700">₹{(purchase.paid_amount || 0).toFixed(2)}</td>
-                                                <td className="p-2 text-right text-red-700 font-semibold">₹{purchase.pending_amount?.toFixed(2)}</td>
+                                                <td className={`p-2 text-right font-semibold ${purchase.pending_amount < 0 ? 'text-green-700' : purchase.pending_amount > 0 ? 'text-red-700' : 'text-gray-500'}`}>
+                                                  {purchase.pending_amount < 0 ? `₹${Math.abs(purchase.pending_amount).toFixed(2)} (Overpaid)` : `₹${purchase.pending_amount?.toFixed(2)}`}
+                                                </td>
                                                 <td className="p-2 text-right">
                                                   {isChecked ? (
                                                     <Input

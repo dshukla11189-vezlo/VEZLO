@@ -1,0 +1,30 @@
+{
+  "summary": "Verified negative pending_amount (overpayment) and multi-sheet Excel export for Procurement. Backend: 3/3 pytest tests pass — POST payment overpay yields pending=-500, PUT payment recomputes to negative, DELETE payment restores positive pending. Frontend: Pending Payments tab shows '₹500.00 (Overpaid)' label in green (top-level row + expanded date-wise breakdown), TOTAL row shows ₹-500.00. Export Excel button downloads .xlsx containing both sheets 'Product Details' and 'Final Summary' (verified via zipfile inspection of workbook.xml). Success toast 'Exported 1 records to Excel with summary' shown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Procurement > Pending Payments (expanded)", "issues": ["Export Excel button lacks a data-testid attribute (nice-to-have for future automation). Currently selectable only via role/text."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_negative_pending_overpayment.py",
+    "/app/test_reports/pytest/negative_pending.xml"
+  ],
+  "action_items": [
+    "Optional: add data-testid=\"export-farmer-excel-{farmer_id}\" to the Export Excel button (line 4123 of /app/frontend/src/pages/admin/Procurement.js) for reliable automated testing."
+  ],
+  "critical_code_review_comments": [
+    "Procurement.js is 5473 lines — well over the 700-line guideline. Recommend splitting: PendingPaymentsTab, ProcurementForm, PaymentDialogs, ExportUtils, ReimbursementModals into separate files.",
+    "exportFarmerProcurementExcel: recomputes pending as `p.total_amount - p.paid_amount` for each row, but the frontend overrides row-level pending_amount in getFarmerWisePending anyway — consistent, no bug. Cumulative Pending calculation is correct and handles negative pending naturally.",
+    "Backend payment update (PUT) sets settlement_status='pending_reimbursement' whenever paid_by_type='employee' — this may inadvertently reopen a settled procurement if the amount is edited later. Consider preserving existing settlement_status when only amount is updated."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporary overpaid procurement created for farmer 'Navnath Rupnar' (₹1000 total, ₹1500 paid, ₹-500 pending) — cleaned up in test teardown. No lingering test data.",
+  "test_credentials": "admin@freshflow.com / admin123 (login uses 'identifier' field)",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both features (negative pending on overpayment + multi-sheet Excel export) are working end-to-end. Backend tests live at /app/backend/tests/test_negative_pending_overpayment.py. UI verified: overpaid label shows in both collapsed row and expanded date-wise summary; Excel download produces workbook with sheets ['Product Details', 'Final Summary']. Only cosmetic gap: Export Excel button lacks a data-testid."
+}

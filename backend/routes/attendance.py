@@ -455,9 +455,14 @@ async def calculate_payroll(
         
         # Calculate number of days in the period for daily rate calculation
         from datetime import datetime
+        import calendar
         d1 = datetime.strptime(date_from, "%Y-%m-%d")
         d2 = datetime.strptime(date_to, "%Y-%m-%d")
         days_in_period = (d2 - d1).days + 1
+        
+        # Calculate days in the month for salary calculation
+        # Use the month from date_from for monthly salary calculation
+        days_in_month = calendar.monthrange(d1.year, d1.month)[1]
         
         # Get incentives summary for the date range
         incentives_pipeline = [
@@ -504,10 +509,11 @@ async def calculate_payroll(
             emp_name = emp.get("name", "Unknown")
             ctc = emp.get("ctc", 0) or 0
             
-            # Calculate daily rate from annual CTC
-            # Assuming 26 working days per month
-            monthly_salary = ctc / 12
-            daily_rate = monthly_salary / 26
+            # Calculate monthly and daily salary from annual CTC
+            # Monthly Salary = CTC / 12
+            # Daily Salary = Monthly Salary / Days in Month
+            monthly_salary = ctc / 12 if ctc > 0 else 0
+            daily_rate = monthly_salary / days_in_month if days_in_month > 0 else 0
             
             # Get attendance data
             att = attendance_map.get(emp_id, {})
@@ -522,15 +528,34 @@ async def calculate_payroll(
             incentive_amount = emp_incentives.get("total_incentives", 0)
             allowance_amount = emp_incentives.get("total_allowances", 0)
             
-            # Calculate payable days (present + paid leaves + half days as 0.5)
-            payable_days = days_present + paid_leave_days + (half_days * 0.5)
+            # NEW SALARY CALCULATION LOGIC:
+            # 1. Start with monthly salary (CTC/12)
+            # 2. Deduct for unpaid absences: daily_rate × unpaid_absent_days
+            # 3. Unpaid absences = total absences - paid leaves (if tracked separately in absent days)
+            # Note: half_days count as 0.5 days absent
             
-            # Calculate salary
-            regular_salary = daily_rate * payable_days
+            # Calculate unpaid absent days (absences that are NOT paid leave)
+            # days_absent already excludes paid_leave_days based on attendance recording
+            unpaid_absent_days = days_absent + (half_days * 0.5)
+            
+            # Deduction for unpaid absences
+            absence_deduction = daily_rate * unpaid_absent_days
+            
+            # Base salary after deductions
+            regular_salary = monthly_salary - absence_deduction
+            
+            # Ensure salary doesn't go negative
+            regular_salary = max(0, regular_salary)
+            
+            # Calculate OT amount
             ot_rate = daily_rate / 8  # Hourly OT rate
             ot_amount = total_ot * ot_rate
+            
             # Total amount includes salary + OT + incentives + allowances
             total_amount = regular_salary + ot_amount + incentive_amount + allowance_amount
+            
+            # Calculate payable days for reporting (present + paid leaves + half days as 0.5)
+            payable_days = days_present + paid_leave_days + (half_days * 0.5)
             
             # Get payments
             total_paid = payment_map.get(emp_id, 0)
@@ -541,15 +566,21 @@ async def calculate_payroll(
                 "employee_name": emp_name,
                 "department": emp.get("department"),
                 "vertical": emp.get("vertical"),
-                "bank_account": emp.get("bank_account_number") or emp.get("aadhar_number", ""),
+                # Bank details - DO NOT fall back to aadhar_number
+                "bank_account": emp.get("bank_account_number", ""),
+                "bank_name": emp.get("bank_name", ""),
                 "ifsc": emp.get("ifsc_code", ""),
+                "aadhar_number": emp.get("aadhar_number", ""),  # Separate field for Aadhar
                 "ctc": ctc,
-                "monthly_salary": monthly_salary,
-                "daily_rate": daily_rate,
+                "monthly_salary": round(monthly_salary, 2),
+                "daily_rate": round(daily_rate, 2),
+                "days_in_month": days_in_month,
                 "days_present": days_present,
                 "days_absent": days_absent,
                 "half_days": half_days,
                 "paid_leave_days": paid_leave_days,
+                "unpaid_absent_days": round(unpaid_absent_days, 1),
+                "absence_deduction": round(absence_deduction, 2),
                 "payable_days": payable_days,
                 "ot_hours": total_ot,
                 "regular_salary": round(regular_salary, 2),

@@ -3481,7 +3481,35 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
   - **Categories collapsed by default** - Product categories on Create Order page now start collapsed (user clicks to expand)
   - **Cart Modal shows translated names** - Product names in cart modal respect selected catalogue language
 
-### August 31, 2026 - Non-Ninjacart QC GRN Enhancements ✅
+### August 31, 2026 - Payroll Processing Fixes ✅
+- **Bank Account Display Fix**:
+  - Removed fallback to `aadhar_number` when `bank_account_number` is empty
+  - Bank A/C column now correctly shows bank account number only
+  - Added separate `aadhar_number` field to payroll breakdown for reference
+  - Added `bank_name` field to payroll response
+
+- **Salary Calculation Logic Updated**:
+  - Monthly Salary = CTC / 12
+  - Daily Rate = Monthly Salary / Days in Month (actual calendar days, not fixed 26)
+  - Deduction for unpaid absences = Daily Rate × Unpaid Absent Days
+  - Regular Salary = Monthly Salary - Absence Deduction
+  - Half days count as 0.5 absent days
+  - Paid leaves are NOT deducted from salary
+
+- **New Fields Added to Payroll Response**:
+  - `days_in_month`: Actual number of days in the month
+  - `unpaid_absent_days`: Count of absences (excluding paid leaves)
+  - `absence_deduction`: Amount deducted for unpaid absences
+  - `bank_name`: Employee's bank name
+  - `aadhar_number`: Separate field (not mixed with bank account)
+
+- **Files Modified**:
+  - `backend/routes/attendance.py` (Lines 456-595 - Payroll calculation logic)
+
+### August 31, 2026 - Fixed Expenses Sync Fix ✅
+- Updated `backup_data.py` to use wider date range (2020-2030) for fixed expenses sync
+- Updated `expenses_new.py` query to handle records with only month/year fields (no date field)
+
 - **Company-wise Saved GRN Display**: 
   - Separated "Saved GRN Records" section into two parts:
     1. **Other QC Customers (Non-Ninjacart)** - Groups saved GRNs by company (e.g., Amazon), then by date

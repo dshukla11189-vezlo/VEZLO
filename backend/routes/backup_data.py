@@ -268,6 +268,7 @@ async def sync_from_production(
                 'variable_expenses': 'variable_expenses',
                 'fixed_expenses': 'fixed_expenses',
                 'corporate_employees': 'corporate_employees',
+                'fixed_employees': 'fixed_employees',  # Employee data for payroll
                 'recurring_expense_templates': 'recurring_expense_templates',
                 # Labour
                 'labours': 'labours',
@@ -454,6 +455,7 @@ async def sync_from_production_direct(
                 'farmer_payments': '/api/farmer-payments',
                 'customer_product_settings': '/api/customer-product-settings',
                 'retail_plans': '/api/retail-plans',
+                'fixed_employees': '/api/fixed-employees',  # Employee data for payroll (bank details, CTC)
             }
             
             # Endpoints that need date range params (fetch last 6 months)
@@ -715,6 +717,7 @@ async def sync_from_production_full(
                 # Expenses
                 'vendors': '/api/vendors?limit=50000',
                 'corporate_employees': '/api/corporate-employees?limit=50000',
+                'fixed_employees': '/api/fixed-employees?limit=50000',  # Employee data for payroll (bank details, CTC)
                 'recurring_expense_templates': '/api/recurring-expense-templates?limit=50000',
                 # Payments & Invoices
                 'payments': '/api/payments?limit=50000',

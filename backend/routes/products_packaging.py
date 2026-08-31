@@ -246,6 +246,36 @@ async def update_product(product_id: str, input: ProductUpdate, current_user: di
     return Product(**result)
 
 
+@router.delete("/products/delete-image")
+async def delete_product_image(
+    image_url: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a product image from filesystem"""
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        if image_url.startswith('data:'):
+            return {"message": "Base64 image cleared from database"}
+        
+        if '/uploads/products/' in image_url:
+            filename = image_url.split('/uploads/products/')[-1]
+            file_path = os.path.join(UPLOAD_DIR, filename)
+            
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logger.info(f"Deleted product image: {filename}")
+                return {"message": "Image deleted successfully"}
+            else:
+                return {"message": "Image file not found, but continuing"}
+        else:
+            return {"message": "Image URL not recognized, but continuing"}
+    except Exception as e:
+        logger.error(f"Failed to delete product image: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete image")
+
+
 @router.delete("/products/{product_id}")
 async def delete_product(product_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["role"] != "admin":
@@ -559,36 +589,6 @@ async def upload_product_image(
     except Exception as e:
         logger.error(f"Failed to upload product image: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
-
-
-@router.delete("/products/delete-image")
-async def delete_product_image(
-    image_url: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Delete a product image from filesystem"""
-    if current_user["role"] not in ["admin", "staff"]:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    try:
-        if image_url.startswith('data:'):
-            return {"message": "Base64 image cleared from database"}
-        
-        if '/uploads/products/' in image_url:
-            filename = image_url.split('/uploads/products/')[-1]
-            file_path = os.path.join(UPLOAD_DIR, filename)
-            
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                logger.info(f"Deleted product image: {filename}")
-                return {"message": "Image deleted successfully"}
-            else:
-                return {"message": "Image file not found, but continuing"}
-        else:
-            return {"message": "Image URL not recognized, but continuing"}
-    except Exception as e:
-        logger.error(f"Failed to delete product image: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete image")
 
 
 @router.post("/products/migrate-images")

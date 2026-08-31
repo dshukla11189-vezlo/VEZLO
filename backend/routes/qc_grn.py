@@ -1465,3 +1465,234 @@ async def get_grn_loss_summary(
     result = await calculate_grn_loss(from_date, to_date)
     return result
 
+
+
+# ============================================================================
+# MANUAL GRN ENTRY FOR NON-NINJACART QC CUSTOMERS
+# ============================================================================
+
+@router.get("/qc-grns/pending-dispatches")
+async def get_pending_qc_dispatches(
+    from_date: str = None,
+    to_date: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get QC dispatches that don't have corresponding GRN entries yet.
+    Groups by date and customer, excluding Ninjacart (handled via CSV upload).
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Get all QC customers except Ninjacart
+    customers = await db.customers.find(
+        {"customer_type": "qc"},
+        {"_id": 0, "id": 1, "name": 1}
+    ).to_list(100)
+    
+    # Identify Ninjacart customer(s) by name pattern
+    ninjacart_ids = set()
+    customer_map = {}
+    for c in customers:
+        customer_map[c["id"]] = c["name"]
+        if "ninjacart" in c["name"].lower():
+            ninjacart_ids.add(c["id"])
+    
+    # Build date filter
+    date_filter = {}
+    if from_date:
+        date_filter["$gte"] = from_date
+    if to_date:
+        date_filter["$lte"] = to_date
+    if not date_filter:
+        # Default to last 7 days
+        from datetime import timedelta
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+        date_filter = {"$gte": week_ago, "$lte": today}
+    
+    # Get QC dispatches for non-Ninjacart customers
+    dispatch_filter = {
+        "dispatch_type": "qc",
+        "dispatch_date": date_filter
+    }
+    
+    dispatches = await db.dispatches.find(
+        dispatch_filter,
+        {"_id": 0}
+    ).sort("dispatch_date", -1).to_list(1000)
+    
+    # Get existing GRNs to check which dispatches already have GRN entries
+    existing_grns = await db.qc_grns.find(
+        {"grn_date": {"$regex": f"^({from_date[:7] if from_date else ''}|{to_date[:7] if to_date else ''})"}},
+        {"_id": 0, "items": 1, "customer_id": 1}
+    ).to_list(5000)
+    
+    # Build a set of (customer_id, dispatch_date, product_name) that already have GRN
+    grn_covered = set()
+    for grn in existing_grns:
+        cust_id = grn.get("customer_id")
+        for item in grn.get("items", []):
+            dispatch_date = str(item.get("dispatch_date", ""))[:10]
+            product_name = item.get("product_name", "")
+            grn_covered.add((cust_id, dispatch_date, product_name.lower()))
+    
+    # Group pending dispatches by date -> customer
+    pending_by_date = {}
+    
+    for dispatch in dispatches:
+        customer_id = dispatch.get("customer_id")
+        
+        # Skip Ninjacart customers
+        if customer_id in ninjacart_ids:
+            continue
+        
+        customer_name = customer_map.get(customer_id, dispatch.get("customer_name", "Unknown"))
+        dispatch_date = str(dispatch.get("dispatch_date", ""))[:10]
+        
+        if not dispatch_date:
+            continue
+        
+        # Check each item in dispatch
+        for item in dispatch.get("items", []):
+            product_name = item.get("product_name", "")
+            product_id = item.get("product_id", "")
+            supplied_qty = item.get("supplied_qty", 0) or 0
+            packaging_name = item.get("packaging_name", "")
+            unit = item.get("unit", "Kg")
+            
+            # Check if this item already has GRN
+            key = (customer_id, dispatch_date, product_name.lower())
+            if key in grn_covered:
+                continue
+            
+            # Add to pending
+            if dispatch_date not in pending_by_date:
+                pending_by_date[dispatch_date] = {}
+            
+            if customer_id not in pending_by_date[dispatch_date]:
+                pending_by_date[dispatch_date][customer_id] = {
+                    "customer_id": customer_id,
+                    "customer_name": customer_name,
+                    "items": []
+                }
+            
+            pending_by_date[dispatch_date][customer_id]["items"].append({
+                "dispatch_id": dispatch.get("id"),
+                "product_id": product_id,
+                "product_name": product_name,
+                "packaging_name": packaging_name,
+                "supplied_qty": supplied_qty,
+                "unit": unit
+            })
+    
+    # Convert to list format for frontend
+    result = []
+    for date in sorted(pending_by_date.keys(), reverse=True):
+        date_entry = {
+            "date": date,
+            "customers": list(pending_by_date[date].values())
+        }
+        result.append(date_entry)
+    
+    return {
+        "pending_dispatches": result,
+        "total_dates": len(result)
+    }
+
+
+class ManualGRNItem(BaseModel):
+    dispatch_id: str
+    product_id: str
+    product_name: str
+    packaging_name: Optional[str] = ""
+    supplied_qty: float
+    grn_qty: float
+    rate_per_kg: float
+    unit: Optional[str] = "Kg"
+
+
+class ManualGRNCreate(BaseModel):
+    customer_id: str
+    customer_name: str
+    dispatch_date: str
+    items: List[ManualGRNItem]
+
+
+@router.post("/qc-grns/manual")
+async def create_manual_grn(
+    data: ManualGRNCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create GRN entries manually for non-Ninjacart QC customers.
+    """
+    if current_user["role"] not in ["admin", "staff"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    if not data.items:
+        raise HTTPException(status_code=400, detail="No items provided")
+    
+    # Create GRN record
+    grn_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    
+    # Process items
+    grn_items = []
+    total_grn_qty = 0
+    total_value = 0
+    
+    for item in data.items:
+        if item.grn_qty <= 0:
+            continue
+        
+        grn_qty_kg = item.grn_qty
+        value = grn_qty_kg * item.rate_per_kg
+        
+        grn_items.append({
+            "dispatch_id": item.dispatch_id,
+            "product_id": item.product_id,
+            "product_name": item.product_name,
+            "packaging_name": item.packaging_name,
+            "supplied_qty_kg": item.supplied_qty,
+            "grn_qty_kg": grn_qty_kg,
+            "rate_per_kg": item.rate_per_kg,
+            "value": round(value, 2),
+            "dispatch_date": data.dispatch_date,
+            "unit": item.unit or "Kg",
+            "short_closed_qty": max(0, item.supplied_qty - grn_qty_kg),
+            "short_closed_reason": "manual_entry"
+        })
+        
+        total_grn_qty += grn_qty_kg
+        total_value += value
+    
+    if not grn_items:
+        raise HTTPException(status_code=400, detail="No valid items with GRN qty > 0")
+    
+    grn_record = {
+        "id": grn_id,
+        "customer_id": data.customer_id,
+        "customer_name": data.customer_name,
+        "grn_date": f"{data.dispatch_date}T00:00:00",
+        "items": grn_items,
+        "total_grn_qty": round(total_grn_qty, 2),
+        "total_value": round(total_value, 2),
+        "source": "manual_entry",
+        "created_at": now.isoformat(),
+        "created_by": current_user.get("user_id"),
+        "created_by_name": current_user.get("name", "Unknown")
+    }
+    
+    await db.qc_grns.insert_one(grn_record)
+    
+    # Remove _id before returning
+    grn_record.pop("_id", None)
+    
+    return {
+        "message": f"GRN created successfully for {data.customer_name}",
+        "grn": grn_record,
+        "items_count": len(grn_items),
+        "total_value": round(total_value, 2)
+    }
+

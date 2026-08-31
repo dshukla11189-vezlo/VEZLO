@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle, Calendar, CreditCard } from 'lucide-react';
+import { Plus, Trash2, Edit, Package, Truck, ClipboardCheck, UserPlus, Filter, Box, Download, FileSpreadsheet, FileText, Save, Loader2, Clock, Receipt, Printer, ChevronDown, ChevronUp, ChevronRight, Upload, Check, Pencil, X, TrendingUp, TrendingDown, AlertTriangle, RefreshCw, IndianRupee, CheckCircle, Eye, AlertCircle, Calendar, CreditCard, Building2, Users } from 'lucide-react';
 import AutocompleteInput from '../../components/AutocompleteInput';
 
 /*
@@ -174,6 +174,14 @@ export default function QuickCommerce() {
   const [showViewGrnPaymentModal, setShowViewGrnPaymentModal] = useState(false);
   const [viewingGrnPayment, setViewingGrnPayment] = useState(null);  // { grnId, itemIndex, item }
   const [editingGrnPayment, setEditingGrnPayment] = useState(false);
+
+  // Other QC Customers (non-Ninjacart) Manual GRN Entry
+  const [otherQcPendingDispatches, setOtherQcPendingDispatches] = useState([]);
+  const [loadingOtherQc, setLoadingOtherQc] = useState(false);
+  const [expandedOtherQcDates, setExpandedOtherQcDates] = useState({});
+  const [expandedOtherQcCustomers, setExpandedOtherQcCustomers] = useState({});
+  const [otherQcGrnInputs, setOtherQcGrnInputs] = useState({});  // { customerId_productId: { grn_qty, rate } }
+  const [savingOtherQcGrn, setSavingOtherQcGrn] = useState(false);
 
   // Dialog states
   const [openIndent, setOpenIndent] = useState(false);
@@ -426,6 +434,93 @@ export default function QuickCommerce() {
     }
   };
 
+  // Load Other QC Customers Pending Dispatches (non-Ninjacart)
+  const loadOtherQcPendingDispatches = async () => {
+    setLoadingOtherQc(true);
+    try {
+      const today = new Date();
+      const weekAgo = new Date(today);
+      weekAgo.setDate(today.getDate() - 7);
+      
+      const res = await api.get(`/api/qc-grns/pending-dispatches?from_date=${weekAgo.toISOString().split('T')[0]}&to_date=${today.toISOString().split('T')[0]}`);
+      setOtherQcPendingDispatches(res.data.pending_dispatches || []);
+    } catch (error) {
+      console.error('Failed to load other QC pending dispatches:', error);
+    } finally {
+      setLoadingOtherQc(false);
+    }
+  };
+
+  // Handle Other QC GRN input change
+  const handleOtherQcGrnInputChange = (customerId, productId, field, value) => {
+    const key = `${customerId}_${productId}`;
+    setOtherQcGrnInputs(prev => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || {}),
+        [field]: value
+      }
+    }));
+  };
+
+  // Save Manual GRN for Other QC Customer
+  const saveOtherQcManualGrn = async (date, customerId, customerName, items) => {
+    // Collect items with GRN entries
+    const grnItems = items.map(item => {
+      const key = `${customerId}_${item.product_id}`;
+      const inputs = otherQcGrnInputs[key] || {};
+      const grnQty = parseFloat(inputs.grn_qty) || 0;
+      const rate = parseFloat(inputs.rate) || 0;
+      
+      if (grnQty > 0 && rate > 0) {
+        return {
+          dispatch_id: item.dispatch_id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          packaging_name: item.packaging_name,
+          supplied_qty: item.supplied_qty,
+          grn_qty: grnQty,
+          rate_per_kg: rate,
+          unit: item.unit
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    
+    if (grnItems.length === 0) {
+      toast.error('Enter GRN qty and rate for at least one item');
+      return;
+    }
+    
+    setSavingOtherQcGrn(true);
+    try {
+      const payload = {
+        customer_id: customerId,
+        customer_name: customerName,
+        dispatch_date: date,
+        items: grnItems
+      };
+      
+      const res = await api.post('/api/qc-grns/manual', payload);
+      toast.success(res.data.message || 'GRN saved successfully');
+      
+      // Clear inputs for saved items
+      const newInputs = { ...otherQcGrnInputs };
+      grnItems.forEach(item => {
+        delete newInputs[`${customerId}_${item.product_id}`];
+      });
+      setOtherQcGrnInputs(newInputs);
+      
+      // Refresh the pending dispatches list
+      loadOtherQcPendingDispatches();
+      loadData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save GRN');
+    } finally {
+      setSavingOtherQcGrn(false);
+    }
+  };
+
   // Apply Saved GRN date filter
   const handleApplySavedGrnFilter = () => {
     loadSavedGrns(savedGrnDateFilters.fromDate, savedGrnDateFilters.toDate);
@@ -447,6 +542,7 @@ export default function QuickCommerce() {
   // Load saved GRNs on initial mount
   useEffect(() => {
     loadSavedGrns(savedGrnDateFilters.fromDate, savedGrnDateFilters.toDate);
+    loadOtherQcPendingDispatches();  // Also load other QC pending dispatches
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load packaging variants from localStorage
@@ -5007,6 +5103,178 @@ Email: ${companyEmail}`;
                       <p className="text-sm text-gray-500 text-center py-4">No GRN loss data for selected period. Upload GRN files to see loss summary.</p>
                     )}
                 </CardContent>
+                )}
+              </Card>
+
+              {/* OTHER QC CUSTOMERS - Manual GRN Entry */}
+              <Card className="mb-6 border-blue-200">
+                <CardHeader 
+                  className="py-3 bg-gradient-to-r from-blue-50 to-indigo-50 cursor-pointer hover:from-blue-100 hover:to-indigo-100 transition-colors"
+                  onClick={() => setExpandedOtherQcDates(prev => ({ ...prev, _main: !prev._main }))}
+                >
+                  <CardTitle className="text-sm flex items-center justify-between text-blue-700">
+                    <span className="flex items-center gap-2">
+                      {expandedOtherQcDates._main ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      <Users size={16} />
+                      Other QC Customers - Pending GRN
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {loadingOtherQc && <RefreshCw size={14} className="animate-spin" />}
+                      <span className="text-sm font-medium">
+                        {otherQcPendingDispatches.length} date(s) pending
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-blue-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          loadOtherQcPendingDispatches();
+                        }}
+                      >
+                        <RefreshCw size={12} />
+                      </Button>
+                    </div>
+                  </CardTitle>
+                </CardHeader>
+                {expandedOtherQcDates._main && (
+                  <CardContent className="p-4">
+                    {otherQcPendingDispatches.length === 0 ? (
+                      <p className="text-sm text-gray-500 text-center py-4">
+                        No pending dispatches for other QC customers. All dispatches have GRN entries.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {otherQcPendingDispatches.map(dateEntry => (
+                          <div key={dateEntry.date} className="border rounded-lg overflow-hidden">
+                            {/* Date Header */}
+                            <div 
+                              className="bg-blue-50 p-3 flex justify-between items-center cursor-pointer hover:bg-blue-100"
+                              onClick={() => setExpandedOtherQcDates(prev => ({ ...prev, [dateEntry.date]: !prev[dateEntry.date] }))}
+                            >
+                              <div className="flex items-center gap-2">
+                                {expandedOtherQcDates[dateEntry.date] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                <Calendar size={14} className="text-blue-600" />
+                                <span className="font-semibold text-blue-800">{dateEntry.date}</span>
+                                <span className="text-xs text-gray-500">({dateEntry.customers.length} customer(s))</span>
+                              </div>
+                            </div>
+                            
+                            {/* Customers under this date */}
+                            {expandedOtherQcDates[dateEntry.date] && (
+                              <div className="p-2 space-y-2">
+                                {dateEntry.customers.map(customer => {
+                                  const customerKey = `${dateEntry.date}_${customer.customer_id}`;
+                                  return (
+                                    <div key={customer.customer_id} className="border rounded bg-white">
+                                      {/* Customer Header */}
+                                      <div 
+                                        className="bg-gradient-to-r from-indigo-50 to-purple-50 p-2 flex justify-between items-center cursor-pointer hover:from-indigo-100 hover:to-purple-100"
+                                        onClick={() => setExpandedOtherQcCustomers(prev => ({ ...prev, [customerKey]: !prev[customerKey] }))}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          {expandedOtherQcCustomers[customerKey] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                                          <Building2 size={14} className="text-indigo-600" />
+                                          <span className="font-medium text-indigo-800">{customer.customer_name}</span>
+                                          <span className="text-xs text-gray-500">({customer.items.length} items)</span>
+                                        </div>
+                                        {expandedOtherQcCustomers[customerKey] && (
+                                          <Button
+                                            size="sm"
+                                            className="h-7 bg-green-600 hover:bg-green-700"
+                                            disabled={savingOtherQcGrn}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              saveOtherQcManualGrn(dateEntry.date, customer.customer_id, customer.customer_name, customer.items);
+                                            }}
+                                          >
+                                            {savingOtherQcGrn ? <RefreshCw size={12} className="animate-spin mr-1" /> : <Save size={12} className="mr-1" />}
+                                            Save GRN
+                                          </Button>
+                                        )}
+                                      </div>
+                                      
+                                      {/* Items Table */}
+                                      {expandedOtherQcCustomers[customerKey] && (
+                                        <table className="w-full text-xs">
+                                          <thead className="bg-gray-50">
+                                            <tr>
+                                              <th className="p-2 text-center w-8">#</th>
+                                              <th className="p-2 text-left">Product</th>
+                                              <th className="p-2 text-left">Packaging</th>
+                                              <th className="p-2 text-right">Supplied</th>
+                                              <th className="p-2 text-center w-24">GRN Qty (kg)</th>
+                                              <th className="p-2 text-center w-24">Rate (₹/kg)</th>
+                                              <th className="p-2 text-right">Amount</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {customer.items.map((item, idx) => {
+                                              const inputKey = `${customer.customer_id}_${item.product_id}`;
+                                              const inputs = otherQcGrnInputs[inputKey] || {};
+                                              const grnQty = parseFloat(inputs.grn_qty) || 0;
+                                              const rate = parseFloat(inputs.rate) || 0;
+                                              const amount = grnQty * rate;
+                                              
+                                              return (
+                                                <tr key={idx} className="border-b hover:bg-blue-25">
+                                                  <td className="p-2 text-center text-gray-400">{idx + 1}</td>
+                                                  <td className="p-2 font-medium">{item.product_name}</td>
+                                                  <td className="p-2 text-gray-500">{item.packaging_name || '-'}</td>
+                                                  <td className="p-2 text-right">{item.supplied_qty} {item.unit}</td>
+                                                  <td className="p-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="0.01"
+                                                      min="0"
+                                                      placeholder="Qty"
+                                                      value={inputs.grn_qty || ''}
+                                                      onChange={(e) => handleOtherQcGrnInputChange(customer.customer_id, item.product_id, 'grn_qty', e.target.value)}
+                                                      className="h-7 text-xs text-center"
+                                                    />
+                                                  </td>
+                                                  <td className="p-1">
+                                                    <Input
+                                                      type="number"
+                                                      step="0.01"
+                                                      min="0"
+                                                      placeholder="Rate"
+                                                      value={inputs.rate || ''}
+                                                      onChange={(e) => handleOtherQcGrnInputChange(customer.customer_id, item.product_id, 'rate', e.target.value)}
+                                                      className="h-7 text-xs text-center"
+                                                    />
+                                                  </td>
+                                                  <td className="p-2 text-right font-medium text-green-700">
+                                                    {amount > 0 ? `₹${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '-'}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                            {/* Total Row */}
+                                            <tr className="bg-gray-50 font-semibold">
+                                              <td colSpan={6} className="p-2 text-right">Total:</td>
+                                              <td className="p-2 text-right text-green-700">
+                                                ₹{customer.items.reduce((sum, item) => {
+                                                  const inputs = otherQcGrnInputs[`${customer.customer_id}_${item.product_id}`] || {};
+                                                  const grnQty = parseFloat(inputs.grn_qty) || 0;
+                                                  const rate = parseFloat(inputs.rate) || 0;
+                                                  return sum + (grnQty * rate);
+                                                }, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                              </td>
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
                 )}
               </Card>
 

@@ -2272,37 +2272,6 @@ async def compute_and_upsert_daily_sales(
 
 # ===== RETAILER DAILY SALES API ENDPOINTS =====
 
-@app.get("/api/retailer-daily-sales/{retailer_id}")
-async def get_retailer_daily_sales(
-    retailer_id: str,
-    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
-    to_date: str = Query(..., description="End date YYYY-MM-DD"),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get all retailer_daily_sales records for a retailer in date range.
-    Returns items sorted by date ascending, then product_name ascending.
-    """
-    items = await db.retailer_daily_sales.find(
-        {
-            "retailer_id": retailer_id,
-            "date": {"$gte": from_date, "$lte": to_date}
-        },
-        {"_id": 0}
-    ).sort([("date", 1), ("product_name", 1)]).to_list(10000)
-    
-    total_sold = sum(item.get("sold_qty", 0) or 0 for item in items)
-    
-    return {
-        "items": items,
-        "total_sold": round(total_sold, 2),
-        "date_range": {
-            "from": from_date,
-            "to": to_date
-        }
-    }
-
-
 @app.get("/api/retailer-daily-sales/summary")
 async def get_retailer_daily_sales_summary(
     from_date: str = Query(..., description="Start date YYYY-MM-DD"),
@@ -2347,6 +2316,37 @@ async def get_retailer_daily_sales_summary(
     return {
         "daily": daily_results,
         "grand_total_sold": round(grand_total_sold, 2),
+        "date_range": {
+            "from": from_date,
+            "to": to_date
+        }
+    }
+
+
+@app.get("/api/retailer-daily-sales/{retailer_id}")
+async def get_retailer_daily_sales(
+    retailer_id: str,
+    from_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    to_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get all retailer_daily_sales records for a retailer in date range.
+    Returns items sorted by date ascending, then product_name ascending.
+    """
+    items = await db.retailer_daily_sales.find(
+        {
+            "retailer_id": retailer_id,
+            "date": {"$gte": from_date, "$lte": to_date}
+        },
+        {"_id": 0}
+    ).sort([("date", 1), ("product_name", 1)]).to_list(10000)
+    
+    total_sold = sum(item.get("sold_qty", 0) or 0 for item in items)
+    
+    return {
+        "items": items,
+        "total_sold": round(total_sold, 2),
         "date_range": {
             "from": from_date,
             "to": to_date
@@ -2780,24 +2780,6 @@ async def check_yesterday_closing(
     }
 
 
-@app.delete("/api/retailer-closing-inventory/{retailer_id}/{closing_date}")
-async def delete_retailer_closing_inventory(
-    retailer_id: str,
-    closing_date: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Delete all closing inventory records for a specific date"""
-    result = await db.retailer_closing_inventory.delete_many({
-        "retailer_id": retailer_id,
-        "closing_date": closing_date
-    })
-    
-    return {
-        "message": f"Deleted closing inventory for {closing_date}",
-        "deleted_count": result.deleted_count
-    }
-
-
 @app.get("/api/retailer-closing-inventory/last-supply/{retailer_id}")
 async def get_last_supply_items(
     retailer_id: str,
@@ -2808,45 +2790,39 @@ async def get_last_supply_items(
     This is used to pre-populate the closing inventory form.
     """
     # Get the most recent dispatch for this retailer
-    last_dispatch = await db.retailer_dispatches.find_one(
+    last_dispatch = await db.dispatches.find_one(
         {"retailer_id": retailer_id},
-        {"_id": 0},
-        sort=[("dispatch_date", -1), ("created_at", -1)]
+        sort=[("dispatch_date", -1)],
+        projection={"_id": 0}
     )
     
     if not last_dispatch:
         return {
-            "success": True,
             "items": [],
             "last_dispatch_date": None,
-            "message": "No dispatches found for this retailer"
+            "dispatch_id": None
         }
     
-    # Extract unique products with variants from the last dispatch
+    # Extract items from the dispatch
+    dispatch_items = last_dispatch.get("items", [])
     items = []
-    seen = set()
     
-    for item in last_dispatch.get("items", []):
+    for item in dispatch_items:
+        product_name = item.get("product_name", "Unknown")
+        packaging_name = item.get("packaging_name", "")
+        supplied_qty = item.get("supplied_qty", 0)
+        unit = item.get("unit", "Kg")
         product_id = item.get("product_id")
-        variant_id = item.get("variant_id") or item.get("packaging_id") or ""
-        variant_name = item.get("variant_name") or item.get("packaging_name") or "Kg"
         
-        key = f"{product_id}_{variant_name}"
-        if key not in seen:
-            seen.add(key)
-            items.append({
-                "product_id": product_id,
-                "product_name": item.get("product_name", ""),
-                "variant_id": variant_id,
-                "variant_name": variant_name,
-                "last_supplied_qty": item.get("supplied_qty", 0)
-            })
-    
-    # Sort by product name
-    items.sort(key=lambda x: x.get("product_name", "").lower())
+        items.append({
+            "product_name": product_name,
+            "packaging_name": packaging_name,
+            "supplied_qty": supplied_qty,
+            "unit": unit,
+            "product_id": product_id
+        })
     
     return {
-        "success": True,
         "items": items,
         "last_dispatch_date": str(last_dispatch.get("dispatch_date", ""))[:10],
         "dispatch_id": last_dispatch.get("id")
@@ -2901,6 +2877,23 @@ async def update_closing_inventory_item(
     
     return {"message": "Item updated successfully", "item": result}
 
+
+@app.delete("/api/retailer-closing-inventory/{retailer_id}/{closing_date}")
+async def delete_retailer_closing_inventory(
+    retailer_id: str,
+    closing_date: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete all closing inventory records for a specific date"""
+    result = await db.retailer_closing_inventory.delete_many({
+        "retailer_id": retailer_id,
+        "closing_date": closing_date
+    })
+    
+    return {
+        "message": f"Deleted closing inventory for {closing_date}",
+        "deleted_count": result.deleted_count
+    }
 
 
 # ==================== DAILY REQUIREMENT ENDPOINTS ====================

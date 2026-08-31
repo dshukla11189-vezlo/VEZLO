@@ -12291,6 +12291,7 @@ export default function RetailerOrders() {
                                     'Fruits': 'bg-orange-600',
                                     'Exotic': 'bg-purple-600',
                                     'Sprouts': 'bg-cyan-600',
+                                    'Flowers': 'bg-pink-600',
                                     'Others': 'bg-gray-600'
                                   };
                                   

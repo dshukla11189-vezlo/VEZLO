@@ -270,6 +270,24 @@
   - Filename format: `COGS_Snapshot_{from}_to_{to}.xlsx` or `COGS_Snapshot_{date}.xlsx` for single date
   - Loading indicator during export
 
+### August 31, 2026 - Manual GRN Entry for Other QC Customers ✅
+- **Problem**: Non-Ninjacart QC customers (like Amazon) couldn't have their GRN data captured since the Ninjacart CSV upload didn't work for them
+- **Solution**: New manual GRN entry feature for all QC customers except Ninjacart
+
+- **Backend APIs** (`qc_grn.py`):
+  - `GET /api/qc-grns/pending-dispatches`: Fetches QC dispatches without GRN entries, grouped by date and customer
+  - `POST /api/qc-grns/manual`: Creates GRN entries with manually entered qty and rate per kg
+  - Automatically excludes Ninjacart (identified by name pattern)
+
+- **Frontend UI** (`QuickCommerce.js`):
+  - New collapsible card: "Other QC Customers - Pending GRN" (blue theme)
+  - Hierarchy: Date → Customer → Items
+  - Each item row shows: Product, Packaging, Supplied Qty, GRN Qty input, Rate input, Auto-calculated Amount
+  - "Save GRN" button per customer saves all items with entered values
+  - Refreshes pending list after save
+
+- **P&L Integration**: Saved GRN entries appear in daily P&L for the respective QC customer
+
 ### August 26, 2026 - Products Page Combo Editor UI ✅
 - **Form State Extended** (`Products.js`):
   - Added `is_combo`, `components`, `aliases` to formData state

@@ -1484,20 +1484,6 @@ async def get_pending_qc_dispatches(
     if current_user["role"] not in ["admin", "staff"]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Get all QC customers except Ninjacart
-    customers = await db.customers.find(
-        {"customer_type": "qc"},
-        {"_id": 0, "id": 1, "name": 1}
-    ).to_list(100)
-    
-    # Identify Ninjacart customer(s) by name pattern
-    ninjacart_ids = set()
-    customer_map = {}
-    for c in customers:
-        customer_map[c["id"]] = c["name"]
-        if "ninjacart" in c["name"].lower():
-            ninjacart_ids.add(c["id"])
-    
     # Build date filter
     date_filter = {}
     if from_date:
@@ -1505,50 +1491,42 @@ async def get_pending_qc_dispatches(
     if to_date:
         date_filter["$lte"] = to_date
     if not date_filter:
-        # Default to last 7 days
+        # Default to last 14 days
         from datetime import timedelta
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
-        date_filter = {"$gte": week_ago, "$lte": today}
+        two_weeks_ago = (datetime.now(timezone.utc) - timedelta(days=14)).strftime("%Y-%m-%d")
+        date_filter = {"$gte": two_weeks_ago, "$lte": today}
     
-    # Get QC dispatches for non-Ninjacart customers
-    dispatch_filter = {
-        "dispatch_type": "qc",
+    # Get QC dispatches for NON-Ninjacart customers from qc_dispatches collection
+    # Ninjacart is excluded because they use CSV upload for GRN
+    dispatch_query = {
+        "customer_name": {"$not": {"$regex": "ninja", "$options": "i"}},
         "dispatch_date": date_filter
     }
     
-    dispatches = await db.dispatches.find(
-        dispatch_filter,
+    dispatches = await db.qc_dispatches.find(
+        dispatch_query,
         {"_id": 0}
     ).sort("dispatch_date", -1).to_list(1000)
     
     # Get existing GRNs to check which dispatches already have GRN entries
-    existing_grns = await db.qc_grns.find(
-        {"grn_date": {"$regex": f"^({from_date[:7] if from_date else ''}|{to_date[:7] if to_date else ''})"}},
-        {"_id": 0, "items": 1, "customer_id": 1}
-    ).to_list(5000)
+    saved_grns = await db.qc_grns.find({}, {"_id": 0, "items": 1, "customer_id": 1, "customer_name": 1}).to_list(5000)
     
-    # Build a set of (customer_id, dispatch_date, product_name) that already have GRN
-    grn_covered = set()
-    for grn in existing_grns:
-        cust_id = grn.get("customer_id")
+    # Build a set of (dispatch_id, product_id, packaging_id) that already have GRN
+    processed_items = set()
+    for grn in saved_grns:
         for item in grn.get("items", []):
-            dispatch_date = str(item.get("dispatch_date", ""))[:10]
-            product_name = item.get("product_name", "")
-            grn_covered.add((cust_id, dispatch_date, product_name.lower()))
+            key = f"{item.get('dispatch_id')}_{item.get('product_id')}_{item.get('packaging_id')}"
+            processed_items.add(key)
     
     # Group pending dispatches by date -> customer
     pending_by_date = {}
     
     for dispatch in dispatches:
-        customer_id = dispatch.get("customer_id")
-        
-        # Skip Ninjacart customers
-        if customer_id in ninjacart_ids:
-            continue
-        
-        customer_name = customer_map.get(customer_id, dispatch.get("customer_name", "Unknown"))
+        customer_id = dispatch.get("customer_id") or dispatch.get("id", "")
+        customer_name = dispatch.get("customer_name", "Unknown")
         dispatch_date = str(dispatch.get("dispatch_date", ""))[:10]
+        dispatch_id = dispatch.get("id")
         
         if not dispatch_date:
             continue
@@ -1557,30 +1535,32 @@ async def get_pending_qc_dispatches(
         for item in dispatch.get("items", []):
             product_name = item.get("product_name", "")
             product_id = item.get("product_id", "")
+            packaging_id = item.get("packaging_id", "")
             supplied_qty = item.get("supplied_qty", 0) or 0
             packaging_name = item.get("packaging_name", "")
-            unit = item.get("unit", "Kg")
+            unit = item.get("product_unit") or item.get("unit", "Kg")
             
             # Check if this item already has GRN
-            key = (customer_id, dispatch_date, product_name.lower())
-            if key in grn_covered:
+            item_key = f"{dispatch_id}_{product_id}_{packaging_id}"
+            if item_key in processed_items:
                 continue
             
             # Add to pending
             if dispatch_date not in pending_by_date:
                 pending_by_date[dispatch_date] = {}
             
-            if customer_id not in pending_by_date[dispatch_date]:
-                pending_by_date[dispatch_date][customer_id] = {
+            if customer_name not in pending_by_date[dispatch_date]:
+                pending_by_date[dispatch_date][customer_name] = {
                     "customer_id": customer_id,
                     "customer_name": customer_name,
                     "items": []
                 }
             
-            pending_by_date[dispatch_date][customer_id]["items"].append({
-                "dispatch_id": dispatch.get("id"),
+            pending_by_date[dispatch_date][customer_name]["items"].append({
+                "dispatch_id": dispatch_id,
                 "product_id": product_id,
                 "product_name": product_name,
+                "packaging_id": packaging_id,
                 "packaging_name": packaging_name,
                 "supplied_qty": supplied_qty,
                 "unit": unit
@@ -1605,6 +1585,7 @@ class ManualGRNItem(BaseModel):
     dispatch_id: str
     product_id: str
     product_name: str
+    packaging_id: Optional[str] = ""
     packaging_name: Optional[str] = ""
     supplied_qty: float
     grn_qty: float

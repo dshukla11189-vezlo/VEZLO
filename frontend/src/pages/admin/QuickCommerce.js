@@ -452,8 +452,8 @@ export default function QuickCommerce() {
   };
 
   // Handle Other QC GRN input change
-  const handleOtherQcGrnInputChange = (customerId, productId, field, value) => {
-    const key = `${customerId}_${productId}`;
+  const handleOtherQcGrnInputChange = (customerId, productId, packagingId, field, value) => {
+    const key = `${customerId}_${productId}_${packagingId || ''}`;
     setOtherQcGrnInputs(prev => ({
       ...prev,
       [key]: {
@@ -467,7 +467,7 @@ export default function QuickCommerce() {
   const saveOtherQcManualGrn = async (date, customerId, customerName, items) => {
     // Collect items with GRN entries
     const grnItems = items.map(item => {
-      const key = `${customerId}_${item.product_id}`;
+      const key = `${customerId}_${item.product_id}_${item.packaging_id || ''}`;
       const inputs = otherQcGrnInputs[key] || {};
       const grnQty = parseFloat(inputs.grn_qty) || 0;
       const rate = parseFloat(inputs.rate) || 0;
@@ -477,6 +477,7 @@ export default function QuickCommerce() {
           dispatch_id: item.dispatch_id,
           product_id: item.product_id,
           product_name: item.product_name,
+          packaging_id: item.packaging_id || '',
           packaging_name: item.packaging_name,
           supplied_qty: item.supplied_qty,
           grn_qty: grnQty,
@@ -507,7 +508,7 @@ export default function QuickCommerce() {
       // Clear inputs for saved items
       const newInputs = { ...otherQcGrnInputs };
       grnItems.forEach(item => {
-        delete newInputs[`${customerId}_${item.product_id}`];
+        delete newInputs[`${customerId}_${item.product_id}_${item.packaging_id || ''}`];
       });
       setOtherQcGrnInputs(newInputs);
       
@@ -5210,7 +5211,7 @@ Email: ${companyEmail}`;
                                           </thead>
                                           <tbody>
                                             {customer.items.map((item, idx) => {
-                                              const inputKey = `${customer.customer_id}_${item.product_id}`;
+                                              const inputKey = `${customer.customer_id}_${item.product_id}_${item.packaging_id || ''}`;
                                               const inputs = otherQcGrnInputs[inputKey] || {};
                                               const grnQty = parseFloat(inputs.grn_qty) || 0;
                                               const rate = parseFloat(inputs.rate) || 0;
@@ -5229,7 +5230,7 @@ Email: ${companyEmail}`;
                                                       min="0"
                                                       placeholder="Qty"
                                                       value={inputs.grn_qty || ''}
-                                                      onChange={(e) => handleOtherQcGrnInputChange(customer.customer_id, item.product_id, 'grn_qty', e.target.value)}
+                                                      onChange={(e) => handleOtherQcGrnInputChange(customer.customer_id, item.product_id, item.packaging_id, 'grn_qty', e.target.value)}
                                                       className="h-7 text-xs text-center"
                                                     />
                                                   </td>
@@ -5240,7 +5241,7 @@ Email: ${companyEmail}`;
                                                       min="0"
                                                       placeholder="Rate"
                                                       value={inputs.rate || ''}
-                                                      onChange={(e) => handleOtherQcGrnInputChange(customer.customer_id, item.product_id, 'rate', e.target.value)}
+                                                      onChange={(e) => handleOtherQcGrnInputChange(customer.customer_id, item.product_id, item.packaging_id, 'rate', e.target.value)}
                                                       className="h-7 text-xs text-center"
                                                     />
                                                   </td>
@@ -5255,7 +5256,7 @@ Email: ${companyEmail}`;
                                               <td colSpan={6} className="p-2 text-right">Total:</td>
                                               <td className="p-2 text-right text-green-700">
                                                 ₹{customer.items.reduce((sum, item) => {
-                                                  const inputs = otherQcGrnInputs[`${customer.customer_id}_${item.product_id}`] || {};
+                                                  const inputs = otherQcGrnInputs[`${customer.customer_id}_${item.product_id}_${item.packaging_id || ''}`] || {};
                                                   const grnQty = parseFloat(inputs.grn_qty) || 0;
                                                   const rate = parseFloat(inputs.rate) || 0;
                                                   return sum + (grnQty * rate);

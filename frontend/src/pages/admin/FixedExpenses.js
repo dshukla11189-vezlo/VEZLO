@@ -2172,30 +2172,33 @@ export default function FixedExpenses() {
                             </tr>
                           );
                         })}
-                        <tr className="bg-gray-100 font-semibold">
-                          <td className="p-2" colSpan={4}>TOTAL</td>
+                        <tr className="bg-gray-100 font-semibold border-t-2 border-gray-300">
+                          <td className="p-2" colSpan={3}>TOTAL</td>
                           <td className="p-2 text-center text-green-600">
-                            {payrollData.breakdown.reduce((sum, e) => sum + e.days_present, 0)}
-                          </td>
-                          <td className="p-2 text-center text-red-500">
-                            {payrollData.breakdown.reduce((sum, e) => sum + e.days_absent, 0)}
-                          </td>
-                          <td className="p-2 text-center text-blue-600">
-                            {payrollData.summary.total_paid_leaves}
+                            {payrollData.breakdown.reduce((sum, e) => sum + (e.days_present || 0), 0)}
                           </td>
                           <td className="p-2 text-center font-bold text-green-700 bg-green-50">
-                            {payrollData.summary.total_man_days.toFixed(1)}
+                            {payrollData.breakdown.reduce((sum, e) => sum + (e.payable_days || 0), 0)}
                           </td>
                           <td className="p-2 text-center text-orange-600">
-                            {payrollData.summary.total_ot_hours.toFixed(1)}
+                            {payrollData.breakdown.reduce((sum, e) => sum + (e.ot_hours || 0), 0).toFixed(1)}
                           </td>
                           <td className="p-2 text-right text-gray-700">
+                            ₹{payrollData.breakdown.reduce((sum, e) => sum + ((e.regular_salary || 0) + (e.ot_amount || 0)), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="p-2 text-right text-purple-600 bg-purple-50">
+                            ₹{payrollData.breakdown.reduce((sum, e) => sum + (e.incentive_amount || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="p-2 text-right text-teal-600 bg-teal-50">
+                            ₹{payrollData.breakdown.reduce((sum, e) => sum + (e.allowance_amount || 0), 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </td>
+                          <td className="p-2 text-right font-bold text-gray-800 bg-gray-100">
                             ₹{payrollData.summary.total_payroll.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                           </td>
                           <td className="p-2 text-right text-blue-700">
                             ₹{payrollData.summary.total_paid.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                           </td>
-                          <td className="p-2 text-right text-orange-700">
+                          <td className="p-2 text-right font-bold text-orange-700">
                             ₹{payrollData.summary.net_payable.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                           </td>
                           <td></td>

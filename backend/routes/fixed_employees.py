@@ -34,6 +34,10 @@ class EmployeeCreate(BaseModel):
     vertical: str = "Central"  # Retail, QC, or Central
     designation: Optional[str] = None
     status: str = "active"  # active, inactive, terminated
+    # Bank Details
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
 
 
 class EmployeeUpdate(BaseModel):
@@ -51,6 +55,10 @@ class EmployeeUpdate(BaseModel):
     vertical: Optional[str] = None
     designation: Optional[str] = None
     status: Optional[str] = None
+    # Bank Details
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
 
 
 class EmployeeResponse(BaseModel):
@@ -185,6 +193,10 @@ async def create_fixed_employee(
             "vertical": employee.vertical,
             "designation": employee.designation,
             "status": employee.status,
+            # Bank Details
+            "bank_name": employee.bank_name,
+            "bank_account_number": employee.bank_account_number,
+            "ifsc_code": employee.ifsc_code,
             "created_at": now,
             "updated_at": now,
             "created_by": current_user.get("id")

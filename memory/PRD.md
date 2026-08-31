@@ -3514,6 +3514,8 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
   - Added `is_manual_entry` detection to skip unit-to-kg conversion (manual entries already store kg)
   - **Fixed Qty display**: Manual GRN entries now show GRN qty (what was accepted) instead of supplied qty (what was dispatched)
   - **Fixed SP/Kg display**: Selling Price per Kg now correctly calculated using GRN qty (663/39 = ₹17/kg matches GRN rate)
+  - **Fixed COGS calculation**: COGS now uses GRN qty for manual entries (39 × 14.8 = ₹577 instead of 50 × 14.8 = ₹740)
+  - **Fixed Wastage allocation**: Wastage proportionally distributed using GRN qty for manual entries
   - Added `grn_qty_kg` tracking through the aggregation pipeline
   - Amazon and other non-Ninjacart QC customers now appear correctly in Daily P&L with proper Sales, COGS, and Wastage calculations
 

@@ -2572,7 +2572,10 @@ async def get_pnl_report(
                     # Fallback to original product if alias has no cost
                     if cogs_rate == 0 and lookup_product != product:
                         cogs_rate = product_cogs_rate.get(product, 0)
-                    cogs = item["supplied_kg"] * cogs_rate
+                    # For manual entries, use grn_qty_kg (what was actually sold) for COGS calculation
+                    # For regular QC/Retail, use supplied_kg (what was dispatched)
+                    cogs_qty_kg = item.get("grn_qty_kg", 0) if item.get("is_manual_entry", False) else item["supplied_kg"]
+                    cogs = cogs_qty_kg * cogs_rate
                 
                 # Calculate wastage proportionally based on kg supplied ratio
                 # If there are 3 supplies in the ratio of 50:30:20 kg, wastage is divided in same ratio
@@ -2600,7 +2603,9 @@ async def get_pnl_report(
                     
                     if total_kg_for_alias_group > 0:
                         # Proportional wastage = (this_line_kg / total_alias_group_kg) * total_wastage
-                        kg_ratio = item["supplied_kg"] / total_kg_for_alias_group
+                        # For manual entries, use grn_qty_kg for the ratio since that's what was "sold"
+                        line_kg_for_ratio = item.get("grn_qty_kg", 0) if item.get("is_manual_entry", False) else item["supplied_kg"]
+                        kg_ratio = line_kg_for_ratio / total_kg_for_alias_group
                         wastage_value = kg_ratio * total_wastage_for_product
                         wastage_kg = (wastage_value / cogs_rate) if cogs_rate > 0 else 0
                     else:

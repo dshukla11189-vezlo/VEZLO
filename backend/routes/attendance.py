@@ -439,7 +439,10 @@ async def calculate_payroll(
         payments_pipeline = [
             {
                 "$match": {
-                    "payment_date": {"$gte": date_from, "$lte": date_to},
+                    # Filter by the PERIOD the payment was for, not the payment date
+                    # This ensures July payments don't show in August payroll
+                    "period_from": date_from,
+                    "period_to": date_to,
                     "payment_type": "salary"
                 }
             },

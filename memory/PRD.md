@@ -3507,9 +3507,17 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
   - Payment status shows as green checkmark with "Paid" label
   - Edit/Delete payment functionality via same bulk payment modal
 
+- **Daily P&L Integration for Manual GRN Entries** (BUG FIX):
+  - Fixed `dashboard_analytics.py` to correctly read manual GRN field names:
+    - `value` field now recognized as `amount` for sales calculation
+    - `grn_qty_kg` and `supplied_qty_kg` fields now recognized for quantity calculations
+  - Added `is_manual_entry` detection to skip unit-to-kg conversion (manual entries already store kg)
+  - Amazon and other non-Ninjacart QC customers now appear correctly in Daily P&L with proper Sales, COGS, and Wastage calculations
+
 - **Files Modified**:
   - `frontend/src/pages/admin/QuickCommerce.js` (Lines 5706-6133 - Saved GRN rendering)
   - `backend/routes/qc_grn.py` (Lines 111-150 - Flexible PUT endpoint)
+  - `backend/routes/dashboard_analytics.py` (Lines 1040-1115 - Manual GRN field handling)
 
 ### Completed (This Session - 21 May 2026)
 - **Payment Details Redesign (Replaces "Immediately Payable")** ✅ (P0 - VERIFIED)

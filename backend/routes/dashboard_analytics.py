@@ -1037,10 +1037,11 @@ async def get_pnl_report(
             if not item_dispatch_date or item_dispatch_date < from_date or item_dispatch_date > to_date:
                 continue
             
-            # Use GRN amount (actual received value)
-            amount = item.get("amount", 0) or 0
-            qty = item.get("grn_qty", 0) or item.get("supplied_qty", 0) or 0
-            supplied_qty_units = item.get("supplied_qty", 0) or qty
+            # Use GRN amount (actual received value) - handle both Ninjacart (amount) and manual entry (value) formats
+            amount = item.get("amount", 0) or item.get("value", 0) or 0
+            # Handle both Ninjacart (grn_qty, supplied_qty in units) and manual entry (grn_qty_kg, supplied_qty_kg in kg) formats
+            qty = item.get("grn_qty", 0) or item.get("grn_qty_kg", 0) or item.get("supplied_qty", 0) or item.get("supplied_qty_kg", 0) or 0
+            supplied_qty_units = item.get("supplied_qty", 0) or item.get("supplied_qty_kg", 0) or qty
             product = item.get("product_name", "Unknown")
             unit = item.get("packaging_name", "") or item.get("product_unit", "Kg")
             packaging_weight_gm = item.get("packaging_weight_gm", 0) or 0
@@ -1075,34 +1076,44 @@ async def get_pnl_report(
             
             # Calculate kg from DISPATCH qty (what was sent), not GRN qty (what was received)
             # Use supplied_qty for wastage distribution as it represents what was dispatched
-            dispatch_qty_units = item.get("supplied_qty", 0) or qty
-            if packaging_weight_gm > 0:
-                # Convert dispatch units to kg
-                supplied_kg = (dispatch_qty_units * packaging_weight_gm) / 1000
+            # Handle both formats: Ninjacart (units) and manual entry (already in kg)
+            is_manual_entry = grn.get("source") == "manual_entry"
+            
+            if is_manual_entry:
+                # Manual entries store qty directly in kg (supplied_qty_kg, grn_qty_kg)
+                supplied_kg = item.get("supplied_qty_kg", 0) or item.get("supplied_qty", 0) or 0
+                grn_kg = item.get("grn_qty_kg", 0) or item.get("grn_qty", 0) or supplied_kg
+                grn_qty_kg = grn_kg
             else:
-                # If no packaging weight, assume supplied_qty is already in kg
-                supplied_kg = dispatch_qty_units
-            
-            # GRN-based kg for P&L sales quantity (Ninjacart-accepted = actual sales)
-            # This represents what was actually sold/accepted, not what was dispatched
-            grn_qty_units = item.get("grn_qty", 0) or dispatch_qty_units
-            if packaging_weight_gm > 0:
-                grn_kg = (grn_qty_units * packaging_weight_gm) / 1000
-            else:
-                grn_kg = grn_qty_units
-            
-            # Also track GRN qty for loss calculation
-            grn_qty_kg = item.get("grn_qty_kg", 0) or 0
-            grn_qty_pcs = item.get("grn_qty", 0) or 0
-            
-            # Calculate grn_qty_kg if not directly available
-            if grn_qty_kg == 0 and packaging_weight_gm > 0:
-                # Use grn_qty (piece count) to calculate kg if available
-                if grn_qty_pcs > 0:
-                    grn_qty_kg = (grn_qty_pcs * packaging_weight_gm) / 1000
+                # Ninjacart entries - convert units to kg using packaging weight
+                dispatch_qty_units = item.get("supplied_qty", 0) or qty
+                if packaging_weight_gm > 0:
+                    # Convert dispatch units to kg
+                    supplied_kg = (dispatch_qty_units * packaging_weight_gm) / 1000
                 else:
-                    # If no grn_qty, assume no loss (grn_qty_kg = supplied_kg)
-                    grn_qty_kg = supplied_kg
+                    # If no packaging weight, assume supplied_qty is already in kg
+                    supplied_kg = dispatch_qty_units
+                
+                # GRN-based kg for P&L sales quantity (Ninjacart-accepted = actual sales)
+                # This represents what was actually sold/accepted, not what was dispatched
+                grn_qty_units = item.get("grn_qty", 0) or dispatch_qty_units
+                if packaging_weight_gm > 0:
+                    grn_kg = (grn_qty_units * packaging_weight_gm) / 1000
+                else:
+                    grn_kg = grn_qty_units
+                
+                # Also track GRN qty for loss calculation
+                grn_qty_kg = item.get("grn_qty_kg", 0) or 0
+                grn_qty_pcs = item.get("grn_qty", 0) or 0
+                
+                # Calculate grn_qty_kg if not directly available
+                if grn_qty_kg == 0 and packaging_weight_gm > 0:
+                    # Use grn_qty (piece count) to calculate kg if available
+                    if grn_qty_pcs > 0:
+                        grn_qty_kg = (grn_qty_pcs * packaging_weight_gm) / 1000
+                    else:
+                        # If no grn_qty, assume no loss (grn_qty_kg = supplied_kg)
+                        grn_qty_kg = supplied_kg
             
             total_sales += amount
             total_sales_qty += grn_kg  # Use GRN qty (accepted qty) for sales quantity

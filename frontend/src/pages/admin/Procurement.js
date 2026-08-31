@@ -50,15 +50,19 @@ const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
       if (!dateStr) return '';
       try {
         const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return String(dateStr).split('T')[0];
         const day = date.getDate().toString().padStart(2, '0');
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const month = months[date.getMonth()];
         const year = date.getFullYear();
         return `${day}-${month}-${year}`;
       } catch {
-        return dateStr.split('T')[0]; // Fallback to YYYY-MM-DD
+        return String(dateStr).split('T')[0]; // Fallback to YYYY-MM-DD
       }
     };
+    
+    // Helper function to round to 2 decimal places
+    const round2 = (num) => Math.round((num || 0) * 100) / 100;
     
     // Final Summary (Date-wise cumulative) - single sheet
     const summaryData = [];
@@ -68,10 +72,10 @@ const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
     const sortedPurchases = [...purchases].sort((a, b) => new Date(a.date) - new Date(b.date));
     
     sortedPurchases.forEach(p => {
-      const procurementAmt = p.total_amount || 0;
-      const paidAmt = p.paid_amount || 0;
-      const pending = procurementAmt - paidAmt;
-      cumulativePending += pending;
+      const procurementAmt = round2(p.total_amount || 0);
+      const paidAmt = round2(p.paid_amount || 0);
+      const pending = round2(procurementAmt - paidAmt);
+      cumulativePending = round2(cumulativePending + pending);
       
       summaryData.push({
         'Date': formatDate(p.date),
@@ -85,10 +89,10 @@ const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
     // Add total row
     summaryData.push({
       'Date': 'TOTAL',
-      'Procurement Amount': summary.totalAmount,
-      'Paid Amount': summary.paidAmount,
-      'Pending': summary.pendingAmount,
-      'Cumulative Pending': summary.pendingAmount
+      'Procurement Amount': round2(summary.totalAmount),
+      'Paid Amount': round2(summary.paidAmount),
+      'Pending': round2(summary.pendingAmount),
+      'Cumulative Pending': round2(summary.pendingAmount)
     });
     
     // Create workbook with single sheet

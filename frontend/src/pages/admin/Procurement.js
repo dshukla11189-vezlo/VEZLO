@@ -45,25 +45,22 @@ const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
     // Dynamically import xlsx
     const XLSX = await import('xlsx');
     
-    // Sheet 1: Product-wise Details
-    const productData = [];
-    purchases.forEach(p => {
-      (p.items || []).forEach((item, idx) => {
-        productData.push({
-          'Date': p.date,
-          'Product': item.product_name,
-          'Quantity': item.quantity,
-          'Unit': item.unit,
-          'Rate': item.rate,
-          'Product Total': item.total,
-          'Procurement Total': idx === 0 ? p.total_amount : '',
-          'Paid': idx === 0 ? (p.paid_amount || 0) : '',
-          'Pending': idx === 0 ? ((p.total_amount || 0) - (p.paid_amount || 0)) : ''
-        });
-      });
-    });
+    // Helper function to format date as DD-MMM-YYYY (e.g., 02-Aug-2026)
+    const formatDate = (dateStr) => {
+      if (!dateStr) return '';
+      try {
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[date.getMonth()];
+        const year = date.getFullYear();
+        return `${day}-${month}-${year}`;
+      } catch {
+        return dateStr.split('T')[0]; // Fallback to YYYY-MM-DD
+      }
+    };
     
-    // Sheet 2: Final Summary (Date-wise cumulative)
+    // Final Summary (Date-wise cumulative) - single sheet
     const summaryData = [];
     let cumulativePending = 0;
     
@@ -77,7 +74,7 @@ const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
       cumulativePending += pending;
       
       summaryData.push({
-        'Date': p.date,
+        'Date': formatDate(p.date),
         'Procurement Amount': procurementAmt,
         'Paid Amount': paidAmt,
         'Pending': pending,
@@ -94,31 +91,23 @@ const exportFarmerProcurementExcel = async (farmerName, purchases, summary) => {
       'Cumulative Pending': summary.pendingAmount
     });
     
-    // Create workbook with two sheets
+    // Create workbook with single sheet
     const wb = XLSX.utils.book_new();
     
-    // Add Product Details sheet
-    const ws1 = XLSX.utils.json_to_sheet(productData);
-    XLSX.utils.book_append_sheet(wb, ws1, 'Product Details');
-    
     // Add Final Summary sheet
-    const ws2 = XLSX.utils.json_to_sheet(summaryData);
-    XLSX.utils.book_append_sheet(wb, ws2, 'Final Summary');
+    const ws = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Procurement Summary');
     
     // Set column widths
-    ws1['!cols'] = [
-      { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, 
-      { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 12 }, { wch: 12 }
-    ];
-    ws2['!cols'] = [
-      { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 12 }, { wch: 18 }
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 20 }
     ];
     
     // Generate and download
     const filename = `${farmerName.replace(/[^a-zA-Z0-9]/g, '_')}_procurement_${new Date().toISOString().split('T')[0]}.xlsx`;
     XLSX.writeFile(wb, filename);
     
-    toast.success(`Exported ${purchases.length} records to Excel with summary`);
+    toast.success(`Exported ${purchases.length} records to Excel`);
   } catch (error) {
     console.error('Excel export error:', error);
     toast.error('Failed to export Excel');

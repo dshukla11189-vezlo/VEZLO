@@ -2,7 +2,7 @@
 
 ## Changelog (August 2026)
 
-### August 31, 2026 - Procurement Negative Pending & Multi-Sheet Excel Export ✅
+### August 31, 2026 - Procurement Negative Pending & Excel Export ✅
 - **Feature 1: Negative Pending Amounts (Overpayment Support)**:
   - **Problem**: When a farmer was overpaid, the pending amount was forced to 0 via `max(0, ...)`, making it impossible to track advance payments
   - **Solution**: Removed `max(0, ...)` constraint in all backend payment calculation functions
@@ -15,17 +15,17 @@
     - Line 4240: Expanded date-wise view also shows "(Overpaid)" label
     - Line 2167: `pending_amount` calculation allows negative for overpayment
 
-- **Feature 2: Multi-Sheet Excel Export for Farmer Procurement**:
-  - **Function**: `exportFarmerProcurementExcel(farmerName, purchases, summary)` (lines 43-126)
-  - **Sheet 1 - "Product Details"**: Date, Product, Quantity, Unit, Rate, Product Total, Procurement Total, Paid, Pending
-  - **Sheet 2 - "Final Summary"**: Date, Procurement Amount, Paid Amount, Pending, Cumulative Pending
-  - **UI**: Green "Export Excel" button with FileSpreadsheet icon in expanded farmer view (line 4123-4141)
+- **Feature 2: Excel Export for Farmer Procurement**:
+  - **Function**: `exportFarmerProcurementExcel(farmerName, purchases, summary)` (lines 43-110)
+  - **Single Sheet - "Procurement Summary"**: Date (DD-MMM-YYYY format), Procurement Amount, Paid Amount, Pending, Cumulative Pending
+  - **Date Formatting**: User-friendly `DD-MMM-YYYY` format (e.g., "02-Aug-2026") instead of ISO timestamps
+  - **UI**: Green "Export Excel" button with FileSpreadsheet icon in expanded farmer view
   - **Library**: Uses `xlsx` library (v0.18.5, dynamically imported)
   - **File naming**: `{FarmerName}_procurement_{date}.xlsx`
 
 - **Testing**:
   - Backend test file: `/app/backend/tests/test_negative_pending_overpayment.py` (3 tests, 100% pass)
-  - Frontend verified: Overpaid label shows correctly, Excel downloads with both sheets
+  - Frontend verified: Overpaid label shows correctly, Excel downloads with proper date format
   - Test report: `/app/test_reports/iteration_53.json`
 
 ### August 16, 2026 - Backdated Invoice Regeneration Overhaul ✅

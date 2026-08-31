@@ -462,7 +462,8 @@ async def sync_from_production_direct(
             
             date_range_endpoints = {
                 'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
-                'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
+                # Fixed expenses: Use a very wide date range to fetch ALL records
+                'fixed_expenses': f'/api/expenses/fixed?from_date=2020-01-01&to_date=2030-12-31',
                 # Note: labour_attendance requires per-day queries - handled by Excel backup sync
             }
             
@@ -729,7 +730,9 @@ async def sync_from_production_full(
             
             date_range_endpoints = {
                 'variable_expenses': f'/api/expenses/variable?from_date={from_date}&to_date={to_date}',
-                'fixed_expenses': f'/api/expenses/fixed?from_date={from_date}&to_date={to_date}',
+                # Fixed expenses: Fetch ALL by using a very wide date range (some entries may not have 'date' field)
+                # Using month/year fallback won't work, so we need a wide date range or no filter
+                'fixed_expenses': f'/api/expenses/fixed?from_date=2020-01-01&to_date=2030-12-31',
                 # Stock status with explicit date range to fetch all historical data
                 'daily_stock_status': f'/api/stock-status?from_date={from_date}&to_date={to_date}',
                 # NOTE: labour_attendance is handled specially below (day-by-day sync)

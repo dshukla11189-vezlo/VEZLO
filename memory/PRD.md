@@ -3522,7 +3522,9 @@ The 50% upfront amount only shows for **invoices**, not dispatches. If a dispatc
 - **Files Modified**:
   - `frontend/src/pages/admin/QuickCommerce.js` (Lines 5706-6133 - Saved GRN rendering)
   - `backend/routes/qc_grn.py` (Lines 111-150 - Flexible PUT endpoint)
-  - `backend/routes/dashboard_analytics.py` (Lines 1040-1115 - Manual GRN field handling)
+  - `backend/routes/dashboard_analytics.py` (Lines 1040-1115, 2460-2495, 2570-2615 - Manual GRN field handling, COGS/wastage fixes)
+  - `backend/routes/backup_data.py` (Lines 465, 732 - Fixed expenses sync date range)
+  - `backend/routes/expenses_new.py` (Lines 254-310 - Fixed expenses query to handle records without date field)
 
 ### Completed (This Session - 21 May 2026)
 - **Payment Details Redesign (Replaces "Immediately Payable")** ✅ (P0 - VERIFIED)

@@ -252,13 +252,53 @@ async def get_fixed_expenses(
     
     # Date range mode takes priority
     if from_date or to_date:
+        # Use $or to match records with either:
+        # 1. A 'date' field within the range, OR
+        # 2. A month/year combination that falls within the range (for records without 'date')
+        date_conditions = []
+        
+        # Condition 1: Records with 'date' field
         date_query = {}
         if from_date:
             date_query["$gte"] = from_date
         if to_date:
             date_query["$lte"] = to_date + "T23:59:59"
         if date_query:
-            query["date"] = date_query
+            date_conditions.append({"date": date_query})
+        
+        # Condition 2: Records with month/year but no date field (or date is null)
+        # Parse from_date and to_date to get year/month ranges
+        if from_date and to_date:
+            try:
+                from_year = int(from_date[:4])
+                from_month = int(from_date[5:7])
+                to_year = int(to_date[:4])
+                to_month = int(to_date[5:7])
+                
+                # Build month/year conditions for records without date field
+                month_year_conditions = []
+                current_year = from_year
+                current_month = from_month
+                while (current_year < to_year) or (current_year == to_year and current_month <= to_month):
+                    month_year_conditions.append({"month": current_month, "year": current_year})
+                    current_month += 1
+                    if current_month > 12:
+                        current_month = 1
+                        current_year += 1
+                
+                # Only add records without a date field (or null date) that match month/year
+                if month_year_conditions:
+                    date_conditions.append({
+                        "$and": [
+                            {"$or": [{"date": {"$exists": False}}, {"date": None}]},
+                            {"$or": month_year_conditions}
+                        ]
+                    })
+            except (ValueError, IndexError):
+                pass  # If date parsing fails, just use the date field query
+        
+        if date_conditions:
+            query["$or"] = date_conditions
     # Fall back to month/year mode
     elif month is None and year is None:
         # Default to current month/year if no filters provided
